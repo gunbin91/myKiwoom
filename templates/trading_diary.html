@@ -1,0 +1,905 @@
+{% extends "base.html" %}
+
+{% block title %}매매일지 - 키움 자동매매{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-book me-2"></i>매매일지</h2>
+            <div>
+                <button class="btn btn-outline-primary me-2" onclick="refreshTradingDiary()">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                </button>
+                <button class="btn btn-primary" onclick="exportTradingDiary()">
+                    <i class="fas fa-download"></i> 내보내기
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 매매 통계 카드 -->
+<div class="row mb-4 trading-summary-cards">
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">총 매매 건수</h6>
+                        <h4 class="mb-0" id="total-trades">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-exchange-alt fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">총 수익금액</h6>
+                        <h4 class="mb-0" id="total-profit">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-line fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">승률</h6>
+                        <h4 class="mb-0" id="win-rate">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-percentage fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">평균 수익률</h6>
+                        <h4 class="mb-0" id="avg-return">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-bar fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 필터 및 검색 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="diary-date-from" class="form-label">시작일</label>
+                        <input type="date" class="form-control" id="diary-date-from" onchange="filterTradingDiary()">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="diary-date-to" class="form-label">종료일</label>
+                        <input type="date" class="form-control" id="diary-date-to" onchange="filterTradingDiary()">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="profit-filter" class="form-label">수익구분</label>
+                        <select class="form-select" id="profit-filter" onchange="filterTradingDiary()">
+                            <option value="">전체</option>
+                            <option value="profit">수익</option>
+                            <option value="loss">손실</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="diary-stock-search" class="form-label">종목 검색</label>
+                        <input type="text" class="form-control" id="diary-stock-search" placeholder="종목명 또는 코드" onkeyup="filterTradingDiary()">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-4" id="diaryTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="daily-tab" data-bs-toggle="tab" data-bs-target="#daily" type="button" role="tab">
+            <i class="fas fa-calendar-day me-1"></i>일별 매매일지
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="monthly-tab" data-bs-toggle="tab" data-bs-target="#monthly" type="button" role="tab">
+            <i class="fas fa-calendar-alt me-1"></i>월별 매매일지
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis" type="button" role="tab">
+            <i class="fas fa-chart-pie me-1"></i>매매 분석
+        </button>
+    </li>
+</ul>
+
+<!-- 탭 콘텐츠 -->
+<div class="tab-content" id="diaryTabContent">
+    <!-- 일별 매매일지 탭 -->
+    <div class="tab-pane fade show active" id="daily" role="tabpanel">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-calendar-day me-2"></i>일별 매매일지
+                </h5>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm" id="sort-daily" onchange="sortDailyTrades()">
+                        <option value="date">거래일</option>
+                        <option value="profit">수익금액</option>
+                        <option value="return">수익률</option>
+                        <option value="count">매매건수</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="daily-trades-table">
+                        <thead>
+                            <tr>
+                                <th>거래일</th>
+                                <th>매매건수</th>
+                                <th>매수금액</th>
+                                <th>매도금액</th>
+                                <th>수수료</th>
+                                <th>세금</th>
+                                <th>손익금액</th>
+                                <th>수익률</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="daily-trades-tbody">
+                            <tr>
+                                <td colspan="9" class="text-center text-muted">
+                                    데이터를 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 월별 매매일지 탭 -->
+    <div class="tab-pane fade" id="monthly" role="tabpanel">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-calendar-alt me-2"></i>월별 매매일지
+                </h5>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm" id="sort-monthly" onchange="sortMonthlyTrades()">
+                        <option value="month">월</option>
+                        <option value="profit">수익금액</option>
+                        <option value="return">수익률</option>
+                        <option value="count">매매건수</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="monthly-trades-table">
+                        <thead>
+                            <tr>
+                                <th>월</th>
+                                <th>매매건수</th>
+                                <th>매수금액</th>
+                                <th>매도금액</th>
+                                <th>수수료</th>
+                                <th>세금</th>
+                                <th>손익금액</th>
+                                <th>수익률</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="monthly-trades-tbody">
+                            <tr>
+                                <td colspan="9" class="text-center text-muted">
+                                    데이터를 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 매매 분석 탭 -->
+    <div class="tab-pane fade" id="analysis" role="tabpanel">
+        <div class="row">
+            <!-- 수익률 추이 차트 -->
+            <div class="col-lg-8 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-line me-2"></i>수익률 추이
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="profit-chart" width="800" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 매매 패턴 분석 -->
+            <div class="col-lg-4 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-pie me-2"></i>매매 패턴
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="pattern-chart" width="400" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 종목별 매매 분석 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>종목별 매매 분석
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="stock-analysis-table">
+                                <thead>
+                                    <tr>
+                                        <th>종목명</th>
+                                        <th>매매건수</th>
+                                        <th>총 손익</th>
+                                        <th>평균 수익률</th>
+                                        <th>승률</th>
+                                        <th>최대 수익</th>
+                                        <th>최대 손실</th>
+                                        <th>액션</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stock-analysis-tbody">
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted">
+                                            데이터를 불러오는 중...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 일별 상세 모달 -->
+<div class="modal fade" id="dailyDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="dailyDetailTitle">일별 매매 상세</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="dailyDetailBody">
+                <!-- 일별 상세 정보가 여기에 표시됩니다 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<style>
+/* 매매일지 상단 카드 높이 통일 */
+.trading-summary-cards .card {
+    height: 85px !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.trading-summary-cards .card-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+}
+
+/* 동적 색상 클래스가 높이에 영향을 주지 않도록 */
+.trading-summary-cards .card-body h4 {
+    margin-bottom: 0;
+    line-height: 1.2;
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+/* 아이콘을 오른쪽 끝으로 배치 */
+.trading-summary-cards .card-body .d-flex {
+    width: 100%;
+    justify-content: space-between;
+}
+
+.trading-summary-cards .card-body .align-self-center {
+    align-self: center !important;
+    margin-left: auto;
+}
+</style>
+<script>
+// 매매일지 전용 JavaScript
+let dailyTradesData = [];
+let monthlyTradesData = [];
+let stockAnalysisData = [];
+let profitChart = null;
+let patternChart = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 기본 날짜 설정 (최근 30일)
+    const today = new Date();
+    const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    document.getElementById('diary-date-to').value = today.toISOString().split('T')[0];
+    document.getElementById('diary-date-from').value = monthAgo.toISOString().split('T')[0];
+    
+    loadTradingDiary();
+    
+    // 5분마다 자동 새로고침 (API 호출 빈도 감소)
+    setInterval(loadTradingDiary, 300000);
+});
+
+function loadTradingDiary() {
+    // API 호출을 순차적으로 실행하여 429 오류 방지
+    loadDailyTrades().then(() => {
+        setTimeout(() => loadMonthlyTrades(), 1000);
+    }).then(() => {
+        setTimeout(() => loadStockAnalysis(), 1000);
+    });
+}
+
+function loadDailyTrades() {
+    const startDate = document.getElementById('diary-date-from').value.replace(/-/g, '');
+    const endDate = document.getElementById('diary-date-to').value.replace(/-/g, '');
+    
+    return fetch(`/api/account/trading/daily?start_date=${startDate}&end_date=${endDate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.daily_trades) {
+                dailyTradesData = data.data.daily_trades;
+                updateTradingSummary(data.data);
+                updateDailyTradesTable(dailyTradesData);
+            } else if (data.authenticated === false) {
+                isAuthenticated = false;
+                updateAuthUI(false);
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                return;
+            } else {
+                document.getElementById('daily-trades-tbody').innerHTML = 
+                    '<tr><td colspan="9" class="text-center text-muted">매매 내역이 없습니다.</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('일별 매매일지 조회 실패:', error);
+            document.getElementById('daily-trades-tbody').innerHTML = 
+                '<tr><td colspan="9" class="text-center text-danger">데이터 조회 실패</td></tr>';
+        });
+}
+
+function loadMonthlyTrades() {
+    const startDate = document.getElementById('diary-date-from').value.replace(/-/g, '');
+    const endDate = document.getElementById('diary-date-to').value.replace(/-/g, '');
+    
+    return fetch(`/api/account/trading/monthly?start_date=${startDate}&end_date=${endDate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.monthly_trades) {
+                monthlyTradesData = data.data.monthly_trades;
+                updateMonthlyTradesTable(monthlyTradesData);
+            } else if (data.authenticated === false) {
+                isAuthenticated = false;
+                updateAuthUI(false);
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                return;
+            } else {
+                document.getElementById('monthly-trades-tbody').innerHTML = 
+                    '<tr><td colspan="9" class="text-center text-muted">월별 매매 내역이 없습니다.</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('월별 매매일지 조회 실패:', error);
+            document.getElementById('monthly-trades-tbody').innerHTML = 
+                '<tr><td colspan="9" class="text-center text-danger">데이터 조회 실패</td></tr>';
+        });
+}
+
+function loadStockAnalysis() {
+    const startDate = document.getElementById('diary-date-from').value.replace(/-/g, '');
+    const endDate = document.getElementById('diary-date-to').value.replace(/-/g, '');
+    
+    return fetch(`/api/account/trading/analysis?start_date=${startDate}&end_date=${endDate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.stock_analysis) {
+                stockAnalysisData = data.data.stock_analysis;
+                updateStockAnalysisTable(stockAnalysisData);
+                updateAnalysisCharts(data.data);
+            } else if (data.authenticated === false) {
+                isAuthenticated = false;
+                updateAuthUI(false);
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                return;
+            } else {
+                document.getElementById('stock-analysis-tbody').innerHTML = 
+                    '<tr><td colspan="8" class="text-center text-muted">분석 데이터가 없습니다.</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('매매 분석 조회 실패:', error);
+            document.getElementById('stock-analysis-tbody').innerHTML = 
+                '<tr><td colspan="8" class="text-center text-danger">데이터 조회 실패</td></tr>';
+        });
+}
+
+function updateTradingSummary(data) {
+    const trades = data.daily_trades || [];
+    const totalTrades = trades.reduce((sum, trade) => sum + parseInt(trade.trade_count || '0'), 0);
+    const totalProfit = trades.reduce((sum, trade) => sum + parseFloat(trade.profit_amount || '0'), 0);
+    
+    let winCount = 0;
+    let totalReturn = 0;
+    
+    trades.forEach(trade => {
+        if (parseFloat(trade.profit_amount || '0') > 0) winCount++;
+        totalReturn += parseFloat(trade.return_rate || '0');
+    });
+    
+    const winRate = totalTrades > 0 ? (winCount / trades.length * 100).toFixed(1) : '0.0';
+    const avgReturn = trades.length > 0 ? (totalReturn / trades.length).toFixed(2) : '0.00';
+    
+    document.getElementById('total-trades').textContent = totalTrades + '건';
+    document.getElementById('total-profit').textContent = formatNumber(totalProfit) + '원';
+    document.getElementById('win-rate').textContent = winRate + '%';
+    document.getElementById('avg-return').textContent = avgReturn + '%';
+    
+    // 색상 설정
+    const profitElement = document.getElementById('total-profit');
+    const returnElement = document.getElementById('avg-return');
+    
+    if (totalProfit > 0) {
+        profitElement.className = 'text-success';
+        returnElement.className = 'text-success';
+    } else if (totalProfit < 0) {
+        profitElement.className = 'text-danger';
+        returnElement.className = 'text-danger';
+    } else {
+        profitElement.className = 'text-muted';
+        returnElement.className = 'text-muted';
+    }
+}
+
+function updateDailyTradesTable(trades) {
+    const tbody = document.getElementById('daily-trades-tbody');
+    tbody.innerHTML = '';
+    
+    trades.forEach(trade => {
+        const row = document.createElement('tr');
+        const profit = parseFloat(trade.profit_amount || '0');
+        const returnRate = parseFloat(trade.return_rate || '0');
+        
+        row.innerHTML = `
+            <td>${formatDate(trade.trade_date)}</td>
+            <td>${trade.trade_count || '0'}건</td>
+            <td>${formatNumber(trade.buy_amount || '0')}원</td>
+            <td>${formatNumber(trade.sell_amount || '0')}원</td>
+            <td>${formatNumber(trade.commission || '0')}원</td>
+            <td>${formatNumber(trade.tax || '0')}원</td>
+            <td class="${profit >= 0 ? 'text-success' : 'text-danger'}">
+                ${formatNumber(trade.profit_amount || '0')}원
+            </td>
+            <td class="${returnRate >= 0 ? 'text-success' : 'text-danger'}">
+                ${trade.return_rate || '0'}%
+            </td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="showDailyDetail('${trade.trade_date}')">
+                    <i class="fas fa-info-circle"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function updateMonthlyTradesTable(trades) {
+    const tbody = document.getElementById('monthly-trades-tbody');
+    tbody.innerHTML = '';
+    
+    trades.forEach(trade => {
+        const row = document.createElement('tr');
+        const profit = parseFloat(trade.profit_amount || '0');
+        const returnRate = parseFloat(trade.return_rate || '0');
+        
+        row.innerHTML = `
+            <td>${trade.month}</td>
+            <td>${trade.trade_count || '0'}건</td>
+            <td>${formatNumber(trade.buy_amount || '0')}원</td>
+            <td>${formatNumber(trade.sell_amount || '0')}원</td>
+            <td>${formatNumber(trade.commission || '0')}원</td>
+            <td>${formatNumber(trade.tax || '0')}원</td>
+            <td class="${profit >= 0 ? 'text-success' : 'text-danger'}">
+                ${formatNumber(trade.profit_amount || '0')}원
+            </td>
+            <td class="${returnRate >= 0 ? 'text-success' : 'text-danger'}">
+                ${trade.return_rate || '0'}%
+            </td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="showMonthlyDetail('${trade.month}')">
+                    <i class="fas fa-info-circle"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function updateStockAnalysisTable(analysis) {
+    const tbody = document.getElementById('stock-analysis-tbody');
+    tbody.innerHTML = '';
+    
+    analysis.forEach(stock => {
+        const row = document.createElement('tr');
+        const totalProfit = parseFloat(stock.total_profit || '0');
+        const avgReturn = parseFloat(stock.avg_return || '0');
+        const winRate = parseFloat(stock.win_rate || '0');
+        
+        row.innerHTML = `
+            <td>
+                <strong>${stock.stock_name || '-'}</strong>
+                <br><small class="text-muted">${stock.stock_code || ''}</small>
+            </td>
+            <td>${stock.trade_count || '0'}건</td>
+            <td class="${totalProfit >= 0 ? 'text-success' : 'text-danger'}">
+                ${formatNumber(stock.total_profit || '0')}원
+            </td>
+            <td class="${avgReturn >= 0 ? 'text-success' : 'text-danger'}">
+                ${stock.avg_return || '0'}%
+            </td>
+            <td>${winRate}%</td>
+            <td class="text-success">${formatNumber(stock.max_profit || '0')}원</td>
+            <td class="text-danger">${formatNumber(stock.max_loss || '0')}원</td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="showStockTradingDetail('${stock.stock_code}')">
+                    <i class="fas fa-chart-line"></i>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function updateAnalysisCharts(data) {
+    updateProfitChart(data.profit_trend || []);
+    updatePatternChart(data.pattern_analysis || {});
+}
+
+function updateProfitChart(profitTrend) {
+    const ctx = document.getElementById('profit-chart').getContext('2d');
+    
+    if (profitChart) {
+        profitChart.destroy();
+    }
+    
+    const labels = profitTrend.map(item => item.date);
+    const data = profitTrend.map(item => parseFloat(item.cumulative_profit || '0'));
+    
+    profitChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '누적 수익금액',
+                data: data,
+                borderColor: '#007bff',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)'
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return formatNumber(value) + '원';
+                        }
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return '누적 수익: ' + formatNumber(context.parsed.y) + '원';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updatePatternChart(patternData) {
+    const ctx = document.getElementById('pattern-chart').getContext('2d');
+    
+    if (patternChart) {
+        patternChart.destroy();
+    }
+    
+    const labels = ['수익 거래', '손실 거래'];
+    const data = [patternData.profit_count || 0, patternData.loss_count || 0];
+    const colors = ['#28a745', '#dc3545'];
+    
+    patternChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : '0.0';
+                            return context.label + ': ' + context.parsed + '건 (' + percentage + '%)';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const year = dateStr.substring(0, 4);
+    const month = dateStr.substring(4, 6);
+    const day = dateStr.substring(6, 8);
+    return `${year}-${month}-${day}`;
+}
+
+function showDailyDetail(tradeDate) {
+    fetch(`/api/account/trading/daily/${tradeDate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.trades) {
+                document.getElementById('dailyDetailTitle').textContent = `${formatDate(tradeDate)} 매매 상세`;
+                
+                const trades = data.data.trades;
+                let tableHTML = `
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>시간</th>
+                                    <th>종목명</th>
+                                    <th>구분</th>
+                                    <th>수량</th>
+                                    <th>단가</th>
+                                    <th>금액</th>
+                                    <th>수수료</th>
+                                    <th>손익</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                trades.forEach(trade => {
+                    const orderType = trade.sell_tp === '1' ? '매도' : '매수';
+                    const orderTypeClass = trade.sell_tp === '1' ? 'text-danger' : 'text-success';
+                    
+                    tableHTML += `
+                        <tr>
+                            <td>${trade.cntr_tm ? trade.cntr_tm.substring(0, 2) + ':' + trade.cntr_tm.substring(2, 4) : '-'}</td>
+                            <td>${trade.stk_nm || '-'}</td>
+                            <td><span class="${orderTypeClass}">${orderType}</span></td>
+                            <td>${formatNumber(trade.cntr_qty || '0')}</td>
+                            <td>${formatNumber(trade.cntr_pric || '0')}원</td>
+                            <td>${formatNumber(trade.cntr_amt || '0')}원</td>
+                            <td>${formatNumber(trade.cmsn || '0')}원</td>
+                            <td class="${parseFloat(trade.pl_amt || '0') >= 0 ? 'text-success' : 'text-danger'}">
+                                ${formatNumber(trade.pl_amt || '0')}원
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += '</tbody></table></div>';
+                document.getElementById('dailyDetailBody').innerHTML = tableHTML;
+            } else {
+                document.getElementById('dailyDetailBody').innerHTML = 
+                    '<p class="text-muted">해당 날짜의 매매 내역이 없습니다.</p>';
+            }
+        })
+        .catch(error => {
+            console.error('일별 상세 조회 실패:', error);
+            document.getElementById('dailyDetailBody').innerHTML = 
+                '<p class="text-danger">데이터 조회에 실패했습니다.</p>';
+        });
+    
+    new bootstrap.Modal(document.getElementById('dailyDetailModal')).show();
+}
+
+function showMonthlyDetail(month) {
+    // 월별 상세 기능 (추후 구현)
+    showAlert('월별 상세 기능은 추후 구현 예정입니다.', 'info');
+}
+
+function showStockTradingDetail(stockCode) {
+    // 종목별 매매 상세 기능 (추후 구현)
+    showAlert('종목별 매매 상세 기능은 추후 구현 예정입니다.', 'info');
+}
+
+function filterTradingDiary() {
+    const startDate = document.getElementById('diary-date-from').value;
+    const endDate = document.getElementById('diary-date-to').value;
+    const profitFilter = document.getElementById('profit-filter').value;
+    const searchTerm = document.getElementById('diary-stock-search').value.toLowerCase();
+    
+    // 날짜가 변경된 경우 서버에서 새로 로드
+    if (startDate && endDate) {
+        loadTradingDiary();
+    }
+    
+    // 클라이언트 사이드 필터링
+    let filteredData = dailyTradesData;
+    
+    if (profitFilter) {
+        filteredData = filteredData.filter(trade => {
+            const profit = parseFloat(trade.profit_amount || '0');
+            if (profitFilter === 'profit') return profit > 0;
+            if (profitFilter === 'loss') return profit < 0;
+            return true;
+        });
+    }
+    
+    updateDailyTradesTable(filteredData);
+}
+
+function sortDailyTrades() {
+    const sortBy = document.getElementById('sort-daily').value;
+    
+    dailyTradesData.sort((a, b) => {
+        switch (sortBy) {
+            case 'date':
+                return b.trade_date.localeCompare(a.trade_date);
+            case 'profit':
+                return parseFloat(b.profit_amount || '0') - parseFloat(a.profit_amount || '0');
+            case 'return':
+                return parseFloat(b.return_rate || '0') - parseFloat(a.return_rate || '0');
+            case 'count':
+                return parseInt(b.trade_count || '0') - parseInt(a.trade_count || '0');
+            default:
+                return 0;
+        }
+    });
+    
+    updateDailyTradesTable(dailyTradesData);
+}
+
+function sortMonthlyTrades() {
+    const sortBy = document.getElementById('sort-monthly').value;
+    
+    monthlyTradesData.sort((a, b) => {
+        switch (sortBy) {
+            case 'month':
+                return b.month.localeCompare(a.month);
+            case 'profit':
+                return parseFloat(b.profit_amount || '0') - parseFloat(a.profit_amount || '0');
+            case 'return':
+                return parseFloat(b.return_rate || '0') - parseFloat(a.return_rate || '0');
+            case 'count':
+                return parseInt(b.trade_count || '0') - parseInt(a.trade_count || '0');
+            default:
+                return 0;
+        }
+    });
+    
+    updateMonthlyTradesTable(monthlyTradesData);
+}
+
+function refreshTradingDiary() {
+    loadTradingDiary();
+    showAlert('매매일지가 새로고침되었습니다.', 'success');
+}
+
+function exportTradingDiary() {
+    const csvContent = generateTradingDiaryCSV(dailyTradesData);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'trading_diary_' + new Date().toISOString().split('T')[0] + '.csv');
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showAlert('매매일지가 내보내기되었습니다.', 'success');
+}
+
+function generateTradingDiaryCSV(data) {
+    const headers = ['거래일', '매매건수', '매수금액', '매도금액', '수수료', '세금', '손익금액', '수익률'];
+    const rows = data.map(trade => [
+        formatDate(trade.trade_date),
+        trade.trade_count || '0',
+        trade.buy_amount || '0',
+        trade.sell_amount || '0',
+        trade.commission || '0',
+        trade.tax || '0',
+        trade.profit_amount || '0',
+        trade.return_rate || '0'
+    ]);
+    
+    return [headers, ...rows].map(row => row.join(',')).join('\n');
+}
+</script>
+{% endblock %}
+

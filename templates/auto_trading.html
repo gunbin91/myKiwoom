@@ -1,0 +1,637 @@
+{% extends "base.html" %}
+
+{% block title %}자동매매 - 키움 자동매매{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- 자동매매 상태 카드 -->
+    <div class="col-xl-3 col-lg-3 col-md-6 col-sm-6 mb-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">자동매매 상태</h6>
+                        <h6 class="mb-0" id="auto-trading-status">OFF</h6>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-robot fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 스케줄러 체크 카드 -->
+    <div class="col-xl-3 col-lg-3 col-md-6 col-sm-6 mb-4">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">스케줄러 체크</h6>
+                        <h6 class="mb-0" id="scheduler-check">-</h6>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-sync-alt fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 마지막 실행 카드 -->
+    <div class="col-xl-3 col-lg-3 col-md-6 col-sm-6 mb-4">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">마지막 실행</h6>
+                        <h6 class="mb-0" id="last-execution">-</h6>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-clock fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 오늘 실행 여부 카드 -->
+    <div class="col-xl-3 col-lg-3 col-md-6 col-sm-6 mb-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">오늘 실행 여부</h6>
+                        <h6 class="mb-0" id="today-execution">-</h6>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-calendar-check fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 실행 진행 상황 표시 -->
+<div class="row mb-4" id="execution-progress" style="display: none;">
+    <div class="col-12">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h6 class="mb-0">
+                    <i class="fas fa-cog fa-spin me-2"></i>자동매매 실행 중
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span id="current-status">시작 중...</span>
+                    <span id="progress-percentage">0%</span>
+                </div>
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         id="progress-bar" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+
+<div class="row">
+    <!-- 자동매매 설정 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-cog me-2"></i>자동매매 설정
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="auto-trading-config-form">
+                    <!-- 자동매매 ON/OFF -->
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="auto-trading-enabled">
+                            <label class="form-check-label" for="auto-trading-enabled">
+                                자동매매 활성화
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 스케줄 설정 -->
+                    <div class="mb-3">
+                        <label class="form-label">실행 시간</label>
+                        <div class="row">
+                            <div class="col-4">
+                                <select class="form-select" id="schedule-period">
+                                    <option value="AM">오전</option>
+                                    <option value="PM">오후</option>
+                                </select>
+                            </div>
+                            <div class="col-8">
+                                <input type="time" class="form-control" id="schedule-time" value="08:30">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 전략 설정 -->
+                    <div class="mb-3">
+                        <label for="reserve-cash" class="form-label">매매 제외 예수금 (원)</label>
+                        <input type="number" class="form-control" id="reserve-cash" min="0" step="1000" value="1000000">
+                        <div class="form-text">이 금액은 매매에서 제외하고 보유합니다. (0원 가능)</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="max-hold-period" class="form-label">최대 보유 기간 (일)</label>
+                        <input type="number" class="form-control" id="max-hold-period" min="1" value="15">
+                    </div>
+
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="take-profit-pct" class="form-label">익절률 (%)</label>
+                                <input type="number" class="form-control" id="take-profit-pct" min="0.1" step="0.1" value="5.0">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="stop-loss-pct" class="form-label">손절률 (%)</label>
+                                <input type="number" class="form-control" id="stop-loss-pct" min="0.1" step="0.1" value="3.0">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="top-n" class="form-label">매수 종목 수</label>
+                                <input type="number" class="form-control" id="top-n" min="1" value="5">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label for="buy-universe-rank" class="form-label">매수 대상 범위</label>
+                                <input type="number" class="form-control" id="buy-universe-rank" min="1" value="20">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>설정 저장
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 실행 제어 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-play me-2"></i>실행 제어
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-success" id="manual-execute-btn">
+                        <i class="fas fa-play me-1"></i>수동 실행
+                    </button>
+                    <button type="button" class="btn btn-warning" id="emergency-stop-btn">
+                        <i class="fas fa-stop me-1"></i>긴급 중지
+                    </button>
+                </div>
+                
+                <hr>
+                
+                <h6>실행 이력</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm" id="execution-history-table">
+                        <thead>
+                            <tr>
+                                <th>실행일시</th>
+                                <th>구분</th>
+                                <th>상태</th>
+                                <th>매수</th>
+                                <th>매도</th>
+                            </tr>
+                        </thead>
+                        <tbody id="execution-history-tbody">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">
+                                    실행 이력이 없습니다.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 수동 실행 확인 모달 -->
+<div class="modal fade" id="manualExecuteModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white border-0">
+                <h5 class="modal-title">
+                    <i class="fas fa-play-circle me-2"></i>수동 실행 확인
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="text-center mb-4">
+                    <div class="mb-3">
+                        <i class="fas fa-robot fa-3x text-primary"></i>
+                    </div>
+                    <h6 class="mb-3">자동매매를 수동으로 실행하시겠습니까?</h6>
+                </div>
+                
+                <div class="alert alert-warning border-0 shadow-sm">
+                    <div class="d-flex align-items-start">
+                        <i class="fas fa-exclamation-triangle text-warning me-3 mt-1"></i>
+                        <div>
+                            <strong>주의사항:</strong>
+                            <ul class="mb-0 mt-2">
+                                <li>실제 주문이 발생할 수 있습니다</li>
+                                <li>현재 설정된 전략으로 매매가 실행됩니다</li>
+                                <li>신중히 결정해주세요</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 p-4">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>취소
+                </button>
+                <button type="button" class="btn btn-primary" id="confirm-manual-execute">
+                    <i class="fas fa-play me-1"></i>실행
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 긴급 중지 확인 모달 -->
+<div class="modal fade" id="emergencyStopModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-danger text-white border-0">
+                <h5 class="modal-title">
+                    <i class="fas fa-stop-circle me-2"></i>긴급 중지 확인
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="text-center mb-4">
+                    <div class="mb-3">
+                        <i class="fas fa-exclamation-triangle fa-3x text-danger"></i>
+                    </div>
+                    <h6 class="mb-3">자동매매를 긴급 중지하시겠습니까?</h6>
+                </div>
+                
+                <div class="alert alert-danger border-0 shadow-sm">
+                    <div class="d-flex align-items-start">
+                        <i class="fas fa-exclamation-triangle text-danger me-3 mt-1"></i>
+                        <div>
+                            <strong>주의사항:</strong>
+                            <ul class="mb-0 mt-2">
+                                <li>진행 중인 자동매매가 즉시 중단됩니다</li>
+                                <li>미체결 주문은 그대로 유지됩니다</li>
+                                <li>다시 시작하려면 수동으로 실행해야 합니다</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 p-4">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>취소
+                </button>
+                <button type="button" class="btn btn-danger" id="confirm-emergency-stop">
+                    <i class="fas fa-stop me-1"></i>중지
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<style>
+/* 자동매매 상태 카드 스타일 */
+
+/* 점이 늘어나는 로딩 애니메이션 */
+.loading-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.loading-dots .dot {
+    width: 4px;
+    height: 4px;
+    background-color: currentColor;
+    border-radius: 50%;
+    animation: loading-dots 1.5s infinite ease-in-out;
+}
+
+.loading-dots .dot:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.loading-dots .dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.loading-dots .dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes loading-dots {
+    0%, 80%, 100% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    40% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+}
+
+/* 상태 텍스트 스타일 */
+#auto-trading-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* 보라색 배경 (ON 상태) */
+.bg-purple {
+    background-color: #6f42c1 !important;
+}
+
+.bg-purple:hover {
+    background-color: #5a32a3 !important;
+}
+</style>
+<script>
+// 자동매매 페이지 전용 JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+    loadAutoTradingConfig();
+    loadExecutionHistory();
+    updateAutoTradingStatus(); // 초기 상태 업데이트
+    
+    // 30초마다 상태 업데이트
+    setInterval(updateAutoTradingStatus, 30000);
+});
+
+// 설정 로드
+function loadAutoTradingConfig() {
+    fetch('/api/auto-trading/config')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const config = data.data;
+                document.getElementById('auto-trading-enabled').checked = config.auto_trading_enabled;
+                document.getElementById('schedule-period').value = config.schedule_period || 'AM';
+                document.getElementById('schedule-time').value = config.schedule_time || '08:30';
+                document.getElementById('reserve-cash').value = config.strategy_params?.reserve_cash ?? 1000000;
+                document.getElementById('max-hold-period').value = config.strategy_params?.max_hold_period || 15;
+                document.getElementById('take-profit-pct').value = config.strategy_params?.take_profit_pct || 5.0;
+                document.getElementById('stop-loss-pct').value = config.strategy_params?.stop_loss_pct || 3.0;
+                document.getElementById('top-n').value = config.strategy_params?.top_n || 5;
+                document.getElementById('buy-universe-rank').value = config.strategy_params?.buy_universe_rank || 20;
+            }
+        })
+        .catch(error => {
+            console.error('설정 로드 실패:', error);
+            showAlert('설정을 불러오는데 실패했습니다.', 'danger');
+        });
+}
+
+// 설정 저장
+document.getElementById('auto-trading-config-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const config = {
+        auto_trading_enabled: document.getElementById('auto-trading-enabled').checked,
+        schedule_period: document.getElementById('schedule-period').value,
+        schedule_time: document.getElementById('schedule-time').value,
+        strategy_params: {
+            reserve_cash: parseInt(document.getElementById('reserve-cash').value) || 0,
+            max_hold_period: parseInt(document.getElementById('max-hold-period').value) || 15,
+            take_profit_pct: parseFloat(document.getElementById('take-profit-pct').value) || 5.0,
+            stop_loss_pct: parseFloat(document.getElementById('stop-loss-pct').value) || 3.0,
+            top_n: parseInt(document.getElementById('top-n').value) || 5,
+            buy_universe_rank: parseInt(document.getElementById('buy-universe-rank').value) || 20
+        }
+    };
+    
+    console.log('저장할 설정:', config);
+    
+    fetch('/api/auto-trading/config', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(config)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('설정이 저장되었습니다.', 'success');
+            // 설정 저장 후 상태 업데이트
+            updateAutoTradingStatus();
+            loadExecutionHistory();
+        } else {
+            showAlert(data.message || '설정 저장에 실패했습니다.', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('설정 저장 실패:', error);
+        showAlert('설정 저장 중 오류가 발생했습니다.', 'danger');
+    });
+});
+
+// 자동매매 상태 업데이트
+function updateAutoTradingStatus() {
+    fetch('/api/auto-trading/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const status = data.data;
+                const statusElement = document.getElementById('auto-trading-status');
+                const statusCard = statusElement.closest('.card');
+                
+                if (status.enabled) {
+                    statusElement.innerHTML = `
+                        <span>ON</span>
+                        <div class="loading-dots">
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                        </div>
+                    `;
+                    statusCard.className = 'card bg-purple text-white';
+                } else {
+                    statusElement.innerHTML = 'OFF';
+                    statusCard.className = 'card bg-secondary text-white';
+                }
+                
+                document.getElementById('last-execution').textContent = status.last_execution || '-';
+                document.getElementById('today-execution').textContent = status.today_executed ? '실행됨' : '미실행';
+                document.getElementById('scheduler-check').textContent = status.last_check_time || '-';
+                
+                // 실행 진행 상황 업데이트
+                updateExecutionProgress(status);
+            }
+        })
+        .catch(error => {
+            console.error('상태 업데이트 실패:', error);
+        });
+}
+
+// 실행 진행 상황 업데이트
+function updateExecutionProgress(status) {
+    const progressCard = document.getElementById('execution-progress');
+    const currentStatus = document.getElementById('current-status');
+    const progressPercentage = document.getElementById('progress-percentage');
+    const progressBar = document.getElementById('progress-bar');
+    
+    if (status.is_running) {
+        progressCard.style.display = 'block';
+        currentStatus.textContent = status.current_status || '실행 중...';
+        progressPercentage.textContent = (status.progress_percentage || 0) + '%';
+        progressBar.style.width = (status.progress_percentage || 0) + '%';
+    } else {
+        progressCard.style.display = 'none';
+    }
+}
+
+// 진행 상황 모니터링 시작
+function startProgressMonitoring() {
+    const interval = setInterval(() => {
+        updateAutoTradingStatus();
+        
+        // 실행이 완료되면 모니터링 중단
+        fetch('/api/auto-trading/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && !data.data.is_running) {
+                    clearInterval(interval);
+                }
+            })
+            .catch(error => {
+                console.error('진행 상황 확인 실패:', error);
+                clearInterval(interval);
+            });
+    }, 1000); // 1초마다 업데이트
+}
+
+// 실행 이력 로드
+function loadExecutionHistory() {
+    fetch('/api/auto-trading/history')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const tbody = document.getElementById('execution-history-tbody');
+                tbody.innerHTML = '';
+                
+                if (data.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">실행 이력이 없습니다.</td></tr>';
+                } else {
+                    data.data.forEach(execution => {
+                        const row = document.createElement('tr');
+                        
+                        // 실행 구분 파싱
+                        let executionType = '자동';
+                        let typeBadgeClass = 'bg-info';
+                        if (execution.message && execution.message.includes('[수동]')) {
+                            executionType = '수동';
+                            typeBadgeClass = 'bg-warning';
+                        }
+                        
+                        row.innerHTML = `
+                            <td>${execution.execution_time}</td>
+                            <td><span class="badge ${typeBadgeClass}">${executionType}</span></td>
+                            <td><span class="badge ${execution.status === 'success' ? 'bg-success' : 'bg-danger'}">${execution.status}</span></td>
+                            <td>${execution.buy_count || 0}</td>
+                            <td>${execution.sell_count || 0}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
+            }
+        })
+        .catch(error => {
+            console.error('실행 이력 로드 실패:', error);
+        });
+}
+
+// 수동 실행
+document.getElementById('manual-execute-btn').addEventListener('click', function() {
+    const modal = new bootstrap.Modal(document.getElementById('manualExecuteModal'));
+    modal.show();
+});
+
+document.getElementById('confirm-manual-execute').addEventListener('click', function() {
+    fetch('/api/auto-trading/execute', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('자동매매가 실행되었습니다.', 'success');
+            loadExecutionHistory();
+            updateAutoTradingStatus();
+        } else {
+            showAlert(data.message || '자동매매 실행에 실패했습니다.', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('수동 실행 실패:', error);
+        showAlert('자동매매 실행 중 오류가 발생했습니다.', 'danger');
+    });
+    
+    const modal = bootstrap.Modal.getInstance(document.getElementById('manualExecuteModal'));
+    modal.hide();
+    
+    // 실행 시작 후 진행 상황 모니터링 시작
+    startProgressMonitoring();
+});
+
+// 긴급 중지
+document.getElementById('emergency-stop-btn').addEventListener('click', function() {
+    const modal = new bootstrap.Modal(document.getElementById('emergencyStopModal'));
+    modal.show();
+});
+
+document.getElementById('confirm-emergency-stop').addEventListener('click', function() {
+    fetch('/api/auto-trading/stop', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('자동매매가 중지되었습니다.', 'warning');
+            updateAutoTradingStatus();
+        } else {
+            showAlert(data.message || '자동매매 중지에 실패했습니다.', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('긴급 중지 실패:', error);
+        showAlert('자동매매 중지 중 오류가 발생했습니다.', 'danger');
+    });
+    
+    const modal = bootstrap.Modal.getInstance(document.getElementById('emergencyStopModal'));
+    modal.hide();
+});
+</script>
+{% endblock %}

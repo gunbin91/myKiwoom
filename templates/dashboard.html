@@ -1,0 +1,1009 @@
+{% extends "base.html" %}
+
+{% block title %}대시보드 - 키움 자동매매{% endblock %}
+
+{% block content %}
+<div class="row dashboard-summary-cards">
+    <!-- 계좌 현황 카드 -->
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">예수금</h6>
+                        <h4 class="mb-0" id="deposit-amount">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-wallet fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">총 자산</h6>
+                        <h4 class="mb-0" id="total-assets">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-pie fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">평가손익</h6>
+                        <h4 class="mb-0" id="profit-loss">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-chart-line fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">수익률</h6>
+                        <h4 class="mb-0" id="profit-rate">-</h4>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-percentage fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 보유 종목 현황 -->
+    <div class="col-lg-8 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-briefcase me-2"></i>보유 종목 현황
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshPortfolio()">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="portfolio-table">
+                        <thead>
+                            <tr>
+                                <th>종목명</th>
+                                <th>보유수량</th>
+                                <th>평균단가</th>
+                                <th>현재가</th>
+                                <th>평가금액</th>
+                                <th>손익금액</th>
+                                <th>손익률</th>
+                            </tr>
+                        </thead>
+                        <tbody id="portfolio-tbody">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted">
+                                    데이터를 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 빠른 주문 -->
+    <div class="col-lg-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-bolt me-2"></i>빠른 주문
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="quick-order-form">
+                    <!-- 주문구분 (최상단) -->
+                    <div class="mb-3 d-flex align-items-center justify-content-between">
+                        <label class="form-label mb-0">주문구분</label>
+                        <div class="order-type-toggle">
+                            <input type="radio" name="order-type" id="buy-order" value="buy" checked onchange="updateOrderForm()">
+                            <label for="buy-order" class="buy-label">
+                                <i class="fas fa-arrow-up me-1"></i>매수
+                            </label>
+                            <input type="radio" name="order-type" id="sell-order" value="sell" onchange="updateOrderForm()">
+                            <label for="sell-order" class="sell-label">
+                                <i class="fas fa-arrow-down me-1"></i>매도
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- 종목 선택 -->
+                    <div class="mb-3" id="stock-input-section">
+                        <label for="stock-code" class="form-label">종목코드</label>
+                        <input type="text" class="form-control" id="stock-code" placeholder="예: 005930" required>
+                    </div>
+                    
+                    <!-- 보유종목 선택 (매도 시에만 표시) -->
+                    <div class="mb-3" id="stock-select-section" style="display: none;">
+                        <label for="stock-select" class="form-label">보유종목</label>
+                        <select class="form-select" id="stock-select" onchange="updateStockFromSelect()">
+                            <option value="">보유종목을 선택하세요</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 주문 방식 선택 (지정가/시장가) -->
+                    <div class="mb-3">
+                        <label class="form-label">주문 방식</label>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="order-method" id="limit-order" value="limit" onchange="updateOrderForm()">
+                                    <label class="form-check-label" for="limit-order">
+                                        지정가
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="order-method" id="market-order" value="market" checked onchange="updateOrderForm()">
+                                    <label class="form-check-label" for="market-order">
+                                        시장가
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 주문 단위 선택 (금액/수량) - 매수만 -->
+                    <div class="mb-3" id="order-unit-section">
+                        <label class="form-label">주문 단위</label>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="order-unit" id="quantity-order" value="quantity" checked onchange="updateOrderForm()">
+                                    <label class="form-check-label" for="quantity-order">
+                                        수량주문
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="order-unit" id="amount-order" value="amount" onchange="updateOrderForm()">
+                                    <label class="form-check-label" for="amount-order">
+                                        금액주문
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 수량 입력 -->
+                    <div class="mb-3" id="quantity-input-section">
+                        <label for="order-quantity" class="form-label">수량</label>
+                        <input type="number" class="form-control" id="order-quantity" min="1" required>
+                    </div>
+                    
+                    <!-- 금액 입력 (매수 금액주문일 때만) -->
+                    <div class="mb-3" id="amount-input-section" style="display: none;">
+                        <label for="order-amount" class="form-label">주문금액</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="order-amount" min="1" placeholder="주문할 금액">
+                            <span class="input-group-text">원</span>
+                        </div>
+                        <div class="form-text">해당 금액으로 매수 가능한 최대 수량으로 주문됩니다.</div>
+                    </div>
+                    
+                    <!-- 가격 입력 (지정가일 때만) -->
+                    <div class="mb-3" id="price-input-section">
+                        <label for="order-price" class="form-label">가격</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="order-price" min="1" placeholder="주문가격">
+                            <span class="input-group-text">원</span>
+                        </div>
+                    </div>
+                    
+                    <!-- 주문 요약 -->
+                    <div class="mb-3" id="order-summary" style="display: none;">
+                        <div class="alert alert-info">
+                            <h6 class="alert-heading">주문 요약</h6>
+                            <div id="order-summary-content"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary" disabled>
+                            <i class="fas fa-paper-plane me-1"></i>주문하기
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- 미체결 주문 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-clock me-2"></i>미체결 주문
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshUnexecutedOrders()">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm" id="unexecuted-orders-table">
+                        <thead>
+                            <tr>
+                                <th>종목명</th>
+                                <th>구분</th>
+                                <th>수량</th>
+                                <th>가격</th>
+                                <th>미체결</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="unexecuted-orders-tbody">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted">
+                                    데이터를 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 당일 매매일지 -->
+    <div class="col-lg-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-book me-2"></i>당일 매매일지
+                </h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshTradingDiary()">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm" id="trading-diary-table">
+                        <thead>
+                            <tr>
+                                <th>종목명</th>
+                                <th>매수평균</th>
+                                <th>매도평균</th>
+                                <th>수량</th>
+                                <th>손익</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trading-diary-tbody">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">
+                                    데이터를 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 종목 검색 모달 -->
+<div class="modal fade" id="stockSearchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">종목 검색</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="stock-search-input" placeholder="종목명 또는 종목코드 입력">
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover" id="stock-search-table">
+                        <thead>
+                            <tr>
+                                <th>종목코드</th>
+                                <th>종목명</th>
+                                <th>현재가</th>
+                                <th>등락률</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stock-search-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<style>
+/* 대시보드 상단 카드 높이 통일 */
+.dashboard-summary-cards .card {
+    height: 85px !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-summary-cards .card-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+}
+
+/* 동적 색상 클래스가 높이에 영향을 주지 않도록 */
+.dashboard-summary-cards .card-body h4 {
+    margin-bottom: 0;
+    line-height: 1.2;
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+/* 아이콘을 오른쪽 끝으로 배치 */
+.dashboard-summary-cards .card-body .d-flex {
+    width: 100%;
+    justify-content: space-between;
+}
+
+.dashboard-summary-cards .card-body .align-self-center {
+    align-self: center !important;
+    margin-left: auto;
+}
+</style>
+<script>
+// 대시보드 전용 JavaScript
+document.addEventListener('DOMContentLoaded', function() {
+    // 페이지 로드 시 데이터 새로고침
+    refreshDashboard();
+    
+    // 60초마다 자동 새로고침 (API 요청 제한 고려)
+    setInterval(refreshDashboard, 60000);
+});
+
+function refreshDashboard() {
+    refreshAccountInfo();
+    refreshPortfolio();
+    refreshUnexecutedOrders();
+    refreshTradingDiary();
+}
+
+function refreshAccountInfo() {
+    // 예수금 정보
+    fetch('/api/account/deposit')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const deposit = data.data.entr || '0';
+                document.getElementById('deposit-amount').textContent = formatNumber(deposit) + '원';
+            } else if (data.authenticated === false) {
+                // 인증 실패 시 로그아웃 처리
+                isAuthenticated = false;
+                updateAuthUI(false);
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                return;
+            }
+        })
+        .catch(error => console.error('예수금 조회 실패:', error));
+    
+    // 추정자산 정보
+    fetch('/api/account/assets')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const assets = data.data.prsm_dpst_aset_amt || '0';
+                document.getElementById('total-assets').textContent = formatNumber(assets) + '원';
+            } else if (data.authenticated === false) {
+                // 인증 실패 시 로그아웃 처리
+                isAuthenticated = false;
+                updateAuthUI(false);
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                return;
+            }
+        })
+        .catch(error => console.error('자산 조회 실패:', error));
+    
+    // 계좌 평가 현황
+    fetch('/api/account/evaluation')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const profitLoss = data.data.tot_evlt_pl || '0';
+                const profitRate = data.data.tot_prft_rt || '0';
+                
+                document.getElementById('profit-loss').textContent = formatNumber(profitLoss) + '원';
+                document.getElementById('profit-rate').textContent = profitRate + '%';
+                
+                // 손익에 따른 색상 변경
+                const profitElement = document.getElementById('profit-loss');
+                const rateElement = document.getElementById('profit-rate');
+                
+                if (parseFloat(profitLoss) > 0) {
+                    profitElement.className = 'text-success';
+                    rateElement.className = 'text-success';
+                } else if (parseFloat(profitLoss) < 0) {
+                    profitElement.className = 'text-danger';
+                    rateElement.className = 'text-danger';
+                } else {
+                    profitElement.className = 'text-muted';
+                    rateElement.className = 'text-muted';
+                }
+            } else if (data.authenticated === false) {
+                // 인증 실패 시 로그아웃 처리
+                isAuthenticated = false;
+                updateAuthUI(false);
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                return;
+            }
+        })
+        .catch(error => console.error('계좌 평가 조회 실패:', error));
+}
+
+function refreshPortfolio() {
+    fetch('/api/account/evaluation')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.stk_acnt_evlt_prst) {
+                const tbody = document.getElementById('portfolio-tbody');
+                tbody.innerHTML = '';
+                
+                data.data.stk_acnt_evlt_prst.forEach(stock => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${stock.stk_nm || '-'}</td>
+                        <td>${formatNumber(stock.rmnd_qty || '0')}</td>
+                        <td>${formatNumber(stock.avg_prc || '0')}원</td>
+                        <td>${formatNumber(stock.cur_prc || '0')}원</td>
+                        <td>${formatNumber(stock.evlt_amt || '0')}원</td>
+                        <td class="${parseFloat(stock.pl_amt || '0') >= 0 ? 'text-success' : 'text-danger'}">
+                            ${formatNumber(stock.pl_amt || '0')}원
+                        </td>
+                        <td class="${parseFloat(stock.pl_rt || '0') >= 0 ? 'text-success' : 'text-danger'}">
+                            ${stock.pl_rt || '0'}%
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                document.getElementById('portfolio-tbody').innerHTML = 
+                    '<tr><td colspan="7" class="text-center text-muted">보유 종목이 없습니다.</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('포트폴리오 조회 실패:', error);
+            document.getElementById('portfolio-tbody').innerHTML = 
+                '<tr><td colspan="7" class="text-center text-danger">데이터 조회 실패</td></tr>';
+        });
+}
+
+function refreshUnexecutedOrders() {
+    fetch('/api/account/orders/unexecuted')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.oso) {
+                const tbody = document.getElementById('unexecuted-orders-tbody');
+                tbody.innerHTML = '';
+                
+                data.data.oso.forEach(order => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${order.stk_nm || '-'}</td>
+                        <td>${order.ord_stt === '1' ? '매수' : '매도'}</td>
+                        <td>${formatNumber(order.ord_qty || '0')}</td>
+                        <td>${formatNumber(order.ord_pric || '0')}원</td>
+                        <td>${formatNumber(order.oso_qty || '0')}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger" onclick="cancelOrder('${order.ord_no}', '${order.stk_cd}', '${order.oso_qty}')">
+                                취소
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                document.getElementById('unexecuted-orders-tbody').innerHTML = 
+                    '<tr><td colspan="6" class="text-center text-muted">미체결 주문이 없습니다.</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('미체결 주문 조회 실패:', error);
+            document.getElementById('unexecuted-orders-tbody').innerHTML = 
+                '<tr><td colspan="6" class="text-center text-danger">데이터 조회 실패</td></tr>';
+        });
+}
+
+function refreshTradingDiary() {
+    fetch('/api/account/trading-diary')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data.tdy_trde_diary) {
+                const tbody = document.getElementById('trading-diary-tbody');
+                tbody.innerHTML = '';
+                
+                data.data.tdy_trde_diary.forEach(trade => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${trade.stk_nm || '-'}</td>
+                        <td>${formatNumber(trade.buy_avg_pric || '0')}원</td>
+                        <td>${formatNumber(trade.sell_avg_pric || '0')}원</td>
+                        <td>${formatNumber(trade.cntr_qty || '0')}</td>
+                        <td class="${parseFloat(trade.pl_amt || '0') >= 0 ? 'text-success' : 'text-danger'}">
+                            ${formatNumber(trade.pl_amt || '0')}원
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } else {
+                document.getElementById('trading-diary-tbody').innerHTML = 
+                    '<tr><td colspan="5" class="text-center text-muted">당일 매매 내역이 없습니다.</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('매매일지 조회 실패:', error);
+            document.getElementById('trading-diary-tbody').innerHTML = 
+                '<tr><td colspan="5" class="text-center text-danger">데이터 조회 실패</td></tr>';
+        });
+}
+
+// 주문 폼 업데이트 함수
+function updateOrderForm() {
+    const orderType = document.querySelector('input[name="order-type"]:checked').value;
+    const orderMethod = document.querySelector('input[name="order-method"]:checked').value;
+    const orderUnit = document.querySelector('input[name="order-unit"]:checked').value;
+    
+    // 종목 입력 방식 변경
+    const stockInputSection = document.getElementById('stock-input-section');
+    const stockSelectSection = document.getElementById('stock-select-section');
+    
+    if (orderType === 'sell') {
+        // 매도인 경우 보유종목 선택 표시
+        stockInputSection.style.display = 'none';
+        stockSelectSection.style.display = 'block';
+        loadHeldStocks(); // 보유종목 로드
+    } else {
+        // 매수인 경우 종목코드 입력 표시
+        stockInputSection.style.display = 'block';
+        stockSelectSection.style.display = 'none';
+        
+        // 수량 라벨 원래대로 복원
+        const quantityLabel = document.querySelector('label[for="order-quantity"]');
+        if (quantityLabel) {
+            quantityLabel.textContent = '수량';
+        }
+        
+        // 수량 입력 필드 초기화
+        const quantityInput = document.getElementById('order-quantity');
+        quantityInput.max = '';
+        quantityInput.placeholder = '';
+    }
+    
+    // 매도인 경우 금액주문 비활성화
+    const orderUnitSection = document.getElementById('order-unit-section');
+    const amountOrderRadio = document.getElementById('amount-order');
+    const quantityOrderRadio = document.getElementById('quantity-order');
+    
+    if (orderType === 'sell') {
+        orderUnitSection.style.display = 'none';
+        amountOrderRadio.checked = false;
+        quantityOrderRadio.checked = true;
+        document.getElementById('amount-input-section').style.display = 'none';
+        document.getElementById('quantity-input-section').style.display = 'block';
+    } else {
+        orderUnitSection.style.display = 'block';
+    }
+    
+    // 시장가인 경우 가격 입력 비활성화
+    const priceInputSection = document.getElementById('price-input-section');
+    if (orderMethod === 'market') {
+        priceInputSection.style.display = 'none';
+        document.getElementById('order-price').value = '';
+    } else {
+        priceInputSection.style.display = 'block';
+    }
+    
+    // 주문 단위에 따른 입력 필드 표시/숨김
+    const quantityInputSection = document.getElementById('quantity-input-section');
+    const amountInputSection = document.getElementById('amount-input-section');
+    
+    if (orderUnit === 'amount' && orderType === 'buy') {
+        quantityInputSection.style.display = 'none';
+        amountInputSection.style.display = 'block';
+    } else {
+        quantityInputSection.style.display = 'block';
+        amountInputSection.style.display = 'none';
+    }
+    
+    updateOrderSummary();
+    updateSubmitButton();
+}
+
+// 주문하기 버튼 상태 업데이트
+function updateSubmitButton() {
+    const submitButton = document.querySelector('#quick-order-form button[type="submit"]');
+    const stockCode = document.getElementById('stock-code').value;
+    const orderType = document.querySelector('input[name="order-type"]:checked').value;
+    const orderMethod = document.querySelector('input[name="order-method"]:checked').value;
+    const orderUnit = document.querySelector('input[name="order-unit"]:checked').value;
+    
+    let isValid = false;
+    
+    if (stockCode) {
+        if (orderUnit === 'amount' && orderType === 'buy') {
+            // 금액주문 (매수만)
+            const amount = document.getElementById('order-amount').value;
+            if (amount && parseInt(amount) > 0) {
+                if (orderMethod === 'limit') {
+                    const price = document.getElementById('order-price').value;
+                    isValid = price && parseInt(price) > 0;
+                } else {
+                    isValid = true; // 시장가 금액주문
+                }
+            }
+        } else {
+            // 수량주문
+            const quantity = document.getElementById('order-quantity').value;
+            if (quantity && parseInt(quantity) > 0) {
+                if (orderMethod === 'limit') {
+                    const price = document.getElementById('order-price').value;
+                    isValid = price && parseInt(price) > 0;
+                } else {
+                    isValid = true; // 시장가 수량주문
+                }
+            }
+        }
+    }
+    
+    submitButton.disabled = !isValid;
+}
+
+// 보유종목 로드 함수
+function loadHeldStocks() {
+    const stockSelect = document.getElementById('stock-select');
+    
+    // 기존 옵션 제거 (첫 번째 옵션 제외)
+    while (stockSelect.children.length > 1) {
+        stockSelect.removeChild(stockSelect.lastChild);
+    }
+    
+    // 보유종목 조회
+    fetch('/api/account/balance')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data && data.data.bal) {
+                data.data.bal.forEach(stock => {
+                    if (parseInt(stock.cntr_qty || '0') > 0) { // 보유 수량이 있는 경우만
+                        const option = document.createElement('option');
+                        option.value = stock.stk_cd;
+                        option.textContent = `${stock.stk_nm} (${stock.stk_cd}) - ${formatNumber(stock.cntr_qty)}주`;
+                        option.dataset.quantity = stock.cntr_qty;
+                        option.dataset.stockName = stock.stk_nm;
+                        stockSelect.appendChild(option);
+                    }
+                });
+                
+                if (stockSelect.children.length === 1) {
+                    // 보유종목이 없는 경우
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = '보유종목이 없습니다';
+                    option.disabled = true;
+                    stockSelect.appendChild(option);
+                }
+            } else {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = '보유종목을 불러올 수 없습니다';
+                option.disabled = true;
+                stockSelect.appendChild(option);
+            }
+        })
+        .catch(error => {
+            console.error('보유종목 조회 실패:', error);
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '보유종목 조회 실패';
+            option.disabled = true;
+            stockSelect.appendChild(option);
+        });
+}
+
+// 보유종목 선택 시 종목코드 업데이트
+function updateStockFromSelect() {
+    const stockSelect = document.getElementById('stock-select');
+    const stockCode = document.getElementById('stock-code');
+    const selectedOption = stockSelect.options[stockSelect.selectedIndex];
+    
+    if (selectedOption.value) {
+        stockCode.value = selectedOption.value;
+        
+        // 보유 수량 정보 표시
+        const heldQuantity = selectedOption.dataset.quantity || '0';
+        const quantityInput = document.getElementById('order-quantity');
+        const quantityLabel = document.querySelector('label[for="order-quantity"]');
+        
+        if (quantityLabel) {
+            quantityLabel.textContent = `수량 (보유: ${formatNumber(heldQuantity)}주)`;
+        }
+        
+        // 최대 수량 설정
+        quantityInput.max = heldQuantity;
+        quantityInput.placeholder = `최대 ${formatNumber(heldQuantity)}주`;
+        
+        updateOrderSummary();
+        updateSubmitButton();
+    }
+}
+
+// 주문 요약 업데이트
+function updateOrderSummary() {
+    const stockCode = document.getElementById('stock-code').value;
+    const orderType = document.querySelector('input[name="order-type"]:checked').value;
+    const orderMethod = document.querySelector('input[name="order-method"]:checked').value;
+    const orderUnit = document.querySelector('input[name="order-unit"]:checked').value;
+    
+    if (!stockCode) {
+        document.getElementById('order-summary').style.display = 'none';
+        return;
+    }
+    
+    let summary = `<strong>${orderType === 'buy' ? '매수' : '매도'}</strong> - ${stockCode}<br>`;
+    
+    if (orderMethod === 'market') {
+        summary += '시장가 주문<br>';
+    } else {
+        const price = document.getElementById('order-price').value;
+        if (price) {
+            summary += `지정가 ${formatNumber(price)}원<br>`;
+        }
+    }
+    
+    if (orderUnit === 'amount' && orderType === 'buy') {
+        const amount = document.getElementById('order-amount').value;
+        if (amount) {
+            const price = document.getElementById('order-price').value;
+            if (price && orderMethod === 'limit') {
+                const quantity = Math.floor(amount / price);
+                summary += `금액 ${formatNumber(amount)}원 → 수량 ${quantity}주`;
+            } else {
+                summary += `금액 ${formatNumber(amount)}원`;
+            }
+        }
+    } else {
+        const quantity = document.getElementById('order-quantity').value;
+        if (quantity) {
+            summary += `수량 ${quantity}주`;
+        }
+    }
+    
+    document.getElementById('order-summary-content').innerHTML = summary;
+    document.getElementById('order-summary').style.display = 'block';
+    
+    // 버튼 상태도 업데이트
+    updateSubmitButton();
+}
+
+// 입력 필드 이벤트 리스너 추가
+document.addEventListener('DOMContentLoaded', function() {
+    // 입력 필드 변경 시 주문 요약 및 버튼 상태 업데이트
+    ['stock-code', 'order-price', 'order-quantity', 'order-amount'].forEach(id => {
+        document.getElementById(id).addEventListener('input', function() {
+            updateOrderSummary();
+            updateSubmitButton();
+        });
+    });
+    
+    // 라디오 버튼 변경 시에도 버튼 상태 업데이트
+    document.querySelectorAll('input[name="order-type"], input[name="order-method"], input[name="order-unit"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            updateOrderSummary();
+            updateSubmitButton();
+        });
+    });
+    
+    // 초기 폼 상태 설정
+    updateOrderForm();
+});
+
+// 빠른 주문 폼 처리
+document.getElementById('quick-order-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const stockCode = document.getElementById('stock-code').value;
+    const orderType = document.querySelector('input[name="order-type"]:checked').value;
+    const orderMethod = document.querySelector('input[name="order-method"]:checked').value;
+    const orderUnit = document.querySelector('input[name="order-unit"]:checked').value;
+    
+    if (!stockCode) {
+        showAlert('종목코드를 입력해주세요.', 'danger');
+        return;
+    }
+    
+    // 매도 시 보유 수량 확인
+    if (orderType === 'sell') {
+        const stockSelect = document.getElementById('stock-select');
+        const selectedOption = stockSelect.options[stockSelect.selectedIndex];
+        const heldQuantity = parseInt(selectedOption.dataset.quantity || '0');
+        const orderQuantity = parseInt(document.getElementById('order-quantity').value || '0');
+        
+        if (orderQuantity > heldQuantity) {
+            showAlert(`❌ 보유 수량이 부족합니다.\n보유: ${heldQuantity}주, 주문: ${orderQuantity}주`, 'danger');
+            return;
+        }
+    }
+    
+    let quantity, price;
+    
+    // 수량과 가격 계산
+    let orderAmount = null;
+    
+    if (orderUnit === 'amount' && orderType === 'buy') {
+        // 금액주문 (매수만)
+        orderAmount = parseInt(document.getElementById('order-amount').value);
+        if (!orderAmount || orderAmount <= 0) {
+            showAlert('주문금액을 입력해주세요.', 'danger');
+            return;
+        }
+        
+        if (orderMethod === 'limit') {
+            price = parseInt(document.getElementById('order-price').value);
+            if (!price || price <= 0) {
+                showAlert('주문가격을 입력해주세요.', 'danger');
+                return;
+            }
+            quantity = Math.floor(orderAmount / price);
+        } else {
+            // 시장가 금액주문은 API에서 현재가로 계산
+            price = 0;
+            quantity = 1; // 임시값, API에서 재계산됨
+        }
+    } else {
+        // 수량주문
+        quantity = parseInt(document.getElementById('order-quantity').value);
+        if (!quantity || quantity <= 0) {
+            showAlert('주문수량을 입력해주세요.', 'danger');
+            return;
+        }
+        
+        if (orderMethod === 'limit') {
+            price = parseInt(document.getElementById('order-price').value);
+            if (!price || price <= 0) {
+                showAlert('주문가격을 입력해주세요.', 'danger');
+                return;
+            }
+        } else {
+            price = 0; // 시장가
+        }
+    }
+    
+    // 주문 타입 매핑
+    const orderTypeMapping = {
+        'limit': '0',  // 지정가
+        'market': '3'  // 시장가
+    };
+    
+    const endpoint = orderType === 'buy' ? '/api/order/buy' : '/api/order/sell';
+    
+    const requestData = {
+        stock_code: stockCode,
+        quantity: quantity,
+        price: price,
+        order_type: orderTypeMapping[orderMethod]
+    };
+    
+    // 금액주문인 경우 order_amount 추가
+    if (orderAmount) {
+        requestData.order_amount = orderAmount;
+    }
+    
+    // 주문 처리 중 로딩 표시
+    const submitButton = document.querySelector('#quick-order-form button[type="submit"]');
+    const originalButtonText = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>주문 처리 중...';
+    
+    fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert(data.message, 'success', 8000); // 성공 메시지는 8초간 표시
+            document.getElementById('quick-order-form').reset();
+            updateOrderForm();
+            updateSubmitButton();
+            refreshDashboard();
+        } else {
+            showAlert(data.message, 'danger', 10000); // 오류 메시지는 10초간 표시
+        }
+    })
+    .catch(error => {
+        console.error('주문 실패:', error);
+        showAlert('❌ 주문 처리 중 오류가 발생했습니다.\n네트워크 연결을 확인해주세요.', 'danger', 10000);
+    })
+    .finally(() => {
+        // 버튼 상태 복원
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalButtonText;
+    });
+});
+
+function cancelOrder(orderNo, stockCode, quantity) {
+    if (!confirm(`정말로 이 주문을 취소하시겠습니까?\n\n주문번호: ${orderNo}\n종목: ${stockCode}\n수량: ${quantity}주`)) {
+        return;
+    }
+    
+    // 취소 버튼 비활성화
+    const cancelButtons = document.querySelectorAll(`button[onclick*="${orderNo}"]`);
+    cancelButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 취소 중...';
+    });
+    
+    fetch('/api/order/cancel', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            order_no: orderNo,
+            stock_code: stockCode,
+            quantity: parseInt(quantity)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert(data.message, 'success', 8000);
+            refreshUnexecutedOrders();
+        } else {
+            showAlert(data.message, 'danger', 10000);
+        }
+    })
+    .catch(error => {
+        console.error('주문 취소 실패:', error);
+        showAlert('❌ 주문 취소 중 오류가 발생했습니다.\n네트워크 연결을 확인해주세요.', 'danger', 10000);
+    })
+    .finally(() => {
+        // 버튼 상태 복원
+        cancelButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-times"></i>';
+        });
+    });
+}
+</script>
+{% endblock %}

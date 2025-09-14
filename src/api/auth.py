@@ -1,0 +1,240 @@
+# -*- coding: utf-8 -*-
+"""
+키움증권 OAuth 인증 모듈
+"""
+import sys
+import os
+import io
+import json
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional, Dict, Any
+import requests
+
+# 환경 변수 설정
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+from src.config import (
+    KIWOOM_APP_KEY, KIWOOM_SECRET_KEY, KIWOOM_OAUTH_URL, KIWOOM_REVOKE_URL,
+    TOKEN_CACHE_FILE, TOKEN_EXPIRE_BUFFER, API_REQUEST_DELAY
+)
+from src.utils import api_logger
+
+
+class KiwoomAuth:
+    """키움증권 OAuth 인증 관리 클래스"""
+    
+    def __init__(self):
+        self.app_key = KIWOOM_APP_KEY
+        self.secret_key = KIWOOM_SECRET_KEY
+        self.oauth_url = KIWOOM_OAUTH_URL
+        self.revoke_url = KIWOOM_REVOKE_URL
+        self.token_cache_file = TOKEN_CACHE_FILE
+        self._access_token = None
+        self._token_expires_at = None
+        
+        # 캐시 디렉토리 생성
+        self.token_cache_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # 기존 토큰 로드
+        self._load_cached_token()
+    
+    def _load_cached_token(self) -> None:
+        """캐시된 토큰 로드"""
+        try:
+            if self.token_cache_file.exists():
+                with open(self.token_cache_file, 'r', encoding='utf-8') as f:
+                    token_data = json.load(f)
+                
+                self._access_token = token_data.get('token')
+                expires_dt_str = token_data.get('expires_dt')
+                
+                if expires_dt_str and self._access_token:
+                    # YYYYMMDDHHMMSS 형식을 datetime으로 변환
+                    expires_dt = datetime.strptime(expires_dt_str, '%Y%m%d%H%M%S')
+                    self._token_expires_at = expires_dt
+                    
+                    # 토큰이 아직 유효한지 확인
+                    if datetime.now() < expires_dt - timedelta(seconds=TOKEN_EXPIRE_BUFFER):
+                        api_logger.info("캐시된 토큰을 사용합니다.")
+                        return
+                    else:
+                        api_logger.info("캐시된 토큰이 만료되었습니다.")
+                
+                # 만료된 토큰 정리
+                self._access_token = None
+                self._token_expires_at = None
+                
+        except Exception as e:
+            api_logger.error(f"토큰 캐시 로드 실패: {e}")
+            self._access_token = None
+            self._token_expires_at = None
+    
+    def _save_token_cache(self, token_data: Dict[str, Any]) -> None:
+        """토큰을 캐시 파일에 저장"""
+        try:
+            with open(self.token_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(token_data, f, ensure_ascii=False, indent=2)
+            api_logger.info("토큰이 캐시에 저장되었습니다.")
+        except Exception as e:
+            api_logger.error(f"토큰 캐시 저장 실패: {e}")
+    
+    def get_access_token(self, force_refresh: bool = False) -> Optional[str]:
+        """
+        접근 토큰 발급 또는 반환
+        
+        Args:
+            force_refresh: 강제 갱신 여부
+            
+        Returns:
+            접근 토큰 문자열 또는 None
+        """
+        # 강제 갱신이 아니고 유효한 토큰이 있으면 반환
+        if not force_refresh and self._access_token and self._token_expires_at:
+            if datetime.now() < self._token_expires_at - timedelta(seconds=TOKEN_EXPIRE_BUFFER):
+                return self._access_token
+        
+        # 새 토큰 발급
+        return self._request_new_token()
+    
+    def _request_new_token(self) -> Optional[str]:
+        """새로운 접근 토큰 발급 요청"""
+        try:
+            api_logger.info("새로운 접근 토큰을 발급받습니다.")
+            
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8'
+            }
+            
+            data = {
+                'grant_type': 'client_credentials',
+                'appkey': self.app_key,
+                'secretkey': self.secret_key
+            }
+            
+            response = requests.post(
+                self.oauth_url,
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get('return_code') == 0:
+                token = result.get('token')
+                expires_dt_str = result.get('expires_dt')
+                
+                if token and expires_dt_str:
+                    # 토큰 정보 저장
+                    self._access_token = token
+                    self._token_expires_at = datetime.strptime(expires_dt_str, '%Y%m%d%H%M%S')
+                    
+                    # 캐시에 저장
+                    self._save_token_cache({
+                        'token': token,
+                        'expires_dt': expires_dt_str,
+                        'issued_at': datetime.now().strftime('%Y%m%d%H%M%S')
+                    })
+                    
+                    api_logger.info("접근 토큰 발급 성공")
+                    return token
+                else:
+                    api_logger.error("토큰 응답 데이터가 올바르지 않습니다.")
+                    return None
+            else:
+                api_logger.error(f"토큰 발급 실패: {result.get('return_msg', '알 수 없는 오류')}")
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            api_logger.error(f"토큰 발급 요청 실패: {e}")
+            return None
+        except Exception as e:
+            api_logger.error(f"토큰 발급 중 오류 발생: {e}")
+            return None
+    
+    def revoke_token(self) -> bool:
+        """
+        접근 토큰 폐기
+        
+        Returns:
+            폐기 성공 여부
+        """
+        if not self._access_token:
+            api_logger.warning("폐기할 토큰이 없습니다.")
+            return True
+        
+        try:
+            api_logger.info("접근 토큰을 폐기합니다.")
+            
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8'
+            }
+            
+            data = {
+                'appkey': self.app_key,
+                'secretkey': self.secret_key,
+                'token': self._access_token
+            }
+            
+            response = requests.post(
+                self.revoke_url,
+                headers=headers,
+                json=data,
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get('return_code') == 0:
+                api_logger.info("토큰 폐기 성공")
+                
+                # 로컬 토큰 정보 정리
+                self._access_token = None
+                self._token_expires_at = None
+                
+                # 캐시 파일 삭제
+                if self.token_cache_file.exists():
+                    self.token_cache_file.unlink()
+                
+                return True
+            else:
+                api_logger.error(f"토큰 폐기 실패: {result.get('return_msg', '알 수 없는 오류')}")
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            api_logger.error(f"토큰 폐기 요청 실패: {e}")
+            return False
+        except Exception as e:
+            api_logger.error(f"토큰 폐기 중 오류 발생: {e}")
+            return False
+    
+    def get_auth_headers(self) -> Dict[str, str]:
+        """
+        API 호출용 인증 헤더 반환
+        
+        Returns:
+            인증 헤더 딕셔너리
+        """
+        token = self.get_access_token()
+        if not token:
+            raise Exception("유효한 접근 토큰을 가져올 수 없습니다.")
+        
+        return {
+            'Content-Type': 'application/json;charset=UTF-8',
+            'authorization': f'Bearer {token}'
+        }
+    
+    def is_token_valid(self) -> bool:
+        """토큰 유효성 확인"""
+        if not self._access_token or not self._token_expires_at:
+            return False
+        
+        return datetime.now() < self._token_expires_at - timedelta(seconds=TOKEN_EXPIRE_BUFFER)
+
+
+# 전역 인증 인스턴스
+kiwoom_auth = KiwoomAuth()
+
