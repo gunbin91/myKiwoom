@@ -53,8 +53,10 @@ cache/
 *.cache
 
 # Data files (sensitive)
-data/auto_trading_config.json
 data/auto_trading_execution.log
+data/*.log
+data/cache/
+data/temp/
 
 # API Keys and Secrets
 .env
