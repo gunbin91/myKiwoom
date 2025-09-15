@@ -250,7 +250,16 @@ class DeepLearningAnalyzer:
                 
                 # 5. 최종 점수 계산
                 log_info("📊 최종 점수 계산 중...")
-                result_df = calculate_final_score(ml_df)
+                try:
+                    result_df = calculate_final_score(ml_df)
+                except Exception as e:
+                    log_warning(f"앙상블 점수 계산 중 오류 발생 (계속 진행): {e}")
+                    # 오류가 발생해도 기본 점수로 진행
+                    result_df = ml_df.copy()
+                    if 'final_score' not in result_df.columns:
+                        result_df['final_score'] = 50.0  # 기본 점수
+                    if '최종순위' not in result_df.columns:
+                        result_df['최종순위'] = range(1, len(result_df) + 1)
                 
                 # 6. 종목명과 현재가 정보 추가 (누락된 경우)
                 log_info("📋 종목명과 현재가 정보를 추가합니다...")
@@ -319,13 +328,19 @@ class DeepLearningAnalyzer:
         try:
             result_df = pd.DataFrame(analysis_result['data']['analysis_result'])
             
-            # 보유 종목 조회
-            held_stocks = self._get_held_stocks()
-            if held_stocks:
-                log_info(f"📋 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
-                # 보유 종목 제외
-                result_df = result_df[~result_df['종목코드'].isin(held_stocks)]
-                log_info(f"✅ 보유 종목 제외 후 {len(result_df)}개 종목이 남았습니다.")
+            # 보유 종목 조회 (실패해도 계속 진행)
+            try:
+                held_stocks = self._get_held_stocks()
+                if held_stocks:
+                    log_info(f"📋 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
+                    # 보유 종목 제외
+                    result_df = result_df[~result_df['종목코드'].isin(held_stocks)]
+                    log_info(f"✅ 보유 종목 제외 후 {len(result_df)}개 종목이 남았습니다.")
+                else:
+                    log_info("📋 보유 종목이 없거나 조회에 실패했습니다. 모든 종목을 매수 대상으로 고려합니다.")
+            except Exception as e:
+                log_warning(f"보유 종목 조회 중 오류 발생 (계속 진행): {e}")
+                log_info("📋 보유 종목 조회 실패로 모든 종목을 매수 대상으로 고려합니다.")
             
             # 매수 대상 범위 내에서 상위 N개 선택
             buy_candidates = result_df[result_df['최종순위'] <= buy_universe_rank]
@@ -341,12 +356,24 @@ class DeepLearningAnalyzer:
         """보유 종목 조회"""
         try:
             from src.api.account import KiwoomAccount
+            from src.api.auth import kiwoom_auth
+            
+            # 인증 상태 확인
+            if not kiwoom_auth.is_authenticated():
+                log_warning("키움 API 인증이 필요합니다.")
+                return []
+            
             kiwoom_account = KiwoomAccount()
             
             # 보유 종목 정보 조회
             balance_result = kiwoom_account.get_account_balance_detail()
-            if not balance_result or not balance_result.get('success'):
-                log_warning("보유 종목 정보를 가져올 수 없습니다.")
+            if not balance_result:
+                log_warning("보유 종목 정보 조회 결과가 None입니다.")
+                return []
+            elif not balance_result.get('success'):
+                error_msg = balance_result.get('message', '알 수 없는 오류')
+                error_code = balance_result.get('error_code', 'UNKNOWN')
+                log_warning(f"보유 종목 정보 조회 실패: [{error_code}] {error_msg}")
                 return []
             
             # 보유 수량이 있는 종목만 필터링

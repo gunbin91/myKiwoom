@@ -28,14 +28,14 @@ class AutoTradingConfigManager:
         self.default_config = {
             "auto_trading_enabled": False,
             "schedule_time": "08:30",
-            "schedule_period": "AM",
             "strategy_params": {
                 "reserve_cash": 1000000,  # 매매 제외 예수금
                 "max_hold_period": 15,    # 최대 보유 기간
                 "take_profit_pct": 5.0,   # 익절률
                 "stop_loss_pct": 3.0,     # 손절률
                 "top_n": 5,               # 매수 종목 수
-                "buy_universe_rank": 20   # 매수 대상 범위
+                "buy_universe_rank": 20,  # 매수 대상 범위
+                "transaction_fee_rate": 0.015  # 거래 수수료율 (%)
             }
         }
     

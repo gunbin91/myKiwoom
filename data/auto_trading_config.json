@@ -1,13 +1,13 @@
 {
   "auto_trading_enabled": false,
-  "schedule_period": "AM",
-  "schedule_time": "14:30",
+  "schedule_time": "01:30",
   "strategy_params": {
-    "reserve_cash": 0,
+    "reserve_cash": 9000000,
     "max_hold_period": 15,
     "take_profit_pct": 5,
     "stop_loss_pct": 3,
     "top_n": 5,
-    "buy_universe_rank": 20
+    "buy_universe_rank": 20,
+    "transaction_fee_rate": 0.015
   }
 }

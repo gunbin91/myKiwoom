@@ -17,6 +17,7 @@ class AutoTradingScheduler:
         self.scheduler_thread = None
         self.check_interval = 60  # 1분마다 체크
         self.last_check_time = None  # 마지막 체크 시간
+        self.is_executing = False  # 현재 자동매매 실행 중인지 확인
     
     def start(self):
         """스케줄러 시작"""
@@ -67,38 +68,43 @@ class AutoTradingScheduler:
             if config_manager.is_today_executed():
                 return
             
-            # 자동매매 실행
-            web_logger.info("⏰ 스케줄된 시간에 자동매매를 실행합니다.")
-            result = auto_trading_engine.execute_strategy()
+            # 현재 실행 중인지 확인 (중복 실행 방지)
+            if self.is_executing:
+                web_logger.warning("⚠️ 자동매매가 이미 실행 중입니다. 중복 실행을 방지합니다.")
+                return
             
-            if result['success']:
-                web_logger.info(f"✅ 스케줄된 자동매매 실행 완료: {result['message']}")
-            else:
-                web_logger.error(f"❌ 스케줄된 자동매매 실행 실패: {result['message']}")
+            # 자동매매 실행
+            self.is_executing = True
+            try:
+                web_logger.info("⏰ 스케줄된 시간에 자동매매를 실행합니다.")
+                result = auto_trading_engine.execute_strategy()
+                
+                if result['success']:
+                    web_logger.info(f"✅ 스케줄된 자동매매 실행 완료: {result['message']}")
+                else:
+                    web_logger.error(f"❌ 스케줄된 자동매매 실행 실패: {result['message']}")
+            finally:
+                # 실행 완료 후 플래그 해제
+                self.is_executing = False
                 
         except Exception as e:
             web_logger.error(f"스케줄러 실행 확인 중 오류: {e}")
+            # 예외 발생 시에도 실행 플래그 해제
+            self.is_executing = False
     
     def _is_execution_time(self, config):
         """실행 시간인지 확인"""
         try:
             now = datetime.now()
             schedule_time = config.get('schedule_time', '08:30')
-            schedule_period = config.get('schedule_period', 'AM')
             
-            # 시간 파싱
+            # 시간 파싱 (24시간 형식)
             hour, minute = map(int, schedule_time.split(':'))
             
-            # 오전/오후 처리
-            if schedule_period == 'PM' and hour != 12:
-                hour += 12
-            elif schedule_period == 'AM' and hour == 12:
-                hour = 0
-            
-            # 실행 시간 범위 (정확한 시간 ±5분)
+            # 실행 시간 범위 (정확한 시간 ±1분)
             target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            time_range_start = target_time - timedelta(minutes=5)
-            time_range_end = target_time + timedelta(minutes=5)
+            time_range_start = target_time - timedelta(minutes=1)
+            time_range_end = target_time + timedelta(minutes=1)
             
             return time_range_start <= now <= time_range_end
             
@@ -111,16 +117,9 @@ class AutoTradingScheduler:
         try:
             config = config_manager.load_config()
             schedule_time = config.get('schedule_time', '08:30')
-            schedule_period = config.get('schedule_period', 'AM')
             
-            # 시간 파싱
+            # 시간 파싱 (24시간 형식)
             hour, minute = map(int, schedule_time.split(':'))
-            
-            # 오전/오후 처리
-            if schedule_period == 'PM' and hour != 12:
-                hour += 12
-            elif schedule_period == 'AM' and hour == 12:
-                hour = 0
             
             now = datetime.now()
             next_execution = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -140,6 +139,10 @@ class AutoTradingScheduler:
         if self.last_check_time:
             return self.last_check_time.strftime('%Y-%m-%d %H:%M:%S')
         return None
+    
+    def is_currently_executing(self):
+        """현재 자동매매가 실행 중인지 확인"""
+        return self.is_executing
 
 
 # 전역 인스턴스

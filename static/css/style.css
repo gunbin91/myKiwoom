@@ -142,6 +142,12 @@ body {
     box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
 }
 
+/* 폼 안내문구 스타일 */
+.form-text {
+    color: #6c757d !important; /* 더 밝은 회색으로 변경 */
+    font-size: 0.875rem;
+}
+
 /* 알림 스타일 */
 .alert {
     border: none;
@@ -356,6 +362,10 @@ body {
         border-color: var(--primary-color);
         color: #ffffff;
     }
+    
+    .form-text {
+        color: #adb5bd !important; /* 다크 모드에서 더 밝은 회색 */
+    }
 }
 
 /* 애니메이션 */
@@ -396,6 +406,13 @@ body {
 
 .bg-light {
     background-color: #f8f9fa !important;
+}
+
+/* 분석 결과 모달의 카드 텍스트 색상 수정 */
+.bg-light .card-title,
+.bg-light p,
+.bg-light span {
+    color: #212529 !important;
 }
 
 /* 푸터 */

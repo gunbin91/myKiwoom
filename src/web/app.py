@@ -35,13 +35,13 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=SESSION_TIMEOUT)
 app.config['JSON_AS_ASCII'] = False
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
 
-# Flask 로깅 레벨 설정 (INFO 레벨로 설정하여 일반적인 요청 로그는 숨김)
+# Flask 로깅 레벨 설정 (개발 중에는 INFO 레벨로 설정하여 디버깅 가능)
 import logging
 log = logging.getLogger('werkzeug')
-log.setLevel(logging.WARNING)
+log.setLevel(logging.INFO)  # 개발 중에는 INFO 레벨로 변경
 
 # Flask 애플리케이션 로깅 레벨도 조정
-app.logger.setLevel(logging.WARNING)
+app.logger.setLevel(logging.INFO)  # 개발 중에는 INFO 레벨로 변경
 
 # 자동매매 상태 조회 요청 로그 필터링
 class AutoTradingStatusLogFilter(logging.Filter):
@@ -1139,6 +1139,33 @@ def execute_auto_trading():
         })
 
 
+@app.route('/api/auth/status', methods=['GET'])
+def get_auth_status():
+    """키움 API 인증 상태 조회"""
+    try:
+        is_authenticated = kiwoom_auth.is_authenticated()
+        token_info = kiwoom_auth.get_token_info() if is_authenticated else None
+        
+        return jsonify({
+            'success': True,
+            'authenticated': is_authenticated,
+            'token_info': token_info
+        })
+    except AttributeError as e:
+        web_logger.error(f"인증 메서드 없음: {e}")
+        return jsonify({
+            'success': False,
+            'message': '인증 시스템이 초기화되지 않았습니다.',
+            'authenticated': False
+        }), 500
+    except Exception as e:
+        web_logger.error(f"인증 상태 조회 실패: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'인증 상태 조회 실패: {str(e)}',
+            'authenticated': False
+        }), 500
+
 @app.route('/api/auto-trading/analysis', methods=['POST'])
 def get_analysis_result():
     """분석 결과 조회 (테스트용)"""
@@ -1146,24 +1173,69 @@ def get_analysis_result():
         data = request.get_json()
         force_realtime = data.get('force_realtime', True)  # 기본값: 실시간 분석
         
-        # 분석 실행
-        analysis_result = auto_trading_engine.analyzer.get_stock_analysis(force_realtime=force_realtime)
-        
-        if not analysis_result.get('success'):
+        # 키움 API 인증 상태 확인
+        try:
+            if not kiwoom_auth.is_authenticated():
+                return jsonify({
+                    'success': False,
+                    'message': '키움 API 인증이 필요합니다. 먼저 인증을 완료해주세요.',
+                    'error_details': {
+                        'error_type': 'auth_required',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                }), 401
+        except Exception as e:
+            web_logger.error(f"인증 상태 확인 실패: {e}")
             return jsonify({
                 'success': False,
-                'message': f"분석 실행 실패: {analysis_result.get('message', '알 수 없는 오류')}"
+                'message': f'인증 상태 확인 실패: {str(e)}',
+                'error_details': {
+                    'error_type': 'auth_check_failed',
+                    'timestamp': datetime.now().isoformat()
+                }
+            }), 500
+        
+        # 분석 실행
+        try:
+            analysis_result = auto_trading_engine.analyzer.get_stock_analysis(force_realtime=force_realtime)
+        except Exception as e:
+            web_logger.error(f"분석 실행 중 예외 발생: {e}")
+            return jsonify({
+                'success': False,
+                'message': f"분석 실행 중 오류 발생: {str(e)}",
+                'error_details': {
+                    'error_type': 'analysis_exception',
+                    'timestamp': datetime.now().isoformat(),
+                    'force_realtime': force_realtime
+                }
+            }), 500
+        
+        if not analysis_result.get('success'):
+            error_message = analysis_result.get('message', '알 수 없는 오류')
+            web_logger.error(f"분석 결과 조회 실패: {error_message}")
+            return jsonify({
+                'success': False,
+                'message': f"분석 실행 실패: {error_message}",
+                'error_details': {
+                    'error_type': 'analysis_failed',
+                    'timestamp': datetime.now().isoformat(),
+                    'force_realtime': force_realtime
+                }
             }), 400
         
         # 매수 대상 선정
-        config = config_manager.load_config()
-        strategy_params = config.get('strategy_params', {})
-        
-        buy_candidates = auto_trading_engine.analyzer.get_top_stocks(
-            analysis_result,
-            top_n=strategy_params.get('top_n', 5),
-            buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
-        )
+        try:
+            config = config_manager.load_config()
+            strategy_params = config.get('strategy_params', {})
+            
+            buy_candidates = auto_trading_engine.analyzer.get_top_stocks(
+                analysis_result,
+                top_n=strategy_params.get('top_n', 5),
+                buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
+            )
+        except Exception as e:
+            web_logger.error(f"매수 대상 선정 중 오류 발생: {e}")
+            buy_candidates = []  # 빈 리스트로 설정하여 계속 진행
         
         # 결과 정리
         result = {

@@ -87,6 +87,9 @@ class KiwoomOrder:
         Returns:
             주문 결과
         """
+        # 수량을 정수로 변환 (키움 API는 정수만 허용)
+        quantity = int(quantity)
+        
         trading_logger.info(f"매수주문 (종목: {stock_code}, 수량: {quantity}, 가격: {price}, 구분: {order_type}, 거래소: {exchange})")
         
         data = {
@@ -126,6 +129,9 @@ class KiwoomOrder:
         Returns:
             주문 결과
         """
+        # 수량을 정수로 변환 (키움 API는 정수만 허용)
+        quantity = int(quantity)
+        
         trading_logger.info(f"매도주문 (종목: {stock_code}, 수량: {quantity}, 가격: {price}, 구분: {order_type}, 거래소: {exchange})")
         
         data = {

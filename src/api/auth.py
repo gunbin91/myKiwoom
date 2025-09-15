@@ -233,6 +233,20 @@ class KiwoomAuth:
             return False
         
         return datetime.now() < self._token_expires_at - timedelta(seconds=TOKEN_EXPIRE_BUFFER)
+    
+    def is_authenticated(self) -> bool:
+        """인증 상태 확인"""
+        return self.is_token_valid()
+    
+    def get_token_info(self) -> Optional[Dict[str, Any]]:
+        """토큰 정보 반환"""
+        if not self.is_authenticated():
+            return None
+        
+        return {
+            'expires_at': self._token_expires_at.isoformat() if self._token_expires_at else None,
+            'expires_in_seconds': int((self._token_expires_at - datetime.now()).total_seconds()) if self._token_expires_at else 0
+        }
 
 
 # 전역 인증 인스턴스

@@ -10,6 +10,7 @@ urllib3==2.0.7
 # 데이터 처리
 pandas==2.3.2
 numpy==2.2.6
+pyarrow==21.0.0
 
 # 머신러닝 (자동매매용)
 scikit-learn==1.7.2

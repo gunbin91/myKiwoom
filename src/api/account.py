@@ -71,13 +71,16 @@ class KiwoomAccount:
                     error_msg = result.get('return_msg', '알 수 없는 오류')
                     error_code = result.get('return_code', 'UNKNOWN')
                     api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg}")
+                    api_logger.error(f"전체 응답: {result}")  # 전체 응답 로그 추가
                     
                     # 오류 정보를 포함한 결과 반환
                     return {
                         'success': False,
                         'error_code': error_code,
                         'error_message': error_msg,
-                        'api_id': api_id
+                        'message': error_msg,  # 호환성을 위해 추가
+                        'api_id': api_id,
+                        'full_response': result  # 디버깅을 위해 전체 응답 포함
                     }
                     
             except requests.exceptions.RequestException as e:

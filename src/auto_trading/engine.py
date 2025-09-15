@@ -6,6 +6,7 @@ import sys
 import os
 import io
 import json
+import time
 from datetime import datetime, timedelta
 import pandas as pd
 
@@ -254,6 +255,7 @@ class AutoTradingEngine:
         """매수 주문 실행 (실시간 시장가 기준)"""
         success_count = 0
         reserve_cash = strategy_params.get('reserve_cash', 1000000)
+        transaction_fee_rate = strategy_params.get('transaction_fee_rate', 0.015)
         
         try:
             # 사용 가능한 현금 계산
@@ -262,7 +264,7 @@ class AutoTradingEngine:
                 web_logger.warning(f"사용 가능한 현금이 부족합니다. (예수금: {account_info['deposit'].get('entr', 0)}, 예약금: {reserve_cash})")
                 return {'success_count': 0}
             
-            # 실전에서는 종목당 동일한 금액 투자 (수수료는 자동 차감)
+            # 실전에서는 종목당 동일한 금액 투자 (수수료 고려)
             investment_per_stock = available_cash // len(buy_candidates)
             
             web_logger.info(f"💰 총 투자 가능 금액: {available_cash:,}원")
@@ -283,35 +285,54 @@ class AutoTradingEngine:
                     realtime_price_result = self._get_realtime_price(stock_code)
                     
                     if not realtime_price_result['success']:
-                        web_logger.error(f"❌ {stock_name}({stock_code}) 실시간 가격 조회 실패: {realtime_price_result['message']}")
-                        continue
+                        # 실시간 가격 조회 실패 시 분석 시점 가격 사용
+                        if analysis_price > 0:
+                            realtime_price = analysis_price
+                            web_logger.warning(f"⚠️ {stock_name}({stock_code}) 실시간 가격 조회 실패, 분석 시점 가격 사용: {analysis_price:,}원")
+                        else:
+                            web_logger.error(f"❌ {stock_name}({stock_code}) 가격 정보 없음 (실시간: {realtime_price_result['message']}, 분석시점: {analysis_price})")
+                            continue
+                    else:
+                        realtime_price = realtime_price_result['price']
+                        web_logger.info(f"📊 {stock_name}({stock_code}) 실시간 가격: {realtime_price:,}원 (분석시점: {analysis_price:,}원)")
                     
-                    realtime_price = realtime_price_result['price']
-                    web_logger.info(f"📊 {stock_name}({stock_code}) 실시간 가격: {realtime_price:,}원 (분석시점: {analysis_price:,}원)")
-                    
-                    # 실시간 가격으로 매수 수량 계산
-                    quantity = investment_per_stock // realtime_price
+                    # 수수료를 고려한 매수 수량 계산
+                    effective_price = realtime_price * (1 + transaction_fee_rate / 100)
+                    quantity = int(investment_per_stock // effective_price)
                     
                     if quantity <= 0:
                         web_logger.warning(f"⚠️ {stock_name}({stock_code}) 매수 수량이 0입니다. (투자금액: {investment_per_stock:,}원, 실시간가격: {realtime_price:,}원)")
                         continue
                     
-                    # 매수 주문 실행
+                    # 매수 주문 실행 (재시도 로직 포함)
                     web_logger.info(f"📈 {stock_name}({stock_code}) 매수 주문: {quantity}주 @ {realtime_price:,}원 (투자금액: {investment_per_stock:,}원)")
                     
-                    order_result = kiwoom_order.buy_stock(
-                        stock_code=stock_code,
-                        quantity=quantity,
-                        price=0,  # 시장가는 가격을 0으로 설정
-                        order_type='3'  # 시장가
-                    )
+                    # 매수 주문 재시도 (최대 2회)
+                    max_retries = 2
+                    order_success = False
                     
-                    if order_result and order_result.get('success') is not False:
-                        success_count += 1
-                        web_logger.info(f"✅ {stock_name} 매수 주문 성공")
-                        # 매수일은 체결내역에서 자동으로 가져옴
-                    else:
-                        web_logger.warning(f"❌ {stock_name} 매수 주문 실패")
+                    for retry in range(max_retries):
+                        order_result = kiwoom_order.buy_stock(
+                            stock_code=stock_code,
+                            quantity=quantity,
+                            price=0,  # 시장가는 가격을 0으로 설정
+                            order_type='3'  # 시장가
+                        )
+                        
+                        if order_result and order_result.get('success') is not False:
+                            order_success = True
+                            success_count += 1
+                            web_logger.info(f"✅ {stock_name} 매수 주문 성공")
+                            break
+                        else:
+                            if retry < max_retries - 1:
+                                web_logger.warning(f"⚠️ {stock_name} 매수 주문 실패, {retry + 1}초 후 재시도...")
+                                time.sleep(1)  # 1초 대기 후 재시도
+                            else:
+                                web_logger.error(f"❌ {stock_name} 매수 주문 최종 실패 (재시도 {max_retries}회 완료)")
+                    
+                    if not order_success:
+                        continue
                         
                 except Exception as e:
                     web_logger.error(f"매수 주문 실행 중 오류: {e}")
@@ -482,11 +503,11 @@ class AutoTradingEngine:
                 else:
                     valid_stocks.append(item)
             
-            # 7. 유효한 종목 수 확인
-            if len(valid_stocks) < 3:
+            # 7. 유효한 종목 수 확인 (완화된 기준)
+            if len(valid_stocks) < 1:
                 return {
                     'success': False,
-                    'message': f"유효한 종목이 부족합니다. (유효: {len(valid_stocks)}개, 무효: {len(invalid_stocks)}개)"
+                    'message': f"유효한 종목이 없습니다. (유효: {len(valid_stocks)}개, 무효: {len(invalid_stocks)}개)"
                 }
             
             # 8. 경고 로그 (무효 종목이 있는 경우)
@@ -520,13 +541,6 @@ class AutoTradingEngine:
                 return {
                     'success': False,
                     'message': "매수 대상 종목이 없습니다."
-                }
-            
-            # 최소 매수 대상 수 확인
-            if len(buy_candidates) < 1:
-                return {
-                    'success': False,
-                    'message': "매수 대상 종목이 1개 미만입니다."
                 }
             
             # 각 매수 대상의 필수 정보 확인
