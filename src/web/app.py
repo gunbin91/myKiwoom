@@ -1139,6 +1139,80 @@ def execute_auto_trading():
         })
 
 
+@app.route('/api/auto-trading/analysis', methods=['POST'])
+def get_analysis_result():
+    """분석 결과 조회 (테스트용)"""
+    try:
+        data = request.get_json()
+        force_realtime = data.get('force_realtime', True)  # 기본값: 실시간 분석
+        
+        # 분석 실행
+        analysis_result = auto_trading_engine.analyzer.get_stock_analysis(force_realtime=force_realtime)
+        
+        if not analysis_result.get('success'):
+            return jsonify({
+                'success': False,
+                'message': f"분석 실행 실패: {analysis_result.get('message', '알 수 없는 오류')}"
+            }), 400
+        
+        # 매수 대상 선정
+        config = config_manager.load_config()
+        strategy_params = config.get('strategy_params', {})
+        
+        buy_candidates = auto_trading_engine.analyzer.get_top_stocks(
+            analysis_result,
+            top_n=strategy_params.get('top_n', 5),
+            buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
+        )
+        
+        # 결과 정리
+        result = {
+            'success': True,
+            'analysis_date': analysis_result['data'].get('analysis_date'),
+            'total_stocks': analysis_result['data'].get('total_stocks', 0),
+            'top_stocks': analysis_result['data'].get('top_stocks', [])[:20],  # 상위 20개만
+            'buy_candidates': buy_candidates,
+            'strategy_params': strategy_params
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        web_logger.error(f"분석 결과 조회 중 오류: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'분석 결과 조회 중 오류가 발생했습니다: {str(e)}'
+        }), 500
+
+@app.route('/api/auto-trading/execute-with-candidates', methods=['POST'])
+def execute_auto_trading_with_candidates():
+    """선정된 매수 대상으로 자동매매 실행 (테스트용)"""
+    try:
+        data = request.get_json()
+        buy_candidates = data.get('buy_candidates', [])
+        manual_execution = data.get('manual_execution', True)
+        
+        if not buy_candidates:
+            return jsonify({
+                'success': False,
+                'message': '매수 대상이 지정되지 않았습니다.'
+            }), 400
+        
+        # 자동매매 실행 (매수 대상 미리 선정된 상태)
+        result = auto_trading_engine.execute_strategy_with_candidates(
+            buy_candidates=buy_candidates,
+            manual_execution=manual_execution
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        web_logger.error(f"자동매매 실행 중 오류: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}'
+        }), 500
+
 @app.route('/api/auto-trading/stop', methods=['POST'])
 def stop_auto_trading():
     """자동매매 긴급 중지"""

@@ -315,6 +315,57 @@ class KiwoomQuote:
         }
         
         return self._make_request('ka10086', data)
+    
+    def get_current_price(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        실시간 현재가 조회 (주식기본정보요청 활용)
+        
+        Args:
+            stock_code: 종목코드
+            
+        Returns:
+            실시간 현재가 정보
+        """
+        api_logger.info(f"실시간 현재가 조회 (종목코드: {stock_code})")
+        
+        # 주식기본정보요청을 통해 현재가 조회
+        result = self.get_stock_basic_info(stock_code)
+        
+        if result and result.get('return_code') == 0:
+            # 주식기본정보에서 현재가 추출
+            current_price_str = result.get('cur_prc', '0')
+            
+            # +, - 기호 제거하고 숫자만 추출
+            try:
+                # +76500, -12300 같은 형태에서 숫자만 추출
+                current_price = int(current_price_str.replace('+', '').replace('-', ''))
+                
+                if current_price > 0:
+                    return {
+                        'success': True,
+                        'current_price': current_price,
+                        'stock_code': stock_code,
+                        'message': '현재가 조회 성공'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'current_price': 0,
+                        'message': '유효하지 않은 가격 정보'
+                    }
+            except (ValueError, TypeError) as e:
+                return {
+                    'success': False,
+                    'current_price': 0,
+                    'message': f'가격 파싱 오류: {str(e)}'
+                }
+        else:
+            error_msg = result.get('return_msg', '알 수 없는 오류') if result else 'API 호출 실패'
+            return {
+                'success': False,
+                'current_price': 0,
+                'message': f'현재가 조회 실패: {error_msg}'
+            }
 
 
 # 전역 시세 API 인스턴스

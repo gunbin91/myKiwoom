@@ -104,8 +104,11 @@ class AutoTradingEngine:
             web_logger.info("🔍 종목 분석을 실행하는 중...")
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔍 종목 분석을 실행하는 중...")
             analysis_result = self.analyzer.get_stock_analysis()
-            if not analysis_result['success']:
-                error_message = f"종목 분석 실패: {analysis_result['message']}"
+            
+            # 🔥 핵심 수정: 분석 결과 검증 강화
+            validation_result = self._validate_analysis_result(analysis_result)
+            if not validation_result['success']:
+                error_message = f"분석 결과 검증 실패: {validation_result['message']}"
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ {error_message}")
                 return {
                     'success': False,
@@ -129,18 +132,22 @@ class AutoTradingEngine:
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
             )
             
-            if not buy_candidates:
-                web_logger.warning("매수 대상 종목이 없습니다.")
+            # 🔥 핵심 수정: 매수 대상 검증
+            buy_validation = self._validate_buy_candidates(buy_candidates)
+            if not buy_validation['success']:
+                web_logger.warning(f"매수 대상 검증 실패: {buy_validation['message']}")
                 self.current_status = "완료"
                 self.progress_percentage = 100
                 return {
                     'success': True,
-                    'message': '매수 대상 종목이 없어 실행을 건너뜁니다.',
+                    'message': f'매수 대상 검증 실패로 실행을 건너뜁니다: {buy_validation["message"]}',
                     'buy_count': 0,
                     'sell_count': sell_count
                 }
             
-            web_logger.info(f"✅ {len(buy_candidates)}개 매수 대상 선정 완료")
+            # 검증된 매수 대상 사용
+            buy_candidates = buy_validation['valid_candidates']
+            web_logger.info(f"✅ {len(buy_candidates)}개 매수 대상 선정 및 검증 완료")
             
             # 6. 매수 주문 실행
             self.current_status = "매수 주문 실행 중"
@@ -244,7 +251,7 @@ class AutoTradingEngine:
             }
     
     def _execute_buy_orders(self, buy_candidates, account_info, strategy_params):
-        """매수 주문 실행 (백테스팅 로직과 일치)"""
+        """매수 주문 실행 (실시간 시장가 기준)"""
         success_count = 0
         reserve_cash = strategy_params.get('reserve_cash', 1000000)
         
@@ -265,26 +272,32 @@ class AutoTradingEngine:
                 try:
                     stock_code = candidate.get('종목코드', '')
                     stock_name = candidate.get('종목명', '')
-                    current_price = candidate.get('현재가', 0)
+                    analysis_price = candidate.get('현재가', 0)  # 분석 시점 가격 (참고용)
                     
                     if not stock_code:
                         web_logger.error(f"❌ 종목코드가 없습니다: {candidate}")
                         continue
                     
-                    if current_price <= 0:
-                        web_logger.error(f"❌ {stock_name}({stock_code}) 현재가 정보가 없습니다. 분석 데이터에 현재가가 포함되지 않았습니다.")
-                        print(f"❌ {stock_name}({stock_code}) 현재가 정보가 없습니다. 분석 데이터에 현재가가 포함되지 않았습니다.")
+                    # 🔥 핵심 수정: 키움 API로 실시간 현재가 조회
+                    web_logger.info(f"📡 {stock_name}({stock_code}) 실시간 현재가 조회 중...")
+                    realtime_price_result = self._get_realtime_price(stock_code)
+                    
+                    if not realtime_price_result['success']:
+                        web_logger.error(f"❌ {stock_name}({stock_code}) 실시간 가격 조회 실패: {realtime_price_result['message']}")
                         continue
                     
-                    # 실전 매수 수량 계산 (수수료는 자동 차감되므로 고려하지 않음)
-                    quantity = investment_per_stock // current_price
+                    realtime_price = realtime_price_result['price']
+                    web_logger.info(f"📊 {stock_name}({stock_code}) 실시간 가격: {realtime_price:,}원 (분석시점: {analysis_price:,}원)")
+                    
+                    # 실시간 가격으로 매수 수량 계산
+                    quantity = investment_per_stock // realtime_price
                     
                     if quantity <= 0:
-                        web_logger.warning(f"⚠️ {stock_name}({stock_code}) 매수 수량이 0입니다. (투자금액: {investment_per_stock:,}원, 가격: {current_price:,}원)")
+                        web_logger.warning(f"⚠️ {stock_name}({stock_code}) 매수 수량이 0입니다. (투자금액: {investment_per_stock:,}원, 실시간가격: {realtime_price:,}원)")
                         continue
                     
                     # 매수 주문 실행
-                    web_logger.info(f"📈 {stock_name}({stock_code}) 매수 주문: {quantity}주 @ {current_price:,}원 (투자금액: {investment_per_stock:,}원)")
+                    web_logger.info(f"📈 {stock_name}({stock_code}) 매수 주문: {quantity}주 @ {realtime_price:,}원 (투자금액: {investment_per_stock:,}원)")
                     
                     order_result = kiwoom_order.buy_stock(
                         stock_code=stock_code,
@@ -406,6 +419,186 @@ class AutoTradingEngine:
             web_logger.error(f"매도 주문 실행 중 오류: {e}")
             return {'success_count': success_count}
     
+    def _validate_analysis_result(self, analysis_result):
+        """분석 결과 검증"""
+        try:
+            # 1. 기본 성공 여부 확인
+            if not analysis_result.get('success'):
+                return {
+                    'success': False,
+                    'message': f"분석 실행 실패: {analysis_result.get('message', '알 수 없는 오류')}"
+                }
+            
+            # 2. 데이터 구조 확인
+            data = analysis_result.get('data', {})
+            if not data:
+                return {
+                    'success': False,
+                    'message': "분석 결과 데이터가 없습니다."
+                }
+            
+            # 3. 분석 결과 리스트 확인
+            analysis_list = data.get('analysis_result', [])
+            if not analysis_list:
+                return {
+                    'success': False,
+                    'message': "분석된 종목이 없습니다."
+                }
+            
+            # 4. 최소 종목 수 확인 (최소 5개 이상)
+            if len(analysis_list) < 5:
+                return {
+                    'success': False,
+                    'message': f"분석된 종목 수가 부족합니다. (현재: {len(analysis_list)}개, 최소: 5개)"
+                }
+            
+            # 5. 필수 컬럼 확인
+            required_columns = ['종목코드', '종목명', '현재가', '최종순위']
+            missing_columns = []
+            
+            for column in required_columns:
+                if not any(column in item for item in analysis_list):
+                    missing_columns.append(column)
+            
+            if missing_columns:
+                return {
+                    'success': False,
+                    'message': f"필수 컬럼이 누락되었습니다: {', '.join(missing_columns)}"
+                }
+            
+            # 6. 현재가 정보 검증
+            valid_stocks = []
+            invalid_stocks = []
+            
+            for item in analysis_list:
+                stock_code = item.get('종목코드', '')
+                stock_name = item.get('종목명', '')
+                current_price = item.get('현재가', 0)
+                
+                if not stock_code or not stock_name:
+                    invalid_stocks.append(f"{stock_name}({stock_code}) - 기본정보 누락")
+                elif current_price <= 0:
+                    invalid_stocks.append(f"{stock_name}({stock_code}) - 현재가 정보 없음")
+                else:
+                    valid_stocks.append(item)
+            
+            # 7. 유효한 종목 수 확인
+            if len(valid_stocks) < 3:
+                return {
+                    'success': False,
+                    'message': f"유효한 종목이 부족합니다. (유효: {len(valid_stocks)}개, 무효: {len(invalid_stocks)}개)"
+                }
+            
+            # 8. 경고 로그 (무효 종목이 있는 경우)
+            if invalid_stocks:
+                web_logger.warning(f"⚠️ {len(invalid_stocks)}개 종목의 데이터가 무효합니다:")
+                for invalid in invalid_stocks[:5]:  # 최대 5개만 로그
+                    web_logger.warning(f"   - {invalid}")
+                if len(invalid_stocks) > 5:
+                    web_logger.warning(f"   ... 외 {len(invalid_stocks) - 5}개")
+            
+            web_logger.info(f"✅ 분석 결과 검증 완료: {len(valid_stocks)}개 유효 종목")
+            
+            return {
+                'success': True,
+                'message': f"검증 완료: {len(valid_stocks)}개 유효 종목",
+                'valid_stocks': valid_stocks,
+                'invalid_count': len(invalid_stocks)
+            }
+            
+        except Exception as e:
+            web_logger.error(f"분석 결과 검증 중 오류: {e}")
+            return {
+                'success': False,
+                'message': f"검증 중 예외 발생: {str(e)}"
+            }
+    
+    def _validate_buy_candidates(self, buy_candidates):
+        """매수 대상 검증"""
+        try:
+            if not buy_candidates:
+                return {
+                    'success': False,
+                    'message': "매수 대상 종목이 없습니다."
+                }
+            
+            # 최소 매수 대상 수 확인
+            if len(buy_candidates) < 1:
+                return {
+                    'success': False,
+                    'message': "매수 대상 종목이 1개 미만입니다."
+                }
+            
+            # 각 매수 대상의 필수 정보 확인
+            valid_candidates = []
+            for candidate in buy_candidates:
+                stock_code = candidate.get('종목코드', '')
+                stock_name = candidate.get('종목명', '')
+                
+                if not stock_code or not stock_name:
+                    web_logger.warning(f"⚠️ 매수 대상에서 제외: 기본정보 누락 - {candidate}")
+                    continue
+                
+                valid_candidates.append(candidate)
+            
+            if not valid_candidates:
+                return {
+                    'success': False,
+                    'message': "유효한 매수 대상이 없습니다."
+                }
+            
+            web_logger.info(f"✅ 매수 대상 검증 완료: {len(valid_candidates)}개 종목")
+            
+            return {
+                'success': True,
+                'message': f"검증 완료: {len(valid_candidates)}개 매수 대상",
+                'valid_candidates': valid_candidates
+            }
+            
+        except Exception as e:
+            web_logger.error(f"매수 대상 검증 중 오류: {e}")
+            return {
+                'success': False,
+                'message': f"매수 대상 검증 중 예외 발생: {str(e)}"
+            }
+    
+    def _get_realtime_price(self, stock_code):
+        """키움 API로 실시간 현재가 조회"""
+        try:
+            from src.api.quote import kiwoom_quote
+            
+            # 키움 API로 실시간 현재가 조회
+            quote_result = kiwoom_quote.get_current_price(stock_code)
+            
+            if quote_result and quote_result.get('success') is not False:
+                current_price = quote_result.get('current_price', 0)
+                if current_price > 0:
+                    return {
+                        'success': True,
+                        'price': current_price,
+                        'message': '실시간 가격 조회 성공'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'price': 0,
+                        'message': '유효하지 않은 가격 정보'
+                    }
+            else:
+                return {
+                    'success': False,
+                    'price': 0,
+                    'message': f'키움 API 조회 실패: {quote_result.get("message", "알 수 없는 오류")}'
+                }
+                
+        except Exception as e:
+            web_logger.error(f"실시간 가격 조회 중 오류: {e}")
+            return {
+                'success': False,
+                'price': 0,
+                'message': f'가격 조회 중 예외 발생: {str(e)}'
+            }
+    
     def _get_holding_period(self, stock_code, current_quantity):
         """보유기간 계산 (체결내역에서 매수일 정보 가져오기)"""
         try:
@@ -463,6 +656,131 @@ class AutoTradingEngine:
             web_logger.error(f"보유기간 계산 중 오류: {e}")
             return 0
     
+
+    def execute_strategy_with_candidates(self, buy_candidates, manual_execution=True):
+        """미리 선정된 매수 대상으로 자동매매 실행 (테스트용)"""
+        if self.is_running:
+            return {
+                'success': False,
+                'message': '이미 실행 중입니다.'
+            }
+        
+        # 실행 가능 여부 확인
+        can_execute, message = self.can_execute(manual_execution)
+        if not can_execute:
+            return {
+                'success': False,
+                'message': message
+            }
+        
+        self.is_running = True
+        self.current_status = "시작 중"
+        self.progress_percentage = 0
+        buy_count = 0
+        sell_count = 0
+        
+        try:
+            web_logger.info("🤖 자동매매 전략 실행을 시작합니다 (미리 선정된 매수 대상)...")
+            
+            # 1. 설정 로드
+            self.current_status = "설정 로드 중"
+            self.progress_percentage = 20
+            config = self.config_manager.load_config()
+            strategy_params = config.get('strategy_params', {})
+            
+            web_logger.info(f"📋 전략 파라미터: {strategy_params}")
+            
+            # 2. 계좌 정보 확인
+            self.current_status = "계좌 정보 확인 중"
+            self.progress_percentage = 40
+            web_logger.info("💰 계좌 정보를 확인하는 중...")
+            account_info = self._get_account_info()
+            if not account_info['success']:
+                return {
+                    'success': False,
+                    'message': f"계좌 정보 확인 실패: {account_info['message']}"
+                }
+            
+            # 3. 매수 대상 검증
+            self.current_status = "매수 대상 검증 중"
+            self.progress_percentage = 60
+            buy_validation = self._validate_buy_candidates(buy_candidates)
+            if not buy_validation['success']:
+                return {
+                    'success': False,
+                    'message': f"매수 대상 검증 실패: {buy_validation['message']}"
+                }
+            
+            validated_candidates = buy_validation['valid_candidates']
+            web_logger.info(f"✅ {len(validated_candidates)}개 매수 대상 검증 완료")
+            
+            # 4. 매도 주문 실행 (기존 보유 종목)
+            self.current_status = "매도 주문 실행 중"
+            self.progress_percentage = 70
+            web_logger.info("📉 매도 주문을 실행하는 중...")
+            sell_results = self._execute_sell_orders(account_info, strategy_params)
+            sell_count = sell_results['success_count']
+            
+            # 5. 매수 주문 실행
+            self.current_status = "매수 주문 실행 중"
+            self.progress_percentage = 85
+            web_logger.info("📈 매수 주문을 실행하는 중...")
+            buy_results = self._execute_buy_orders(validated_candidates, account_info, strategy_params)
+            buy_count = buy_results['success_count']
+            
+            # 6. 실행 결과 판단 및 이력 기록
+            self.current_status = "이력 기록 중"
+            self.progress_percentage = 95
+            execution_type = "수동" if manual_execution else "자동"
+            
+            if len(validated_candidates) > 0 and buy_count == 0:
+                status = 'failed'
+                message = f"[{execution_type}] 매수 실패: {len(validated_candidates)}개 종목 중 0건 성공"
+                web_logger.error(f"❌ 자동매매 실행 실패: {message}")
+            else:
+                status = 'success'
+                message = f"[{execution_type}] 매수 {buy_count}건, 매도 {sell_count}건 실행"
+                web_logger.info(f"✅ 자동매매 전략 실행 완료 (매수: {buy_count}건, 매도: {sell_count}건)")
+            
+            self.config_manager.log_execution(
+                status=status,
+                buy_count=buy_count,
+                sell_count=sell_count,
+                message=message
+            )
+            
+            # 7. 완료
+            self.current_status = "완료"
+            self.progress_percentage = 100
+            
+            return {
+                'success': status == 'success',
+                'message': message,
+                'buy_count': buy_count,
+                'sell_count': sell_count,
+                'buy_candidates': validated_candidates
+            }
+            
+        except Exception as e:
+            web_logger.error(f"자동매매 실행 중 오류 발생: {e}")
+            execution_type = "수동" if manual_execution else "자동"
+            self.config_manager.log_execution(
+                status='error',
+                buy_count=buy_count,
+                sell_count=sell_count,
+                message=f"[{execution_type}] 오류: {str(e)}"
+            )
+            return {
+                'success': False,
+                'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}',
+                'buy_count': buy_count,
+                'sell_count': sell_count
+            }
+        finally:
+            self.is_running = False
+            if self.current_status != "완료":
+                self.current_status = "오류 발생"
+                self.progress_percentage = 0
 
     def stop_trading(self):
         """자동매매 중지"""

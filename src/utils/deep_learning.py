@@ -20,6 +20,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_
 DEEP_LEARNING_PATH = os.path.join(PROJECT_ROOT, 'kiwoomDeepLearning')
 DEEP_LEARNING_PATH = os.path.abspath(DEEP_LEARNING_PATH)
 
+# Windows에서 posix 모듈 문제 해결을 위한 환경 변수 설정
+if os.name == 'nt':  # Windows
+    os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH', '') + os.pathsep + DEEP_LEARNING_PATH
+
 print(f"프로젝트 루트: {PROJECT_ROOT}")
 print(f"kiwoomDeepLearning 경로: {DEEP_LEARNING_PATH}")
 
@@ -45,9 +49,11 @@ try:
     from scoring import calculate_factor_scores
     from smart_cache import get_cache
     from logger import log_info, log_warning, log_error
+    print("✅ kiwoomDeepLearning 모듈 import 성공")
 except ImportError as e:
     print(f"Warning: kiwoomDeepLearning 모듈을 불러올 수 없습니다: {e}")
     print(f"경로 확인: {DEEP_LEARNING_PATH}")
+    print(f"현재 sys.path: {sys.path[:3]}...")  # 처음 3개만 출력
     
     # 더미 함수들 정의 (개발 중 오류 방지)
     def calculate_final_score(df):
@@ -57,6 +63,7 @@ except ImportError as e:
         return df
     
     def fetch_stock_list():
+        print("⚠️ 더미 fetch_stock_list 함수 사용 중 - 빈 DataFrame 반환")
         return pd.DataFrame()
     
     def calculate_factor_scores(df):
@@ -92,12 +99,13 @@ class DeepLearningAnalyzer:
         """kiwoomDeepLearning 모듈이 사용 가능한지 확인"""
         return os.path.exists(self.model_path) and os.path.exists(self.weights_path)
     
-    def get_stock_analysis(self, analysis_date=None):
+    def get_stock_analysis(self, analysis_date=None, force_realtime=False):
         """
         종목 분석 실행
         
         Args:
             analysis_date: 분석 기준일 (None이면 오늘)
+            force_realtime: 실시간 분석 강제 실행 여부
             
         Returns:
             dict: 분석 결과
@@ -121,6 +129,75 @@ class DeepLearningAnalyzer:
             
             log_info(f"📅 분석 기준일: {analysis_date}")
             
+            # 🔥 핵심 수정: 오늘 날짜이거나 실시간 강제 실행 시 캐시 무시
+            today = datetime.now().strftime('%Y-%m-%d')
+            is_today_analysis = analysis_date == today
+            
+            if force_realtime or is_today_analysis:
+                log_info("🔄 실시간 분석을 실행합니다 (캐시 무시)")
+                return self._run_realtime_analysis(analysis_date)
+            
+            # 과거 날짜 분석 시에만 캐시 확인
+            log_info("📋 캐시된 분석 결과를 확인합니다...")
+            cache_result = self._check_cache_analysis(analysis_date)
+            if cache_result['success']:
+                return cache_result
+            
+            # 캐시가 없으면 실시간 분석 실행
+            log_info("🔄 캐시된 결과가 없어 실시간 분석을 실행합니다...")
+            return self._run_realtime_analysis(analysis_date)
+            
+        except Exception as e:
+            log_error(f"종목 분석 중 오류 발생: {e}")
+            return {
+                'success': False,
+                'message': f'종목 분석 중 오류가 발생했습니다: {str(e)}'
+            }
+    
+    def _check_cache_analysis(self, analysis_date):
+        """캐시된 분석 결과 확인"""
+        try:
+            # JSON 파일 경로 확인
+            cache_file_path = os.path.join(DEEP_LEARNING_PATH, 'cache', 'analysis_result.json')
+            
+            if not os.path.exists(cache_file_path):
+                return {'success': False, 'message': '캐시 파일이 없습니다.'}
+            
+            # 파일 생성 시간 확인
+            file_mtime = os.path.getmtime(cache_file_path)
+            file_date = datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d')
+            
+            if file_date != analysis_date:
+                log_info(f"📅 캐시 파일 날짜({file_date})와 요청 날짜({analysis_date})가 다릅니다.")
+                return {'success': False, 'message': '캐시 파일 날짜 불일치'}
+            
+            # JSON 파일 로드
+            import json
+            with open(cache_file_path, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+            
+            if not cached_data:
+                return {'success': False, 'message': '캐시 파일이 비어있습니다.'}
+            
+            log_info(f"✅ 캐시에서 분석 결과를 로드했습니다. ({len(cached_data)}개 종목)")
+            
+            return {
+                'success': True,
+                'data': {
+                    'analysis_date': analysis_date,
+                    'total_stocks': len(cached_data),
+                    'top_stocks': cached_data[:20],  # 상위 20개
+                    'analysis_result': cached_data
+                }
+            }
+            
+        except Exception as e:
+            log_error(f"캐시 분석 결과 확인 중 오류: {e}")
+            return {'success': False, 'message': f'캐시 확인 중 오류: {str(e)}'}
+    
+    def _run_realtime_analysis(self, analysis_date):
+        """실시간 분석 실행"""
+        try:
             # 1. 종목 목록 가져오기
             log_info("📊 종목 목록을 가져오는 중...")
             try:
@@ -140,22 +217,32 @@ class DeepLearningAnalyzer:
             
             log_info(f"✅ {len(stock_list_df)}개 종목 목록 수신 완료")
             
-            # 2. 실시간 분석 실행 (kiwoomDeepLearning 메인 로직 사용)
-            log_info("📈 실시간 주가 데이터 수집 및 분석 중...")
-            
-            # 캐시에서 최신 분석 결과 확인
-            cache = get_cache()
-            cache_params = {'analysis_date': analysis_date}
-            cached_result = cache.get('analysis_result', cache_params)
-            if cached_result is not None and not cached_result.empty:
-                log_info("📋 캐시에서 최신 분석 결과를 가져옵니다.")
-                result_df = cached_result
-            else:
-                log_info("🔄 새로운 분석을 실행합니다...")
+            # 2. kiwoomDeepLearning의 메인 분석 로직 호출
+            log_info("📈 kiwoomDeepLearning 메인 분석 로직 실행 중...")
+            try:
+                # kiwoomDeepLearning의 fetch_all_data 함수 import
+                from data_fetcher import fetch_all_data
+                
+                # analysis_date를 datetime 객체로 변환
+                if isinstance(analysis_date, str):
+                    analysis_date_obj = datetime.strptime(analysis_date, '%Y-%m-%d')
+                else:
+                    analysis_date_obj = analysis_date
+                
+                # 전체 데이터 수집 (재무, 주가, 기술적 지표, 거시경제 데이터 포함)
+                feature_df, actual_analysis_date = fetch_all_data(stock_list_df, analysis_date_obj)
+                
+                if feature_df.empty:
+                    return {
+                        'success': False,
+                        'message': '데이터 수집에 실패했습니다.'
+                    }
+                
+                log_info(f"✅ 전체 데이터 수집 완료: {len(feature_df)}개 종목")
                 
                 # 3. 팩터 점수 계산
                 log_info("🎯 팩터 점수 계산 중...")
-                scored_df = calculate_factor_scores(stock_list_df)
+                scored_df = calculate_factor_scores(feature_df)
                 
                 # 4. ML 예측
                 log_info("🤖 머신러닝 예측 중...")
@@ -165,33 +252,58 @@ class DeepLearningAnalyzer:
                 log_info("📊 최종 점수 계산 중...")
                 result_df = calculate_final_score(ml_df)
                 
-                # 결과를 캐시에 저장
-                if cache:
-                    cache.set('analysis_result', cache_params, result_df)
-            
-            log_info("✅ 종목 분석이 완료되었습니다.")
-            
-            return {
-                'success': True,
-                'data': {
-                    'analysis_date': analysis_date,
-                    'total_stocks': len(result_df),
-                    'top_stocks': result_df.head(20).to_dict('records'),
-                    'analysis_result': result_df.to_dict('records')
+                # 6. 종목명과 현재가 정보 추가 (누락된 경우)
+                log_info("📋 종목명과 현재가 정보를 추가합니다...")
+                if '종목명' not in result_df.columns or result_df['종목명'].isna().all():
+                    # stock_list_df에서 종목명 정보 병합
+                    result_df = pd.merge(result_df, stock_list_df[['종목코드', '종목명']], on='종목코드', how='left')
+                    log_info("✅ 종목명 정보를 병합했습니다.")
+                
+                if '현재가' not in result_df.columns or result_df['현재가'].isna().all():
+                    # feature_df에서 현재가 정보 병합
+                    if '현재가' in feature_df.columns:
+                        price_info = feature_df[['종목코드', '현재가']].drop_duplicates()
+                        result_df = pd.merge(result_df, price_info, on='종목코드', how='left')
+                        log_info("✅ 현재가 정보를 병합했습니다.")
+                    else:
+                        log_warning("⚠️ feature_df에 현재가 정보가 없습니다.")
+                
+                log_info("✅ 실시간 종목 분석이 완료되었습니다.")
+                
+                return {
+                    'success': True,
+                    'data': {
+                        'analysis_date': actual_analysis_date.strftime('%Y-%m-%d') if actual_analysis_date else analysis_date.strftime('%Y-%m-%d'),
+                        'total_stocks': len(result_df),
+                        'top_stocks': result_df.head(20).to_dict('records'),
+                        'analysis_result': result_df.to_dict('records')
+                    }
                 }
-            }
+                
+            except ImportError as e:
+                log_error(f"kiwoomDeepLearning 모듈 import 실패: {e}")
+                return {
+                    'success': False,
+                    'message': f'kiwoomDeepLearning 모듈을 불러올 수 없습니다: {str(e)}'
+                }
+            except Exception as e:
+                log_error(f"분석 실행 중 오류: {e}")
+                return {
+                    'success': False,
+                    'message': f'분석 실행 중 오류가 발생했습니다: {str(e)}'
+                }
             
         except Exception as e:
-            log_error(f"종목 분석 중 오류 발생: {e}")
+            log_error(f"실시간 분석 중 오류 발생: {e}")
             return {
                 'success': False,
-                'message': f'종목 분석 중 오류가 발생했습니다: {str(e)}'
+                'message': f'실시간 분석 중 오류가 발생했습니다: {str(e)}'
             }
     
     
     def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20):
         """
-        매수 대상 종목 선정
+        매수 대상 종목 선정 (보유 종목 제외)
         
         Args:
             analysis_result: 분석 결과
@@ -207,6 +319,14 @@ class DeepLearningAnalyzer:
         try:
             result_df = pd.DataFrame(analysis_result['data']['analysis_result'])
             
+            # 보유 종목 조회
+            held_stocks = self._get_held_stocks()
+            if held_stocks:
+                log_info(f"📋 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
+                # 보유 종목 제외
+                result_df = result_df[~result_df['종목코드'].isin(held_stocks)]
+                log_info(f"✅ 보유 종목 제외 후 {len(result_df)}개 종목이 남았습니다.")
+            
             # 매수 대상 범위 내에서 상위 N개 선택
             buy_candidates = result_df[result_df['최종순위'] <= buy_universe_rank]
             top_stocks = buy_candidates.head(top_n)
@@ -215,6 +335,31 @@ class DeepLearningAnalyzer:
             
         except Exception as e:
             log_error(f"매수 대상 선정 중 오류 발생: {e}")
+            return []
+    
+    def _get_held_stocks(self):
+        """보유 종목 조회"""
+        try:
+            from src.api.account import KiwoomAccount
+            kiwoom_account = KiwoomAccount()
+            
+            # 보유 종목 정보 조회
+            balance_result = kiwoom_account.get_account_balance_detail()
+            if not balance_result or not balance_result.get('success'):
+                log_warning("보유 종목 정보를 가져올 수 없습니다.")
+                return []
+            
+            # 보유 수량이 있는 종목만 필터링
+            held_stocks = []
+            if balance_result.get('data') and balance_result['data'].get('bal'):
+                for stock in balance_result['data']['bal']:
+                    if int(stock.get('cntr_qty', 0)) > 0:  # 보유 수량이 있는 경우
+                        held_stocks.append(stock.get('stk_cd'))
+            
+            return held_stocks
+            
+        except Exception as e:
+            log_error(f"보유 종목 조회 중 오류: {e}")
             return []
 
 

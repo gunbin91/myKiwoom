@@ -36,7 +36,25 @@ pip install -r requirements.txt
 
 REM 자동매매에 필요한 추가 패키지 설치
 echo 자동매매 추가 패키지 설치 중...
-pip install joblib pandas numpy scikit-learn
+pip install joblib pandas numpy scikit-learn pyarrow fastparquet
+
+REM ==========================================================
+REM pandas_ta posix module import fix for Windows
+REM ==========================================================
+echo "Fixing pandas_ta posix import issue..."
+SET "VENV_SITE_PACKAGES=%CD%\venv\Lib\site-packages"
+SET "ALLIGATOR_FILE=%VENV_SITE_PACKAGES%\pandas_ta\overlap\alligator.py"
+IF EXIST "%ALLIGATOR_FILE%" (
+    powershell -Command "(Get-Content \"%ALLIGATOR_FILE%\") | Where-Object {$_ -notmatch \"from posix import pread\"} | Set-Content \"%ALLIGATOR_FILE%\""
+    IF %ERRORLEVEL% NEQ 0 (
+        echo "Failed to fix pandas_ta posix import issue."
+    ) ELSE (
+        echo "pandas_ta posix import issue fixed."
+    )
+) ELSE (
+    echo "alligator.py not found at %ALLIGATOR_FILE%. Skipping fix."
+)
+REM ==========================================================
 
 REM 필요한 디렉토리 생성
 echo 필요한 디렉토리 생성 중...
