@@ -14,13 +14,14 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import json
 from datetime import datetime, timedelta
-from src.config import WEB_HOST, WEB_PORT, WEB_DEBUG, SECRET_KEY, SESSION_TIMEOUT
+from src.config.settings import WEB_HOST, WEB_PORT, WEB_DEBUG, SECRET_KEY, SESSION_TIMEOUT
+from src.config.server_config import set_server_type, get_current_server_config
 from src.utils import web_logger
 from src.utils.cache import api_cache
-from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order
-from src.auto_trading.config_manager import config_manager
-from src.auto_trading.engine import auto_trading_engine
-from src.auto_trading.scheduler import auto_trading_scheduler
+from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order, mock_account, real_account, mock_quote, real_quote, mock_order, real_order
+from src.auto_trading.config_manager import mock_config_manager, real_config_manager
+from src.auto_trading.engine import mock_engine, real_engine
+from src.auto_trading.scheduler import mock_scheduler, real_scheduler
 import threading
 import time
 
@@ -55,6 +56,32 @@ class AutoTradingStatusLogFilter(logging.Filter):
 
 # 로그 필터 적용
 log.addFilter(AutoTradingStatusLogFilter())
+
+# 현재 서버에 맞는 config_manager와 engine 가져오기
+def get_current_config_manager():
+    """현재 서버에 맞는 config_manager 반환"""
+    server_type = session.get('server_type', 'mock')
+    return mock_config_manager if server_type == 'mock' else real_config_manager
+
+def get_current_engine():
+    """현재 서버에 맞는 engine 반환"""
+    server_type = session.get('server_type', 'mock')
+    return mock_engine if server_type == 'mock' else real_engine
+
+def get_current_account():
+    """현재 서버에 맞는 account 반환"""
+    server_type = session.get('server_type', 'mock')
+    return mock_account if server_type == 'mock' else real_account
+
+def get_current_quote():
+    """현재 서버에 맞는 quote 반환"""
+    server_type = session.get('server_type', 'mock')
+    return mock_quote if server_type == 'mock' else real_quote
+
+def get_current_order():
+    """현재 서버에 맞는 order 반환"""
+    server_type = session.get('server_type', 'mock')
+    return mock_order if server_type == 'mock' else real_order
 
 # CORS 및 SocketIO 설정
 CORS(app)
@@ -139,7 +166,101 @@ def before_request():
 @app.route('/')
 def index():
     """메인 대시보드 페이지"""
-    return render_template('dashboard.html')
+    # 서버 타입이 설정되지 않은 경우 서버 선택 페이지로 리다이렉트
+    if 'server_type' not in session:
+        return render_template('server_selection.html')
+    
+    # 현재 서버 설정 로드
+    server_config = get_current_server_config()
+    return render_template('dashboard.html', server_info=server_config.get_server_info())
+
+
+@app.route('/server-selection')
+def server_selection():
+    """서버 선택 페이지"""
+    return render_template('server_selection.html')
+
+
+@app.route('/api/server/select', methods=['POST'])
+def select_server():
+    """서버 선택"""
+    try:
+        data = request.get_json()
+        server_type = data.get('server_type')
+        
+        if server_type not in ['mock', 'real']:
+            return jsonify({
+                'success': False,
+                'message': '잘못된 서버 타입입니다.'
+            }), 400
+        
+        # 기존 서버의 토큰 폐기 (이전 서버 타입이 있는 경우)
+        old_server_type = session.get('server_type')
+        if old_server_type and old_server_type != server_type:
+            try:
+                from src.api.auth import KiwoomAuth
+                old_auth = KiwoomAuth(old_server_type)
+                old_auth.revoke_token()
+                web_logger.info(f"이전 서버({old_server_type})의 토큰을 폐기했습니다.")
+            except Exception as e:
+                web_logger.warning(f"이전 서버 토큰 폐기 실패: {e}")
+        
+        # 기존 세션 정리
+        session.clear()
+        
+        # 서버 타입 설정
+        session['server_type'] = server_type
+        set_server_type(server_type)
+        
+        # 서버별 인스턴스 재생성
+        global kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order
+        from src.api.auth import KiwoomAuth
+        from src.api.account import KiwoomAccount
+        from src.api.quote import KiwoomQuote
+        from src.api.order import KiwoomOrder
+        
+        # 전역 인스턴스들을 완전히 재생성
+        kiwoom_auth = KiwoomAuth(server_type)
+        kiwoom_account = KiwoomAccount(server_type)
+        kiwoom_quote = KiwoomQuote(server_type)
+        kiwoom_order = KiwoomOrder(server_type)
+        
+        web_logger.info(f"서버 선택 완료: {server_type}")
+        web_logger.info(f"세션에 저장된 server_type: {session.get('server_type')}")
+        web_logger.info(f"전역 server_type 설정: {server_type}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'{server_type} 서버가 선택되었습니다.',
+            'server_type': server_type
+        })
+        
+    except Exception as e:
+        web_logger.error(f"서버 선택 실패: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'서버 선택 실패: {str(e)}'
+        }), 500
+
+
+@app.route('/api/server/status')
+def get_server_status():
+    """현재 서버 상태 조회"""
+    try:
+        server_type = session.get('server_type', 'mock')
+        server_config = get_current_server_config()
+        
+        return jsonify({
+            'success': True,
+            'server_type': server_type,
+            'server_info': server_config.get_server_info()
+        })
+    except Exception as e:
+        web_logger.error(f"서버 상태 조회 실패: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'서버 상태 조회 실패: {str(e)}'
+        }), 500
 
 
 @app.route('/portfolio')
@@ -166,41 +287,28 @@ def auto_trading():
     return render_template('auto_trading.html')
 
 
-@app.route('/api/auth/status')
-def auth_status():
-    """인증 상태 확인"""
-    try:
-        # 세션과 토큰 상태를 모두 확인
-        session_authenticated = session.get('authenticated', False)
-        token_valid = kiwoom_auth.is_token_valid()
-        
-        # 둘 다 유효해야 인증된 것으로 간주
-        is_authenticated = session_authenticated and token_valid
-        
-        # 세션과 토큰 상태가 다르면 세션을 정리
-        if session_authenticated and not token_valid:
-            session.clear()
-            web_logger.info("토큰이 무효화되어 세션을 정리했습니다.")
-        
-        return jsonify({
-            'success': True,
-            'authenticated': is_authenticated,
-            'message': '인증됨' if is_authenticated else '인증 필요'
-        })
-    except Exception as e:
-        web_logger.error(f"인증 상태 확인 실패: {e}")
-        return jsonify({
-            'success': False,
-            'authenticated': False,
-            'message': f'오류: {str(e)}'
-        })
 
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     """OAuth 인증 로그인"""
     try:
-        token = kiwoom_auth.get_access_token(force_refresh=True)
+        # 현재 세션의 서버 타입에 맞는 인증 인스턴스 사용
+        server_type = session.get('server_type')
+        web_logger.info(f"로그인 시도 - 세션의 server_type: {server_type}")
+        web_logger.info(f"전체 세션 내용: {dict(session)}")
+        
+        if not server_type:
+            web_logger.warning("서버가 선택되지 않음 - 로그인 실패")
+            return jsonify({
+                'success': False,
+                'message': '서버가 선택되지 않았습니다.'
+            }), 400
+        
+        from src.api.auth import KiwoomAuth
+        current_auth = KiwoomAuth(server_type)
+        web_logger.info(f"로그인 시도 - {server_type} 서버용 인증 인스턴스 생성")
+        token = current_auth.get_access_token(force_refresh=True)
         if token:
             session['authenticated'] = True
             session['login_time'] = datetime.now().isoformat()
@@ -226,7 +334,13 @@ def login():
 def logout():
     """로그아웃"""
     try:
-        kiwoom_auth.revoke_token()
+        # 현재 세션의 서버 타입에 맞는 인증 인스턴스 사용
+        server_type = session.get('server_type')
+        if server_type:
+            from src.api.auth import KiwoomAuth
+            current_auth = KiwoomAuth(server_type)
+            current_auth.revoke_token()
+        
         session.clear()
         web_logger.info("사용자 로그아웃")
         return jsonify({
@@ -244,7 +358,25 @@ def logout():
 def check_auth():
     """인증 상태 체크 데코레이터"""
     session_authenticated = session.get('authenticated', False)
-    token_valid = kiwoom_auth.is_token_valid()
+    server_type = session.get('server_type')
+    
+    web_logger.info(f"check_auth - session_authenticated: {session_authenticated}, server_type: {server_type}")
+    
+    if not server_type:
+        return False, jsonify({
+            'success': False,
+            'message': '서버가 선택되지 않았습니다.',
+            'authenticated': False
+        })
+    
+    # 현재 서버 타입에 맞는 인증 인스턴스 사용
+    from src.api.auth import KiwoomAuth
+    current_auth = KiwoomAuth(server_type)
+    token_valid = current_auth.is_token_valid()
+    
+    web_logger.info(f"check_auth - token_valid: {token_valid}")
+    web_logger.info(f"check_auth - current_auth._access_token: {current_auth._access_token is not None}")
+    web_logger.info(f"check_auth - current_auth._token_expires_at: {current_auth._token_expires_at}")
     
     if not (session_authenticated and token_valid):
         return False, jsonify({
@@ -264,7 +396,7 @@ def get_deposit():
         return error_response
     
     try:
-        result = kiwoom_account.get_deposit_detail()
+        result = get_current_account().get_deposit_detail()
         if result and result.get('success') is not False:
             return jsonify({
                 'success': True,
@@ -296,7 +428,7 @@ def get_assets():
         return error_response
     
     try:
-        result = kiwoom_account.get_estimated_assets()
+        result = get_current_account().get_estimated_assets()
         if result:
             return jsonify({
                 'success': True,
@@ -323,7 +455,7 @@ def get_evaluation():
         return error_response
     
     try:
-        result = kiwoom_account.get_account_evaluation()
+        result = get_current_account().get_account_evaluation()
         if result:
             return jsonify({
                 'success': True,
@@ -345,8 +477,12 @@ def get_evaluation():
 @app.route('/api/account/balance')
 def get_balance():
     """계좌 잔고 내역 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
-        result = kiwoom_account.get_account_balance_detail()
+        result = get_current_account().get_account_balance_detail()
         if result:
             return jsonify({
                 'success': True,
@@ -373,7 +509,7 @@ def get_unexecuted_orders():
         return error_response
     
     try:
-        result = kiwoom_account.get_unexecuted_orders()
+        result = get_current_account().get_unexecuted_orders()
         if result:
             return jsonify({
                 'success': True,
@@ -395,12 +531,16 @@ def get_unexecuted_orders():
 @app.route('/api/account/orders/executed')
 def get_executed_orders():
     """체결 주문 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
         # 쿼리 파라미터에서 날짜 범위 가져오기
         start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
         end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
         
-        result = kiwoom_account.get_executed_orders(
+        result = get_current_account().get_executed_orders(
             query_type="0",
             sell_type="0", 
             start_date=start_date,
@@ -429,8 +569,12 @@ def get_executed_orders():
 @app.route('/api/account/trading-diary')
 def get_trading_diary():
     """당일 매매일지 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
-        result = kiwoom_account.get_today_trading_diary()
+        result = get_current_account().get_today_trading_diary()
         if result:
             return jsonify({
                 'success': True,
@@ -452,12 +596,16 @@ def get_trading_diary():
 @app.route('/api/account/trading/daily')
 def get_daily_trading():
     """일별 매매일지 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
         start_date = request.args.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y%m%d'))
         end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
         
         # 체결 내역을 기반으로 일별 매매일지 생성
-        result = kiwoom_account.get_executed_orders(
+        result = get_current_account().get_executed_orders(
             query_type="0",
             sell_type="0", 
             start_date=start_date,
@@ -521,12 +669,16 @@ def get_daily_trading():
 @app.route('/api/account/trading/monthly')
 def get_monthly_trading():
     """월별 매매일지 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
         start_date = request.args.get('start_date', (datetime.now() - timedelta(days=365)).strftime('%Y%m%d'))
         end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
         
         # 체결 내역을 기반으로 월별 매매일지 생성
-        result = kiwoom_account.get_executed_orders(
+        result = get_current_account().get_executed_orders(
             query_type="0",
             sell_type="0", 
             start_date=start_date,
@@ -592,12 +744,16 @@ def get_monthly_trading():
 @app.route('/api/account/trading/analysis')
 def get_trading_analysis():
     """매매 분석 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
         start_date = request.args.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y%m%d'))
         end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
         
         # 체결 내역을 기반으로 분석 데이터 생성
-        result = kiwoom_account.get_executed_orders(
+        result = get_current_account().get_executed_orders(
             query_type="0",
             sell_type="0", 
             start_date=start_date,
@@ -703,8 +859,12 @@ def clear_cache():
 @app.route('/api/account/trading/daily/<trade_date>')
 def get_daily_trading_detail(trade_date):
     """특정 날짜의 매매 상세 조회"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
     try:
-        result = kiwoom_account.get_executed_orders(
+        result = get_current_account().get_executed_orders(
             query_type="0",
             sell_type="0", 
             start_date=trade_date,
@@ -734,7 +894,7 @@ def get_daily_trading_detail(trade_date):
 def get_stock_info(stock_code):
     """종목 정보 조회"""
     try:
-        result = kiwoom_quote.get_stock_info(stock_code)
+        result = get_current_quote().get_stock_info(stock_code)
         if result:
             return jsonify({
                 'success': True,
@@ -757,7 +917,7 @@ def get_stock_info(stock_code):
 def get_stock_price(stock_code):
     """주식 호가 조회"""
     try:
-        result = kiwoom_quote.get_stock_quote(stock_code)
+        result = get_current_quote().get_stock_quote(stock_code)
         if result:
             return jsonify({
                 'success': True,
@@ -787,13 +947,13 @@ def get_stock_chart(stock_code):
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
         
         if period == 'D':
-            result = kiwoom_quote.get_stock_daily_chart(stock_code, start_date, end_date)
+            result = get_current_quote().get_stock_daily_chart(stock_code, start_date, end_date)
         elif period == 'W':
-            result = kiwoom_quote.get_stock_weekly_chart(stock_code, start_date, end_date)
+            result = get_current_quote().get_stock_weekly_chart(stock_code, start_date, end_date)
         elif period == 'M':
-            result = kiwoom_quote.get_stock_monthly_chart(stock_code, start_date, end_date)
+            result = get_current_quote().get_stock_monthly_chart(stock_code, start_date, end_date)
         else:
-            result = kiwoom_quote.get_stock_daily_chart(stock_code, start_date, end_date)
+            result = get_current_quote().get_stock_daily_chart(stock_code, start_date, end_date)
         
         if result:
             return jsonify({
@@ -892,7 +1052,7 @@ def buy_stock():
                     'message': '지정가 주문 시 가격을 입력해주세요.'
                 })
         
-        result = kiwoom_order.buy_stock(stock_code, quantity, price, order_type)
+        result = get_current_order().buy_stock(stock_code, quantity, price, order_type)
         
         if result and result.get('success') is not False:
             # 성공 메시지
@@ -968,7 +1128,7 @@ def sell_stock():
                 'message': '지정가 주문 시 가격을 입력해주세요.'
             })
         
-        result = kiwoom_order.sell_stock(stock_code, quantity, price, order_type)
+        result = get_current_order().sell_stock(stock_code, quantity, price, order_type)
         
         if result and result.get('success') is not False:
             # 성공 메시지
@@ -1019,7 +1179,7 @@ def cancel_order():
             error_response = create_error_response("1501", "주문 취소 정보가 올바르지 않습니다.", "cancel_order")
             return jsonify(error_response)
         
-        result = kiwoom_order.cancel_order(order_no, stock_code, quantity)
+        result = get_current_order().cancel_order(order_no, stock_code, quantity)
         
         if result:
             success_message = f"✅ 주문이 취소되었습니다!\n" \
@@ -1047,7 +1207,7 @@ def cancel_order():
 def get_auto_trading_config():
     """자동매매 설정 조회"""
     try:
-        config = config_manager.load_config()
+        config = get_current_config_manager().load_config()
         return jsonify({
             'success': True,
             'data': config
@@ -1065,7 +1225,7 @@ def save_auto_trading_config():
     """자동매매 설정 저장"""
     try:
         config = request.get_json()
-        if config_manager.save_config(config):
+        if get_current_config_manager().save_config(config):
             return jsonify({
                 'success': True,
                 'message': '설정이 저장되었습니다.'
@@ -1087,12 +1247,12 @@ def save_auto_trading_config():
 def get_auto_trading_status():
     """자동매매 상태 조회"""
     try:
-        config = config_manager.load_config()
-        last_execution = config_manager.get_last_execution_time()
-        today_executed = config_manager.is_today_executed()
+        config = get_current_config_manager().load_config()
+        last_execution = get_current_config_manager().get_last_execution_time()
+        today_executed = get_current_config_manager().is_today_executed()
         
         # 실행 상태 조회
-        execution_status = auto_trading_engine.get_execution_status()
+        execution_status = get_current_engine().get_execution_status()
         
         return jsonify({
             'success': True,
@@ -1103,7 +1263,7 @@ def get_auto_trading_status():
                 'is_running': execution_status['is_running'],
                 'current_status': execution_status['current_status'],
                 'progress_percentage': execution_status['progress_percentage'],
-                'last_check_time': auto_trading_scheduler.get_last_check_time()
+                'last_check_time': mock_scheduler.get_last_check_time()
             }
         })
     except Exception as e:
@@ -1120,7 +1280,7 @@ def execute_auto_trading():
     try:
         from datetime import datetime
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🚀 자동매매 수동 실행 요청")
-        result = auto_trading_engine.execute_strategy(manual_execution=True)
+        result = get_current_engine().execute_strategy(manual_execution=True)
         
         if result['success']:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ 자동매매 실행 성공: {result['message']}")
@@ -1143,8 +1303,30 @@ def execute_auto_trading():
 def get_auth_status():
     """키움 API 인증 상태 조회"""
     try:
-        is_authenticated = kiwoom_auth.is_authenticated()
-        token_info = kiwoom_auth.get_token_info() if is_authenticated else None
+        # 현재 세션의 서버 타입에 맞는 인증 상태 확인
+        server_type = session.get('server_type')
+        web_logger.info(f"인증 상태 확인 - 세션의 server_type: {server_type}")
+        
+        if not server_type:
+            # 서버가 선택되지 않은 경우
+            web_logger.info("서버가 선택되지 않음 - 인증 상태: False")
+            return jsonify({
+                'success': True,
+                'authenticated': False,
+                'token_info': None,
+                'message': '서버가 선택되지 않았습니다.'
+            })
+        
+        # 현재 서버에 맞는 인증 인스턴스 사용
+        from src.api.auth import KiwoomAuth
+        current_auth = KiwoomAuth(server_type)
+        web_logger.info(f"인증 상태 확인 - {server_type} 서버용 인증 인스턴스 사용")
+        
+        # 토큰 유효성 확인 (토큰 파일 기반)
+        is_authenticated = current_auth.is_authenticated()
+        web_logger.info(f"토큰 파일 기반 인증 상태: {is_authenticated}")
+        
+        token_info = current_auth.get_token_info() if is_authenticated else None
         
         return jsonify({
             'success': True,
@@ -1197,7 +1379,7 @@ def get_analysis_result():
         
         # 분석 실행
         try:
-            analysis_result = auto_trading_engine.analyzer.get_stock_analysis(force_realtime=force_realtime)
+            analysis_result = get_current_engine().analyzer.get_stock_analysis(force_realtime=force_realtime)
         except Exception as e:
             web_logger.error(f"분석 실행 중 예외 발생: {e}")
             return jsonify({
@@ -1225,10 +1407,10 @@ def get_analysis_result():
         
         # 매수 대상 선정
         try:
-            config = config_manager.load_config()
+            config = get_current_config_manager().load_config()
             strategy_params = config.get('strategy_params', {})
             
-            buy_candidates = auto_trading_engine.analyzer.get_top_stocks(
+            buy_candidates = get_current_engine().analyzer.get_top_stocks(
                 analysis_result,
                 top_n=strategy_params.get('top_n', 5),
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
@@ -1271,7 +1453,7 @@ def execute_auto_trading_with_candidates():
             }), 400
         
         # 자동매매 실행 (매수 대상 미리 선정된 상태)
-        result = auto_trading_engine.execute_strategy_with_candidates(
+        result = get_current_engine().execute_strategy_with_candidates(
             buy_candidates=buy_candidates,
             manual_execution=manual_execution
         )
@@ -1289,7 +1471,7 @@ def execute_auto_trading_with_candidates():
 def stop_auto_trading():
     """자동매매 긴급 중지"""
     try:
-        result = auto_trading_engine.stop_trading()
+        result = get_current_engine().stop_trading()
         return jsonify(result)
     except Exception as e:
         web_logger.error(f"자동매매 중지 실패: {e}")
@@ -1304,7 +1486,7 @@ def get_auto_trading_history():
     """자동매매 실행 이력 조회"""
     try:
         days = request.args.get('days', 7, type=int)
-        history = config_manager.get_execution_history(days)
+        history = get_current_config_manager().get_execution_history(days)
         return jsonify({
             'success': True,
             'data': history
@@ -1365,8 +1547,9 @@ if __name__ == '__main__':
     update_thread = threading.Thread(target=start_real_time_updates, daemon=True)
     update_thread.start()
     
-    # 자동매매 스케줄러 시작
-    auto_trading_scheduler.start()
+    # 자동매매 스케줄러들 시작 (모의투자/실전투자 동시 실행)
+    mock_scheduler.start()
+    real_scheduler.start()
     
     web_logger.info(f"웹 서버 시작: http://{WEB_HOST}:{WEB_PORT}")
     socketio.run(app, host=WEB_HOST, port=WEB_PORT, debug=WEB_DEBUG)

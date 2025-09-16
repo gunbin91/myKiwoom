@@ -14,22 +14,29 @@ import requests
 
 # 환경 변수 설정
 os.environ['PYTHONIOENCODING'] = 'utf-8'
-from src.config import (
-    KIWOOM_APP_KEY, KIWOOM_SECRET_KEY, KIWOOM_OAUTH_URL, KIWOOM_REVOKE_URL,
-    TOKEN_CACHE_FILE, TOKEN_EXPIRE_BUFFER, API_REQUEST_DELAY
-)
+from src.config.server_config import get_current_server_config
+from src.config.settings import TOKEN_EXPIRE_BUFFER, API_REQUEST_DELAY
 from src.utils import api_logger
 
 
 class KiwoomAuth:
     """키움증권 OAuth 인증 관리 클래스"""
     
-    def __init__(self):
-        self.app_key = KIWOOM_APP_KEY
-        self.secret_key = KIWOOM_SECRET_KEY
-        self.oauth_url = KIWOOM_OAUTH_URL
-        self.revoke_url = KIWOOM_REVOKE_URL
-        self.token_cache_file = TOKEN_CACHE_FILE
+    def __init__(self, server_type: str = None):
+        # 서버 설정 로드
+        if server_type:
+            from src.config.server_config import get_server_config
+            self.server_config = get_server_config(server_type)
+        else:
+            self.server_config = get_current_server_config()
+        
+        # 서버별 설정 적용
+        auth_config = self.server_config.get_auth_config()
+        self.app_key = auth_config['app_key']
+        self.secret_key = auth_config['secret_key']
+        self.oauth_url = auth_config['oauth_url']
+        self.revoke_url = auth_config['revoke_url']
+        self.token_cache_file = auth_config['token_cache_file']
         self._access_token = None
         self._token_expires_at = None
         
@@ -249,6 +256,10 @@ class KiwoomAuth:
         }
 
 
-# 전역 인증 인스턴스
-kiwoom_auth = KiwoomAuth()
+# 전역 인증 인스턴스들 (서버별)
+mock_auth = KiwoomAuth('mock')
+real_auth = KiwoomAuth('real')
+
+# 기존 호환성을 위한 별칭 (기본값: 모의투자)
+kiwoom_auth = mock_auth
 

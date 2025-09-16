@@ -63,14 +63,26 @@
                 </ul>
                 
                 <ul class="navbar-nav">
+                    <!-- 서버 정보 표시 -->
+                    <li class="nav-item">
+                        <span class="navbar-text me-3" id="server-info">
+                            <i class="fas fa-server me-1"></i>
+                            <span id="server-name">서버 선택 필요</span>
+                        </span>
+                    </li>
                     <li class="nav-item">
                         <span class="navbar-text me-3" id="connection-status">
                             <i class="fas fa-circle text-danger me-1"></i>연결 끊김
                         </span>
                     </li>
                     <li class="nav-item">
-                        <button class="btn btn-outline-light btn-sm" id="auth-btn">
+                        <button class="btn btn-outline-light btn-sm me-2" id="auth-btn">
                             <i class="fas fa-sign-in-alt me-1"></i>로그인
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="btn btn-outline-warning btn-sm" id="server-select-btn">
+                            <i class="fas fa-server me-1"></i>서버 선택
                         </button>
                     </li>
                 </ul>

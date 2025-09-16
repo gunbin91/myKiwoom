@@ -17,16 +17,17 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.utils.deep_learning import deep_learning_analyzer
-from src.auto_trading.config_manager import config_manager
-from src.api import kiwoom_account, kiwoom_order
+from src.auto_trading.config_manager import AutoTradingConfigManager
+from src.api import kiwoom_account, kiwoom_order, kiwoom_auth
 from src.utils import web_logger
 
 
 class AutoTradingEngine:
     """자동매매 엔진 클래스"""
     
-    def __init__(self):
-        self.config_manager = config_manager
+    def __init__(self, server_type='mock'):
+        self.server_type = server_type
+        self.config_manager = AutoTradingConfigManager(server_type)
         self.analyzer = deep_learning_analyzer
         self.is_running = False
         self.current_status = "대기 중"
@@ -79,6 +80,27 @@ class AutoTradingEngine:
         
         try:
             web_logger.info("🤖 자동매매 전략 실행을 시작합니다...")
+            
+            # 0. 토큰 유효성 확인 및 자동 발급
+            self.current_status = "토큰 확인 중"
+            self.progress_percentage = 5
+            try:
+                token = kiwoom_auth.get_access_token()
+                if not token:
+                    web_logger.info("토큰이 없습니다. 새로 발급받습니다...")
+                    token = kiwoom_auth.get_access_token(force_refresh=True)
+                    if not token:
+                        return {
+                            'success': False,
+                            'message': '토큰 발급에 실패했습니다. 로그인을 다시 시도해주세요.'
+                        }
+                web_logger.info("토큰 확인 완료")
+            except Exception as e:
+                web_logger.error(f"토큰 확인 실패: {e}")
+                return {
+                    'success': False,
+                    'message': f'토큰 확인 실패: {str(e)}'
+                }
             
             # 1. 설정 로드
             self.current_status = "설정 로드 중"
@@ -806,5 +828,9 @@ class AutoTradingEngine:
         }
 
 
-# 전역 인스턴스
-auto_trading_engine = AutoTradingEngine()
+# 전역 인스턴스들 (서버별)
+mock_engine = AutoTradingEngine('mock')
+real_engine = AutoTradingEngine('real')
+
+# 기존 호환성을 위한 별칭 (기본값: 모의투자)
+auto_trading_engine = mock_engine

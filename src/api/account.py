@@ -8,10 +8,11 @@ import io
 from typing import Dict, List, Optional, Any
 import requests
 from datetime import datetime, timedelta
-from src.config import KIWOOM_ACCOUNT_URL, API_REQUEST_DELAY
+from src.config.server_config import get_current_server_config
+from src.config.settings import API_REQUEST_DELAY
 from src.utils import api_logger
 from src.utils.cache import api_cache
-from .auth import kiwoom_auth
+from .auth import KiwoomAuth
 import time
 
 # 환경 변수 설정
@@ -21,12 +22,18 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 class KiwoomAccount:
     """키움증권 계좌 관련 API 클래스"""
     
-    def __init__(self):
-        self.base_url = KIWOOM_ACCOUNT_URL
+    def __init__(self, server_type: str = None):
+        if server_type:
+            from src.config.server_config import get_server_config
+            self.server_config = get_server_config(server_type)
+        else:
+            self.server_config = get_current_server_config()
+        self.base_url = self.server_config.account_url
+        self.server_type = server_type
     
     def _make_request(self, api_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """API 요청 공통 메서드 (재시도 로직 포함, 캐싱 지원)"""
-        from src.config import MAX_RETRY_COUNT
+        from src.config.settings import MAX_RETRY_COUNT
         
         # 캐시에서 먼저 확인
         cached_result = api_cache.get(api_id, data)
@@ -36,7 +43,9 @@ class KiwoomAccount:
         
         for attempt in range(MAX_RETRY_COUNT):
             try:
-                headers = kiwoom_auth.get_auth_headers()
+                # 현재 서버 타입에 맞는 인증 인스턴스 사용
+                current_auth = KiwoomAuth(self.server_type)
+                headers = current_auth.get_auth_headers()
                 headers['api-id'] = api_id
                 
                 # API 요청 지연
@@ -326,5 +335,9 @@ class KiwoomAccount:
         return self._make_request('kt00010', data)
 
 
-# 전역 계좌 API 인스턴스
-kiwoom_account = KiwoomAccount()
+# 전역 계좌 API 인스턴스들 (서버별)
+mock_account = KiwoomAccount('mock')
+real_account = KiwoomAccount('real')
+
+# 기존 호환성을 위한 별칭 (기본값: 모의투자)
+kiwoom_account = mock_account

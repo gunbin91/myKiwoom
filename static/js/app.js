@@ -6,6 +6,7 @@
 let socket = null;
 let isAuthenticated = false;
 let refreshInterval = null;
+let currentServerInfo = null;
 
 // DOM 로드 완료 시 초기화
 document.addEventListener('DOMContentLoaded', function() {
@@ -18,6 +19,9 @@ document.addEventListener('DOMContentLoaded', function() {
  */
 function initializeApp() {
     console.log('키움 자동매매 대시보드 초기화 중...');
+    
+    // 서버 상태 확인
+    checkServerStatus();
     
     // 인증 상태 확인
     checkAuthStatus();
@@ -63,6 +67,42 @@ function setActiveNavigation() {
         case '/auto-trading':
             document.getElementById('nav-auto-trading')?.classList.add('active');
             break;
+    }
+}
+
+/**
+ * 서버 상태 확인
+ */
+async function checkServerStatus() {
+    try {
+        const response = await fetch('/api/server/status');
+        const data = await response.json();
+        
+        if (data.success) {
+            currentServerInfo = data.server_info;
+            updateServerInfo();
+        }
+    } catch (error) {
+        console.error('서버 상태 확인 실패:', error);
+    }
+}
+
+/**
+ * 서버 정보 업데이트
+ */
+function updateServerInfo() {
+    const serverNameElement = document.getElementById('server-name');
+    const serverInfoElement = document.getElementById('server-info');
+    
+    if (currentServerInfo && serverNameElement) {
+        serverNameElement.textContent = currentServerInfo.server_name;
+        
+        // 서버별 색상 적용
+        if (currentServerInfo.server_type === 'mock') {
+            serverInfoElement.style.color = '#4CAF50';
+        } else {
+            serverInfoElement.style.color = '#F44336';
+        }
     }
 }
 
@@ -116,6 +156,7 @@ function updateAuthUI(authenticated) {
 async function login() {
     try {
         showLoading(true);
+        console.log('로그인 시도 시작');
         
         const response = await fetch('/api/auth/login', {
             method: 'POST',
@@ -285,6 +326,42 @@ function setupEventListeners() {
             }
         });
     }
+    
+    // 서버 선택 버튼 이벤트
+    const serverSelectBtn = document.getElementById('server-select-btn');
+    if (serverSelectBtn) {
+        serverSelectBtn.addEventListener('click', function() {
+            selectServer();
+        });
+    }
+}
+
+/**
+ * 서버 선택 (로그아웃 후 서버 선택 페이지로 이동)
+ */
+function selectServer() {
+    if (!confirm('서버를 다시 선택하시겠습니까?\n\n현재 로그인 상태가 해제되고 서버 선택 페이지로 이동합니다.')) {
+        return;
+    }
+    
+    console.log('서버 선택 버튼 클릭 - 서버 선택 페이지로 이동');
+    // 로딩 표시
+    showLoading(true);
+    
+    // 로그아웃 요청 (백그라운드에서 처리)
+    fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    }).catch(error => {
+        console.error('로그아웃 요청 실패:', error);
+    });
+    
+    // 즉시 서버 선택 페이지로 이동
+    setTimeout(() => {
+        window.location.href = '/server-selection';
+    }, 500); // 0.5초 후 이동 (로딩 표시를 위해)
 }
 
 /**
@@ -380,6 +457,13 @@ function showLoading(show) {
             spinner.classList.add('d-none');
         }
     }
+}
+
+/**
+ * 로딩 숨기기
+ */
+function hideLoading() {
+    showLoading(false);
 }
 
 /**

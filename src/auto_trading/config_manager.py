@@ -14,30 +14,47 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 
 class AutoTradingConfigManager:
-    """자동매매 설정 관리 클래스"""
+    """자동매매 설정 관리 클래스 (서버별 분리)"""
     
-    def __init__(self):
+    def __init__(self, server_type='mock'):
+        self.server_type = server_type
         self.config_dir = Path(__file__).parent.parent.parent / "data"
-        self.config_file = self.config_dir / "auto_trading_config.json"
-        self.execution_log_file = self.config_dir / "auto_trading_execution.log"
+        self.config_file = self.config_dir / f"auto_trading_config_{server_type}.json"
+        self.execution_log_file = Path(__file__).parent.parent.parent / "logs" / server_type / "auto_trading_execution.log"
         
         # 설정 디렉토리 생성
         self.config_dir.mkdir(exist_ok=True)
+        self.execution_log_file.parent.mkdir(parents=True, exist_ok=True)
         
-        # 기본 설정
-        self.default_config = {
-            "auto_trading_enabled": False,
-            "schedule_time": "08:30",
-            "strategy_params": {
-                "reserve_cash": 1000000,  # 매매 제외 예수금
-                "max_hold_period": 15,    # 최대 보유 기간
-                "take_profit_pct": 5.0,   # 익절률
-                "stop_loss_pct": 3.0,     # 손절률
-                "top_n": 5,               # 매수 종목 수
-                "buy_universe_rank": 20,  # 매수 대상 범위
-                "transaction_fee_rate": 0.015  # 거래 수수료율 (%)
+        # 서버별 기본 설정
+        if server_type == 'mock':
+            self.default_config = {
+                "auto_trading_enabled": False,
+                "schedule_time": "01:30",  # 모의투자는 24시간 가능
+                "strategy_params": {
+                    "reserve_cash": 9000000,  # 매매 제외 예수금
+                    "max_hold_period": 15,    # 최대 보유 기간
+                    "take_profit_pct": 5.0,   # 익절률
+                    "stop_loss_pct": 3.0,     # 손절률
+                    "top_n": 5,               # 매수 종목 수
+                    "buy_universe_rank": 20,  # 매수 대상 범위
+                    "transaction_fee_rate": 0.015  # 거래 수수료율 (%)
+                }
             }
-        }
+        else:  # real
+            self.default_config = {
+                "auto_trading_enabled": False,
+                "schedule_time": "08:30",  # 실전투자는 거래시간
+                "strategy_params": {
+                    "reserve_cash": 10000000,  # 매매 제외 예수금
+                    "max_hold_period": 10,     # 최대 보유 기간 (더 보수적)
+                    "take_profit_pct": 3.0,    # 익절률 (더 보수적)
+                    "stop_loss_pct": 2.0,      # 손절률 (더 보수적)
+                    "top_n": 3,                # 매수 종목 수 (더 보수적)
+                    "buy_universe_rank": 15,   # 매수 대상 범위 (더 보수적)
+                    "transaction_fee_rate": 0.015  # 거래 수수료율 (%)
+                }
+            }
     
     def load_config(self):
         """설정 파일 로드"""
@@ -157,5 +174,9 @@ class AutoTradingConfigManager:
             return None
 
 
-# 전역 인스턴스
-config_manager = AutoTradingConfigManager()
+# 전역 인스턴스들 (서버별)
+mock_config_manager = AutoTradingConfigManager('mock')
+real_config_manager = AutoTradingConfigManager('real')
+
+# 기존 호환성을 위한 별칭 (기본값: 모의투자)
+config_manager = mock_config_manager

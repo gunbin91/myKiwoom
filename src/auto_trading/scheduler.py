@@ -1,44 +1,74 @@
 """
-자동매매 스케줄러
+자동매매 스케줄러 (멀티프로세싱 지원)
 """
+import multiprocessing
 import threading
 import time
+import signal
+import sys
+import os
 from datetime import datetime, timedelta
-from src.auto_trading.config_manager import config_manager
-from src.auto_trading.engine import auto_trading_engine
+from src.auto_trading.config_manager import AutoTradingConfigManager
+from src.auto_trading.engine import AutoTradingEngine
 from src.utils import web_logger
+from src.config.server_config import get_current_server_config
 
 
 class AutoTradingScheduler:
-    """자동매매 스케줄러 클래스"""
+    """자동매매 스케줄러 클래스 (멀티프로세싱 지원)"""
     
-    def __init__(self):
+    def __init__(self, server_type='mock'):
+        self.server_type = server_type
         self.is_running = False
-        self.scheduler_thread = None
+        self.scheduler_process = None
         self.check_interval = 60  # 1분마다 체크
         self.last_check_time = None  # 마지막 체크 시간
         self.is_executing = False  # 현재 자동매매 실행 중인지 확인
+        
+        # 서버별 설정 로드
+        self.server_config = get_current_server_config()
+        # 서버별 config_manager 인스턴스 생성
+        self.config_manager = AutoTradingConfigManager(server_type)
+        # 서버별 engine 인스턴스 생성
+        self.engine = AutoTradingEngine(server_type)
     
     def start(self):
-        """스케줄러 시작"""
-        if self.is_running:
+        """스케줄러 시작 (별도 프로세스)"""
+        if self.is_running and self.scheduler_process and self.scheduler_process.is_alive():
             web_logger.warning("스케줄러가 이미 실행 중입니다.")
             return
         
         self.is_running = True
-        self.scheduler_thread = threading.Thread(target=self._scheduler_loop, daemon=True)
-        self.scheduler_thread.start()
-        web_logger.info("📅 자동매매 스케줄러가 시작되었습니다.")
+        self.scheduler_process = multiprocessing.Process(
+            target=self._scheduler_loop,
+            name=f"AutoTradingScheduler-{self.server_type}",
+            daemon=True
+        )
+        self.scheduler_process.start()
+        web_logger.info(f"📅 자동매매 스케줄러가 시작되었습니다. (서버: {self.server_type})")
     
     def stop(self):
         """스케줄러 중지"""
         self.is_running = False
-        if self.scheduler_thread:
-            self.scheduler_thread.join(timeout=5)
-        web_logger.info("🛑 자동매매 스케줄러가 중지되었습니다.")
+        if self.scheduler_process and self.scheduler_process.is_alive():
+            self.scheduler_process.terminate()
+            self.scheduler_process.join(timeout=5)
+            if self.scheduler_process.is_alive():
+                self.scheduler_process.kill()
+        web_logger.info(f"🛑 자동매매 스케줄러가 중지되었습니다. (서버: {self.server_type})")
     
     def _scheduler_loop(self):
-        """스케줄러 메인 루프"""
+        """스케줄러 메인 루프 (별도 프로세스에서 실행)"""
+        # 프로세스별 설정 초기화
+        from src.config.server_config import set_server_type
+        set_server_type(self.server_type)
+        
+        # 시그널 핸들러 설정
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        
+        web_logger.info(f"스케줄러 프로세스 시작 (PID: {os.getpid()}, 서버: {self.server_type})")
+        
         while self.is_running:
             try:
                 self._check_and_execute()
@@ -46,12 +76,19 @@ class AutoTradingScheduler:
             except Exception as e:
                 web_logger.error(f"스케줄러 루프 오류: {e}")
                 time.sleep(self.check_interval)
+        
+        web_logger.info(f"스케줄러 프로세스 종료 (PID: {os.getpid()})")
+    
+    def _signal_handler(self, signum, frame):
+        """시그널 핸들러"""
+        web_logger.info(f"시그널 수신: {signum}, 스케줄러 종료 중...")
+        self.is_running = False
     
     def _check_and_execute(self):
         """실행 시간 확인 및 자동매매 실행"""
         try:
             # 설정 로드
-            config = config_manager.load_config()
+            config = self.config_manager.load_config()
             
             # 자동매매가 비활성화되어 있으면 스킵 (체크 시간도 업데이트하지 않음)
             if not config.get('auto_trading_enabled', False):
@@ -65,7 +102,7 @@ class AutoTradingScheduler:
                 return
             
             # 오늘 이미 실행했는지 확인
-            if config_manager.is_today_executed():
+            if self.config_manager.is_today_executed():
                 return
             
             # 현재 실행 중인지 확인 (중복 실행 방지)
@@ -77,7 +114,7 @@ class AutoTradingScheduler:
             self.is_executing = True
             try:
                 web_logger.info("⏰ 스케줄된 시간에 자동매매를 실행합니다.")
-                result = auto_trading_engine.execute_strategy()
+                result = self.engine.execute_strategy()
                 
                 if result['success']:
                     web_logger.info(f"✅ 스케줄된 자동매매 실행 완료: {result['message']}")
@@ -115,7 +152,7 @@ class AutoTradingScheduler:
     def get_next_execution_time(self):
         """다음 실행 시간 계산"""
         try:
-            config = config_manager.load_config()
+            config = self.config_manager.load_config()
             schedule_time = config.get('schedule_time', '08:30')
             
             # 시간 파싱 (24시간 형식)
@@ -145,5 +182,9 @@ class AutoTradingScheduler:
         return self.is_executing
 
 
-# 전역 인스턴스
-auto_trading_scheduler = AutoTradingScheduler()
+# 전역 인스턴스들 (모의투자/실전투자 동시 실행)
+mock_scheduler = AutoTradingScheduler('mock')
+real_scheduler = AutoTradingScheduler('real')
+
+# 기존 호환성을 위한 별칭
+auto_trading_scheduler = mock_scheduler
