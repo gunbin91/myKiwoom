@@ -464,39 +464,23 @@ def get_evaluation():
         return error_response
     
     try:
-        result = get_current_account().get_account_evaluation()
-        if result:
-            # 개별 종목의 손익을 합산하여 총 손익과 수익률 계산
-            if 'stk_acnt_evlt_prst' in result and result['stk_acnt_evlt_prst']:
-                total_profit_loss = 0
-                total_purchase_amount = 0
-                
-                for stock in result['stk_acnt_evlt_prst']:
-                    # 손익금액 합산
-                    pl_amt = int(stock.get('pl_amt', '0'))
-                    total_profit_loss += pl_amt
-                    
-                    # 매수금액 합산 (수익률 계산용)
-                    pur_amt = int(stock.get('pur_amt', '0'))
-                    total_purchase_amount += pur_amt
-                
-                # 총 수익률 계산
-                if total_purchase_amount > 0:
-                    total_profit_rate = (total_profit_loss / total_purchase_amount) * 100
-                else:
-                    total_profit_rate = 0.0
-                
-                # 계산된 값들을 결과에 추가
-                result['tot_evlt_pl'] = str(total_profit_loss)
-                result['tot_prft_rt'] = f"{total_profit_rate:.2f}"
-            else:
-                # 보유종목이 없는 경우
-                result['tot_evlt_pl'] = '0'
-                result['tot_prft_rt'] = '0.00'
+        # kt00018 계좌평가잔고내역요청 API 사용 (총 데이터용)
+        balance_result = get_current_account().get_account_balance_detail()
+        
+        # kt00004 계좌평가현황요청 API 사용 (개별 종목 데이터용)
+        evaluation_result = get_current_account().get_account_evaluation()
+        
+        if balance_result and evaluation_result:
+            # kt00018의 총 데이터와 kt00004의 개별 종목 데이터를 결합
+            combined_data = balance_result.copy()
+            
+            # kt00004에서 개별 종목 데이터 가져오기
+            if 'stk_acnt_evlt_prst' in evaluation_result:
+                combined_data['stk_acnt_evlt_prst'] = evaluation_result['stk_acnt_evlt_prst']
             
             return jsonify({
                 'success': True,
-                'data': result
+                'data': combined_data
             })
         else:
             return jsonify({
@@ -567,39 +551,220 @@ def get_unexecuted_orders():
 
 @app.route('/api/account/orders/executed')
 def get_executed_orders():
-    """체결 주문 조회"""
+    """체결 주문 조회 - 개선된 서버사이드 필터링"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
     
     try:
-        # 쿼리 파라미터에서 날짜 범위 가져오기
+        # 쿼리 파라미터에서 필터링 조건 가져오기
         start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
         end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+        order_type = request.args.get('order_type', '0')  # 0: 전체, 1: 매도, 2: 매수
+        stock_code = request.args.get('stock_code', '')
+        order_no = request.args.get('order_no', '')
+        
+        # 매도수구분 매핑 (프론트엔드: buy/sell -> API: 2/1)
+        sell_type = "0"  # 기본값: 전체
+        if order_type == "buy":
+            sell_type = "2"  # 매수
+        elif order_type == "sell":
+            sell_type = "1"  # 매도
         
         result = get_current_account().get_executed_orders(
-            query_type="0",
-            sell_type="0", 
-            start_date=start_date,
+            query_type="0",  # 전체
+            sell_type=sell_type,
+            start_date=start_date,  # ka10076은 날짜 필터링 미지원이지만 파라미터는 유지
             end_date=end_date,
-            exchange="KRX"
+            exchange="1",  # 1: KRX
+            stock_code=stock_code,
+            from_order_no=order_no
         )
         
-        if result:
-            return jsonify({
-                'success': True,
-                'data': result
-            })
+        if result and result.get('success') is not False:
+            # ka10076 API 응답 데이터 구조에 맞게 매핑
+            if 'cntr' in result:
+                # ka10076 API 응답을 프론트엔드가 기대하는 구조로 매핑
+                mapped_data = {
+                    'cntr': []
+                }
+                
+                for order in result['cntr']:
+                    # 매도수구분 판단 (io_tp_nm에서 "-매도" 포함 여부로 판단)
+                    sell_tp = '1' if order.get('io_tp_nm', '').find('매도') != -1 else '0'
+                    
+                    # 체결금액 계산 (체결수량 * 체결가)
+                    cntr_qty = int(order.get('cntr_qty', '0'))
+                    cntr_pric = int(order.get('cntr_pric', '0'))
+                    cntr_amt = str(cntr_qty * cntr_pric)
+                    
+                    # 오늘 날짜와 주문시간을 결합하여 완전한 날짜시간 생성
+                    today = datetime.now().strftime('%Y%m%d')
+                    ord_tm = order.get('ord_tm', '')
+                    
+                    mapped_order = {
+                        'ord_no': order.get('ord_no', ''),
+                        'stk_cd': order.get('stk_cd', ''),
+                        'stk_nm': order.get('stk_nm', ''),
+                        'sell_tp': sell_tp,
+                        'ord_qty': order.get('ord_qty', '0'),
+                        'cntr_qty': order.get('cntr_qty', '0'),
+                        'cntr_pric': order.get('cntr_pric', '0'),
+                        'cntr_amt': cntr_amt,
+                        'cmsn': order.get('tdy_trde_cmsn', '0'),  # 수수료
+                        'tax': order.get('tdy_trde_tax', '0'),   # 세금
+                        'cntr_dt': today,  # 오늘 날짜
+                        'cntr_tm': ord_tm,  # 주문시간
+                        'ord_dt': today,    # 주문날짜 (오늘)
+                        'ord_tm': ord_tm,   # 주문시간
+                        'ord_pric': order.get('ord_pric', '0'),
+                        'orig_ord_no': order.get('orig_ord_no', ''),
+                        'ord_stt': order.get('ord_stt', ''),
+                        'trde_tp': order.get('trde_tp', ''),
+                        'io_tp_nm': order.get('io_tp_nm', '')
+                    }
+                    mapped_data['cntr'].append(mapped_order)
+                
+                return jsonify({
+                    'success': True,
+                    'data': mapped_data
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'data': {'cntr': []}
+                })
         else:
-            return jsonify({
-                'success': False,
-                'message': '체결 주문 조회 실패'
-            })
+            # API 오류 정보가 있는 경우
+            if result and result.get('error_code'):
+                error_response = create_error_response(
+                    result.get('error_code'), 
+                    result.get('error_message', '체결 주문 조회에 실패했습니다.'), 
+                    "get_executed_orders"
+                )
+                return jsonify(error_response)
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '체결 주문 조회 실패'
+                })
     except Exception as e:
         web_logger.error(f"체결 주문 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'체결 주문 조회 실패: {str(e)}'
+        })
+
+
+@app.route('/api/account/orders/executed/history')
+def get_executed_orders_history():
+    """체결 주문 이력 조회 - kt00007 API 사용 (과거 이력 포함)"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
+    try:
+        # 쿼리 파라미터에서 필터링 조건 가져오기
+        start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
+        end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+        order_type = request.args.get('order_type', '0')
+        stock_code = request.args.get('stock_code', '')
+        order_no = request.args.get('order_no', '')
+        
+        # 매도수구분 매핑 (프론트엔드: buy/sell -> API: 2/1)
+        sell_type = "0"  # 기본값: 전체
+        if order_type == "buy":
+            sell_type = "2"  # 매수
+        elif order_type == "sell":
+            sell_type = "1"  # 매도
+        
+        # kt00007 API 사용 (과거 이력 조회 가능)
+        result = get_current_account().get_executed_orders_history(
+            query_type="4",  # 체결내역만
+            sell_type=sell_type,
+            start_date=start_date,
+            exchange="KRX",
+            stock_code=stock_code,
+            from_order_no=order_no
+        )
+        
+        if result and result.get('success') is not False:
+            # kt00007 API 응답 데이터 구조에 맞게 매핑
+            if 'acnt_ord_cntr_prps_dtl' in result:
+                mapped_data = {
+                    'cntr': []
+                }
+                
+                for order in result['acnt_ord_cntr_prps_dtl']:
+                    # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
+                    sell_tp = '1' if order.get('io_tp_nm', '').find('매도') != -1 else '0'
+                    
+                    # 체결금액 계산
+                    cntr_qty = int(order.get('cntr_qty', '0'))
+                    cntr_uv = int(order.get('cntr_uv', '0'))
+                    cntr_amt = str(cntr_qty * cntr_uv)
+                    
+                    # 주문시간에서 날짜 추출 (ord_tm이 "YYYYMMDDHHMMSS" 형태라고 가정)
+                    ord_tm = order.get('ord_tm', '')
+                    if len(ord_tm) >= 8:
+                        ord_date = ord_tm[:8]  # YYYYMMDD
+                        ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''  # HHMMSS
+                    else:
+                        # 시간만 있는 경우 오늘 날짜 사용
+                        ord_date = datetime.now().strftime('%Y%m%d')
+                        ord_time = ord_tm
+                    
+                    mapped_order = {
+                        'ord_no': order.get('ord_no', ''),
+                        'stk_cd': order.get('stk_cd', ''),
+                        'stk_nm': order.get('stk_nm', ''),
+                        'sell_tp': sell_tp,
+                        'ord_qty': order.get('ord_qty', '0'),
+                        'cntr_qty': order.get('cntr_qty', '0'),
+                        'cntr_pric': order.get('cntr_uv', '0'),  # 체결단가
+                        'cntr_amt': cntr_amt,
+                        'cmsn': '0',  # kt00007에서는 수수료 정보 없음
+                        'tax': '0',   # kt00007에서는 세금 정보 없음
+                        'cntr_dt': ord_date,
+                        'cntr_tm': ord_time,
+                        'ord_dt': ord_date,
+                        'ord_tm': ord_time,
+                        'ord_pric': order.get('ord_uv', '0'),
+                        'orig_ord_no': order.get('ori_ord', ''),
+                        'ord_stt': order.get('acpt_tp', ''),
+                        'trde_tp': order.get('trde_tp', ''),
+                        'io_tp_nm': order.get('io_tp_nm', '')
+                    }
+                    mapped_data['cntr'].append(mapped_order)
+                
+                return jsonify({
+                    'success': True,
+                    'data': mapped_data
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'data': {'cntr': []}
+                })
+        else:
+            # API 오류 정보가 있는 경우
+            if result and result.get('error_code'):
+                error_response = create_error_response(
+                    result.get('error_code'), 
+                    result.get('error_message', '체결 주문 이력 조회에 실패했습니다.'), 
+                    "get_executed_orders_history"
+                )
+                return jsonify(error_response)
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '체결 주문 이력 조회 실패'
+                })
+    except Exception as e:
+        web_logger.error(f"체결 주문 이력 조회 실패: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'체결 주문 이력 조회 실패: {str(e)}'
         })
 
 

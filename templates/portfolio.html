@@ -26,8 +26,8 @@
       <div class="card-body">
         <div class="d-flex justify-content-between">
           <div>
-            <h6 class="card-title">총 보유 종목</h6>
-            <h4 class="mb-0" id="total-stocks">-</h4>
+            <h6 class="card-title">총 매수금액</h6>
+            <h4 class="mb-0" id="total-purchase">-</h4>
           </div>
           <div class="align-self-center">
             <i class="fas fa-chart-pie fa-2x"></i>
@@ -313,32 +313,50 @@
   }
 
   function updatePortfolioSummary(data) {
-    const stocks = data.stk_acnt_evlt_prst || [];
-    const totalStocks = stocks.length;
+    // kt00018 API 응답 필드 사용
+    const totalPurchase = parseFloat(data.tot_pur_amt || "0");
     const totalValue = parseFloat(data.tot_evlt_amt || "0");
     const totalProfit = parseFloat(data.tot_evlt_pl || "0");
     const avgReturn = parseFloat(data.tot_prft_rt || "0");
 
-    document.getElementById("total-stocks").textContent = totalStocks + "개";
-    document.getElementById("total-value").textContent =
-      formatNumber(totalValue) + "원";
-    document.getElementById("total-profit").textContent =
-      formatNumber(totalProfit) + "원";
-    document.getElementById("avg-return").textContent = avgReturn + "%";
+    // 총 매수금액 표시
+    document.getElementById("total-purchase").textContent =
+      formatNumber(totalPurchase) + "원";
 
-    // 색상 설정
+    // 총 평가금액 표시 및 색상 설정 (전체 수익중일 때 빨간색)
+    const valueElement = document.getElementById("total-value");
+    valueElement.textContent = formatNumber(totalValue) + "원";
+    if (totalProfit > 0) {
+      valueElement.className = "text-up"; // 수익중일 때 빨간색
+    } else {
+      valueElement.className = "text-white"; // 기본 흰색
+    }
+
+    // 총 손익금액 표시 (양수일 때 + 기호 추가)
+    const formattedProfit = totalProfit > 0 
+      ? "+" + formatNumber(totalProfit) + "원"
+      : formatNumber(totalProfit) + "원";
+    document.getElementById("total-profit").textContent = formattedProfit;
+
+    // 평균 수익률 표시 (양수일 때 + 기호 추가)
+    const formattedReturn = avgReturn > 0 
+      ? "+" + avgReturn.toFixed(2) + "%"
+      : avgReturn.toFixed(2) + "%";
+    document.getElementById("avg-return").textContent = formattedReturn;
+
+    // 손익에 따른 색상 설정 (한국 주식 시장 관례: 상승=빨간색, 하락=파란색)
     const profitElement = document.getElementById("total-profit");
     const returnElement = document.getElementById("avg-return");
 
     if (totalProfit > 0) {
-      profitElement.className = "text-success";
-      returnElement.className = "text-success";
+      profitElement.className = "text-up"; // 상승: 빨간색
+      returnElement.className = "text-up"; // 상승: 빨간색
     } else if (totalProfit < 0) {
-      profitElement.className = "text-danger";
-      returnElement.className = "text-danger";
+      profitElement.className = "text-down"; // 하락: 파란색
+      returnElement.className = "text-down"; // 하락: 파란색
     } else {
-      profitElement.className = "text-muted";
-      returnElement.className = "text-muted";
+      profitElement.className = "text-neutral"; // 보합: 회색
+      returnElement.className = "text-neutral"; // 보합: 회색
     }
   }
 
@@ -372,7 +390,7 @@
                 ${formatNumber(stock.pl_amt || "0")}원
             </td>
             <td class="${returnRate >= 0 ? "text-up" : "text-down"}">
-                ${stock.pl_rt || "0"}%
+                ${parseFloat(stock.pl_rt || "0").toFixed(2)}%
             </td>
             <td>${weight}%</td>
             <td>
@@ -549,8 +567,18 @@
   }
 
   function showStockDetail(stockCode, stockName) {
-    document.getElementById("stockDetailTitle").textContent =
-      stockName + " (" + stockCode + ")";
+    document.getElementById("stockDetailTitle").innerHTML =
+      '<span class="text-black fw-bold">' + stockName + " (" + stockCode + ")" + '</span>';
+
+    // 로딩 표시
+    document.getElementById("stockDetailBody").innerHTML = `
+      <div class="text-center py-4">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">로딩 중...</span>
+        </div>
+        <p class="mt-2 text-muted">종목 정보를 불러오는 중...</p>
+      </div>
+    `;
 
     // 종목 상세 정보 로드
     fetch(`/api/quote/stock/${stockCode}`)
@@ -558,33 +586,118 @@
       .then((data) => {
         if (data.success) {
           const stockInfo = data.data;
+          // 숫자 파싱 함수 (+, - 기호 제거)
+          function parseNumber(value) {
+            if (!value || value === '') return '0';
+            return value.toString().replace(/[+\-]/g, '');
+          }
+          
+          // 금액 포맷팅 함수 (단위 변환)
+          function formatAmount(value, unit = '원', unitType = 'normal') {
+            const num = parseNumber(value);
+            const amount = parseInt(num);
+            
+            if (unitType === 'capital') {
+              // 자본금, 영업이익, 당기순이익: 억원 단위 (API에서 억원으로 제공)
+              if (amount >= 10000) {
+                return (amount / 10000).toFixed(0) + '억' + unit;
+              } else {
+                return formatNumber(num) + '억' + unit;
+              }
+            } else if (unitType === 'revenue') {
+              // 매출액, 시가총액: 만원 단위 (API에서 만원으로 제공)
+              if (amount >= 100000000) {
+                return (amount / 100000000).toFixed(1) + '조' + unit;
+              } else if (amount >= 10000) {
+                return (amount / 10000).toFixed(1) + '억' + unit;
+              } else {
+                return formatNumber(num) + '만' + unit;
+              }
+            } else {
+              // 일반 금액 (주가 등)
+              if (amount >= 100000000) {
+                return (amount / 100000000).toFixed(1) + '억' + unit;
+              } else if (amount >= 10000) {
+                return (amount / 10000).toFixed(1) + '만' + unit;
+              } else {
+                return formatNumber(num) + unit;
+              }
+            }
+          }
+          
+          // 주식 수량 포맷팅 함수
+          function formatStockQuantity(value) {
+            const num = parseNumber(value);
+            const amount = parseInt(num);
+            if (amount >= 100000000) {
+              return (amount / 100000000).toFixed(1) + '억주';
+            } else if (amount >= 10000) {
+              return (amount / 10000).toFixed(1) + '만주';
+            } else {
+              return formatNumber(num) + '주';
+            }
+          }
+          
           document.getElementById("stockDetailBody").innerHTML = `
                     <div class="row">
                         <div class="col-md-6">
-                            <h6>기본 정보</h6>
-                            <table class="table table-sm">
-                                <tr><td>종목명</td><td>${stockName}</td></tr>
-                                <tr><td>종목코드</td><td>${stockCode}</td></tr>
-                                <tr><td>현재가</td><td>${formatNumber(
-                                  stockInfo.cur_prc || "0"
-                                )}원</td></tr>
-                                <tr><td>전일대비</td><td>${formatNumber(
-                                  stockInfo.diff_amt || "0"
-                                )}원</td></tr>
+                            <h6 class="text-black fw-bold mb-3">기본 정보</h6>
+                            <table class="table table-sm table-striped">
+                                <tr><td class="fw-semibold text-black">종목명</td><td class="text-black">${stockInfo.stk_nm || stockName}</td></tr>
+                                <tr><td class="fw-semibold text-black">종목코드</td><td class="text-black">${stockInfo.stk_cd || stockCode}</td></tr>
+                                <tr><td class="fw-semibold text-black">액면가</td><td class="text-black">${formatAmount(stockInfo.fav)}</td></tr>
+                                <tr><td class="fw-semibold text-black">자본금</td><td class="text-black">${formatAmount(stockInfo.cap, '원', 'capital')}</td></tr>
+                                <tr><td class="fw-semibold text-black">상장주식</td><td class="text-black">${formatStockQuantity(stockInfo.flo_stk)}</td></tr>
+                                <tr><td class="fw-semibold text-black">신용비율</td><td class="text-black">${stockInfo.crd_rt || "0"}%</td></tr>
                             </table>
                         </div>
                         <div class="col-md-6">
-                            <h6>거래 정보</h6>
-                            <table class="table table-sm">
-                                <tr><td>거래량</td><td>${formatNumber(
-                                  stockInfo.vol || "0"
-                                )}</td></tr>
-                                <tr><td>거래대금</td><td>${formatNumber(
-                                  stockInfo.trd_amt || "0"
-                                )}원</td></tr>
-                                <tr><td>시가총액</td><td>${formatNumber(
-                                  stockInfo.mkt_cap || "0"
-                                )}원</td></tr>
+                            <h6 class="text-black fw-bold mb-3">시세 정보</h6>
+                            <table class="table table-sm table-striped">
+                                <tr><td class="fw-semibold text-black">연중최고</td><td class="text-black">${formatAmount(stockInfo.oyr_hgst)}</td></tr>
+                                <tr><td class="fw-semibold text-black">연중최저</td><td class="text-black">${formatAmount(stockInfo.oyr_lwst)}</td></tr>
+                                <tr><td class="fw-semibold text-black">시가총액</td><td class="text-black">${formatAmount(stockInfo.mac, '원', 'revenue')}</td></tr>
+                                <tr><td class="fw-semibold text-black">시가총액비중</td><td class="text-black">${stockInfo.mac_wght || "0"}%</td></tr>
+                                <tr><td class="fw-semibold text-black">외인소진률</td><td class="text-black">${stockInfo.for_exh_rt || "0"}%</td></tr>
+                                <tr><td class="fw-semibold text-black">대용가</td><td class="text-black">${formatAmount(stockInfo.repl_pric)}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <h6 class="text-black fw-bold mb-3">투자지표</h6>
+                            <table class="table table-sm table-striped">
+                                <tr><td class="fw-semibold text-black">PER</td><td class="text-black">${stockInfo.per || "-"}</td></tr>
+                                <tr><td class="fw-semibold text-black">EPS</td><td class="text-black">${formatAmount(stockInfo.eps)}</td></tr>
+                                <tr><td class="fw-semibold text-black">ROE</td><td class="text-black">${stockInfo.roe || "0"}%</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-black fw-bold mb-3">현재 시세</h6>
+                            <table class="table table-sm table-striped">
+                                <tr><td class="fw-semibold text-black">현재가</td><td class="text-black">${formatAmount(stockInfo.cur_prc)}</td></tr>
+                                <tr><td class="fw-semibold text-black">시가</td><td class="text-black">${formatAmount(stockInfo.open_pric)}</td></tr>
+                                <tr><td class="fw-semibold text-black">고가</td><td class="text-black">${formatAmount(stockInfo.high_pric)}</td></tr>
+                                <tr><td class="fw-semibold text-black">저가</td><td class="text-black">${formatAmount(stockInfo.low_pric)}</td></tr>
+                                <tr><td class="fw-semibold text-black">거래량</td><td class="text-black">${formatStockQuantity(stockInfo.trde_qty)}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <h6 class="text-black fw-bold mb-3">기타 정보</h6>
+                            <table class="table table-sm table-striped">
+                                <tr><td class="fw-semibold text-black">결산월</td><td class="text-black">${stockInfo.setl_mm || "-"}월</td></tr>
+                                <tr><td class="fw-semibold text-black">PBR</td><td class="text-black">${stockInfo.pbr || "-"}</td></tr>
+                                <tr><td class="fw-semibold text-black">BPS</td><td class="text-black">${formatAmount(stockInfo.bps)}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-black fw-bold mb-3">재무 정보</h6>
+                            <table class="table table-sm table-striped">
+                                <tr><td class="fw-semibold text-black">매출액</td><td class="text-black">${formatAmount(stockInfo.sale_amt, '원', 'revenue')}</td></tr>
+                                <tr><td class="fw-semibold text-black">영업이익</td><td class="text-black">${formatAmount(stockInfo.bus_pro, '원', 'capital')}</td></tr>
+                                <tr><td class="fw-semibold text-black">당기순이익</td><td class="text-black">${formatAmount(stockInfo.cup_nga, '원', 'capital')}</td></tr>
                             </table>
                         </div>
                     </div>

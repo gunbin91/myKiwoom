@@ -550,9 +550,18 @@
           const profitLoss = data.data.tot_evlt_pl || "0";
           const profitRate = data.data.tot_prft_rt || "0";
 
-          document.getElementById("profit-loss").textContent =
-            formatNumber(profitLoss) + "원";
-          document.getElementById("profit-rate").textContent = profitRate + "%";
+          // 평가손익에 + 기호 추가 (양수일 때)
+          const formattedProfitLoss = parseFloat(profitLoss) > 0 
+            ? "+" + formatNumber(profitLoss) + "원"
+            : formatNumber(profitLoss) + "원";
+          document.getElementById("profit-loss").textContent = formattedProfitLoss;
+          
+          // 수익률에 + 기호 추가 (양수일 때) 및 소수점 둘째자리 제한
+          const profitRateNum = parseFloat(profitRate);
+          const formattedProfitRate = profitRateNum > 0 
+            ? "+" + profitRateNum.toFixed(2) + "%"
+            : profitRateNum.toFixed(2) + "%";
+          document.getElementById("profit-rate").textContent = formattedProfitRate;
 
           // 손익에 따른 색상 변경 (한국 주식 시장 관례: 상승=빨간색, 하락=파란색)
           const profitElement = document.getElementById("profit-loss");
@@ -611,7 +620,7 @@
                             ? "text-down"
                             : "text-neutral"
                         }">
-                            ${stock.pl_rt || "0"}%
+                            ${parseFloat(stock.pl_rt || "0").toFixed(2)}%
                         </td>
                     `;
             tbody.appendChild(row);

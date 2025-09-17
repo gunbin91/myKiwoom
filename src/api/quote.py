@@ -275,21 +275,21 @@ class KiwoomQuote:
     
     def get_stock_info(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
-        종목정보 조회 (ka10100)
+        주식기본정보 조회 (ka10001)
         
         Args:
             stock_code: 종목코드
             
         Returns:
-            종목 정보
+            종목 기본 정보
         """
-        api_logger.info(f"종목정보 조회 (종목코드: {stock_code})")
+        api_logger.info(f"주식기본정보 조회 (종목코드: {stock_code})")
         
         data = {
             'stk_cd': stock_code
         }
         
-        return self._make_request('ka10100', data)
+        return self._make_request('ka10001', data)
     
     def get_sector_list(self) -> Optional[Dict[str, Any]]:
         """

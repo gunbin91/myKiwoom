@@ -68,19 +68,22 @@ class KiwoomAccount:
                 response.raise_for_status()
                 result = response.json()
                 
-                # 키움 API는 return_code 필드가 없으므로 응답이 있으면 성공으로 처리
-                if result:
+                # return_code 체크 (다른 API 클래스들과 동일한 로직)
+                if result.get('return_code') == 0:
                     # 성공 응답에 success 플래그 추가
                     result['success'] = True
                     return result
                 else:
-                    # 빈 응답인 경우
-                    api_logger.error(f"API {api_id} 빈 응답")
+                    # API 오류 처리
+                    error_msg = result.get('return_msg', '알 수 없는 오류')
+                    error_code = result.get('return_code', 'UNKNOWN')
+                    api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg}")
+                    
+                    # 오류 정보를 포함한 결과 반환
                     return {
                         'success': False,
-                        'error_code': 'EMPTY_RESPONSE',
-                        'error_message': '빈 응답',
-                        'message': '빈 응답',
+                        'error_code': error_code,
+                        'error_message': error_msg,
                         'api_id': api_id
                     }
                     
@@ -270,21 +273,24 @@ class KiwoomAccount:
         return self._make_request('ka10075', data)
     
     def get_executed_orders(self, query_type: str = "0", sell_type: str = "0", 
-                           start_date: str = "", end_date: str = "", exchange: str = "KRX") -> Optional[Dict[str, Any]]:
+                           start_date: str = "", end_date: str = "", exchange: str = "KRX",
+                           stock_code: str = "", from_order_no: str = "") -> Optional[Dict[str, Any]]:
         """
-        체결요청 (ka10076)
+        체결요청 (ka10076) - 수수료/세금 정보 포함된 완전한 API 사용
         
         Args:
-            query_type: 조회구분
-            sell_type: 매도수구분
-            start_date: 시작일자 (YYYYMMDD)
-            end_date: 종료일자 (YYYYMMDD)
-            exchange: 거래소구분 (KRX: 한국거래소, NXT: 넥스트트레이드)
+            query_type: 조회구분 ("0": 전체, "1": 종목)
+            sell_type: 매도수구분 ("0": 전체, "1": 매도, "2": 매수)
+            start_date: 시작일자 (YYYYMMDD) - ka10076은 날짜 필터링 미지원
+            end_date: 종료일자 (YYYYMMDD) - ka10076은 날짜 필터링 미지원
+            exchange: 거래소구분 ("0": 통합, "1": KRX, "2": NXT)
+            stock_code: 종목코드 (공백시 전체종목)
+            from_order_no: 주문번호 (검색 기준값)
             
         Returns:
-            체결 주문 내역
+            체결 주문 내역 (수수료/세금 정보 포함)
         """
-        api_logger.info(f"체결 주문 조회 (조회구분: {query_type}, 매도수구분: {sell_type}, 거래소: {exchange})")
+        api_logger.info(f"체결 주문 조회 (조회구분: {query_type}, 매도수구분: {sell_type}, 거래소: {exchange}, 종목: {stock_code})")
         
         data = {
             'qry_tp': query_type,
@@ -292,12 +298,56 @@ class KiwoomAccount:
             'stex_tp': exchange
         }
         
-        if start_date:
-            data['strt_dt'] = start_date
-        if end_date:
-            data['end_dt'] = end_date
+        # 종목코드 필터링
+        if stock_code:
+            data['stk_cd'] = stock_code
+        
+        # 주문번호 필터링 (검색 기준값)
+        if from_order_no:
+            data['ord_no'] = from_order_no
         
         return self._make_request('ka10076', data)
+    
+    def get_executed_orders_history(self, query_type: str = "4", sell_type: str = "0", 
+                                   start_date: str = "", end_date: str = "", exchange: str = "KRX",
+                                   stock_code: str = "", from_order_no: str = "") -> Optional[Dict[str, Any]]:
+        """
+        계좌별주문체결내역상세요청 (kt00007) - 과거 이력 조회용
+        
+        Args:
+            query_type: 조회구분 ("1": 주문순, "2": 역순, "3": 미체결, "4": 체결내역만)
+            sell_type: 매도수구분 ("0": 전체, "1": 매도, "2": 매수)
+            start_date: 시작일자 (YYYYMMDD)
+            end_date: 종료일자 (YYYYMMDD)
+            exchange: 국내거래소구분 ("KRX": 한국거래소, "NXT": 넥스트트레이드, "%": 전체)
+            stock_code: 종목코드 (공백시 전체종목)
+            from_order_no: 시작주문번호 (공백시 전체주문)
+            
+        Returns:
+            체결 주문 내역 (과거 이력 포함)
+        """
+        api_logger.info(f"체결 주문 이력 조회 (조회구분: {query_type}, 매도수구분: {sell_type}, 거래소: {exchange}, 종목: {stock_code})")
+        
+        data = {
+            'qry_tp': query_type,
+            'stk_bond_tp': '1',  # 1: 주식만
+            'sell_tp': sell_type,
+            'dmst_stex_tp': exchange
+        }
+        
+        # 날짜 필터링 (kt00007 API는 ord_dt 파라미터 사용)
+        if start_date:
+            data['ord_dt'] = start_date
+        
+        # 종목코드 필터링
+        if stock_code:
+            data['stk_cd'] = stock_code
+        
+        # 주문번호 필터링
+        if from_order_no:
+            data['fr_ord_no'] = from_order_no
+        
+        return self._make_request('kt00007', data)
     
     def get_today_trading_diary(self, base_date: str = "", odd_lot_type: str = "0", 
                                cash_credit_type: str = "0") -> Optional[Dict[str, Any]]:
