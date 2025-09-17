@@ -82,7 +82,7 @@ class KiwoomAuth:
         try:
             with open(self.token_cache_file, 'w', encoding='utf-8') as f:
                 json.dump(token_data, f, ensure_ascii=False, indent=2)
-            api_logger.info("토큰이 캐시에 저장되었습니다.")
+            api_logger.info(f"토큰이 캐시에 저장되었습니다. (서버: {self.server_config.server_type}, 파일: {self.token_cache_file.name})")
         except Exception as e:
             api_logger.error(f"토큰 캐시 저장 실패: {e}")
     

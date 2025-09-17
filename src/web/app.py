@@ -1542,14 +1542,44 @@ def start_real_time_updates():
             time.sleep(10)
 
 
+# 전역 변수로 스케줄러 시작 상태 관리
+_schedulers_started = False
+
+def start_schedulers():
+    """스케줄러 시작 (항상 두 스케줄러 프로세스 생성)"""
+    global _schedulers_started
+    
+    # Werkzeug reloader 환경에서는 메인 프로세스에서만 스케줄러 시작
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' and WEB_DEBUG:
+        web_logger.info("Werkzeug reloader 환경에서 서브프로세스는 스케줄러를 시작하지 않습니다.")
+        return
+    
+    if _schedulers_started:
+        web_logger.info("스케줄러가 이미 시작되었습니다. 중복 시작을 방지합니다.")
+        return
+    
+    try:
+        # 모의투자 스케줄러 시작 (설정과 관계없이 항상 시작)
+        mock_scheduler.start()
+        web_logger.info("✅ 모의투자 자동매매 스케줄러가 시작되었습니다.")
+        
+        # 실전투자 스케줄러 시작 (설정과 관계없이 항상 시작)
+        real_scheduler.start()
+        web_logger.info("✅ 실전투자 자동매매 스케줄러가 시작되었습니다.")
+        
+        _schedulers_started = True
+        web_logger.info("✅ 자동매매 스케줄러들이 시작되었습니다. (설정파일에 따라 실행 여부 결정)")
+            
+    except Exception as e:
+        web_logger.error(f"스케줄러 시작 실패: {e}")
+
 if __name__ == '__main__':
     # 실시간 업데이트 스레드 시작
     update_thread = threading.Thread(target=start_real_time_updates, daemon=True)
     update_thread.start()
     
-    # 자동매매 스케줄러들 시작 (모의투자/실전투자 동시 실행)
-    mock_scheduler.start()
-    real_scheduler.start()
+    # 스케줄러 시작
+    start_schedulers()
     
     web_logger.info(f"웹 서버 시작: http://{WEB_HOST}:{WEB_PORT}")
     socketio.run(app, host=WEB_HOST, port=WEB_PORT, debug=WEB_DEBUG)

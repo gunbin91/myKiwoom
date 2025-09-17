@@ -18,7 +18,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.utils.deep_learning import deep_learning_analyzer
 from src.auto_trading.config_manager import AutoTradingConfigManager
-from src.api import kiwoom_account, kiwoom_order, kiwoom_auth
+from src.api.auth import KiwoomAuth
+from src.api.account import KiwoomAccount
+from src.api.quote import KiwoomQuote
+from src.api.order import KiwoomOrder
 from src.utils import web_logger
 
 
@@ -32,6 +35,12 @@ class AutoTradingEngine:
         self.is_running = False
         self.current_status = "대기 중"
         self.progress_percentage = 0
+        
+        # 서버 타입에 맞는 API 인스턴스 생성
+        self.auth = KiwoomAuth(server_type)
+        self.account = KiwoomAccount(server_type)
+        self.quote = KiwoomQuote(server_type)
+        self.order = KiwoomOrder(server_type)
         
     
     def can_execute(self, manual_execution=False):
@@ -79,22 +88,22 @@ class AutoTradingEngine:
         sell_count = 0
         
         try:
-            web_logger.info("🤖 자동매매 전략 실행을 시작합니다...")
+            web_logger.info(f"🤖 자동매매 전략 실행을 시작합니다... (서버: {self.server_type})")
             
             # 0. 토큰 유효성 확인 및 자동 발급
             self.current_status = "토큰 확인 중"
             self.progress_percentage = 5
             try:
-                token = kiwoom_auth.get_access_token()
+                token = self.auth.get_access_token()
                 if not token:
-                    web_logger.info("토큰이 없습니다. 새로 발급받습니다...")
-                    token = kiwoom_auth.get_access_token(force_refresh=True)
+                    web_logger.info(f"토큰이 없습니다. 새로 발급받습니다... (서버: {self.server_type})")
+                    token = self.auth.get_access_token(force_refresh=True)
                     if not token:
                         return {
                             'success': False,
                             'message': '토큰 발급에 실패했습니다. 로그인을 다시 시도해주세요.'
                         }
-                web_logger.info("토큰 확인 완료")
+                web_logger.info(f"토큰 확인 완료 (서버: {self.server_type})")
             except Exception as e:
                 web_logger.error(f"토큰 확인 실패: {e}")
                 return {
@@ -247,7 +256,7 @@ class AutoTradingEngine:
         """계좌 정보 조회"""
         try:
             # 예수금 정보
-            deposit_result = kiwoom_account.get_deposit_detail()
+            deposit_result = self.account.get_deposit_detail()
             if not deposit_result or deposit_result.get('success') is False:
                 return {
                     'success': False,
@@ -255,7 +264,7 @@ class AutoTradingEngine:
                 }
             
             # 보유 종목 정보
-            balance_result = kiwoom_account.get_account_balance_detail()
+            balance_result = self.account.get_account_balance_detail()
             if not balance_result:
                 return {
                     'success': False,
@@ -334,7 +343,7 @@ class AutoTradingEngine:
                     order_success = False
                     
                     for retry in range(max_retries):
-                        order_result = kiwoom_order.buy_stock(
+                        order_result = self.order.buy_stock(
                             stock_code=stock_code,
                             quantity=quantity,
                             price=0,  # 시장가는 가격을 0으로 설정
@@ -438,7 +447,7 @@ class AutoTradingEngine:
                     if should_sell:
                         web_logger.info(f"📉 {stock_name}({stock_code}) 매도 주문: {quantity}주 @ {current_price}원 ({sell_reason})")
                         
-                        order_result = kiwoom_order.sell_stock(
+                        order_result = self.order.sell_stock(
                             stock_code=stock_code,
                             quantity=quantity,
                             price=0,  # 시장가는 가격을 0으로 설정
@@ -601,10 +610,10 @@ class AutoTradingEngine:
     def _get_realtime_price(self, stock_code):
         """키움 API로 실시간 현재가 조회"""
         try:
-            from src.api.quote import kiwoom_quote
+            # 서버 타입에 맞는 quote 인스턴스 사용
             
             # 키움 API로 실시간 현재가 조회
-            quote_result = kiwoom_quote.get_current_price(stock_code)
+            quote_result = self.quote.get_current_price(stock_code)
             
             if quote_result and quote_result.get('success') is not False:
                 current_price = quote_result.get('current_price', 0)
@@ -639,14 +648,14 @@ class AutoTradingEngine:
         """보유기간 계산 (체결내역에서 매수일 정보 가져오기)"""
         try:
             # 체결내역에서 매수 정보 가져오기
-            from src.api.order import kiwoom_order
+            # 서버 타입에 맞는 order 인스턴스 사용
             
             # 최근 30일간의 체결내역 조회
             end_date = datetime.now().strftime('%Y%m%d')
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
             
             # 체결내역 조회 (매수만)
-            order_history = kiwoom_order.get_order_history(
+            order_history = self.order.get_order_history(
                 start_date=start_date,
                 end_date=end_date,
                 stock_code=stock_code,

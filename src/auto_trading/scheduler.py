@@ -35,8 +35,16 @@ class AutoTradingScheduler:
     def start(self):
         """스케줄러 시작 (별도 프로세스)"""
         if self.is_running and self.scheduler_process and self.scheduler_process.is_alive():
-            web_logger.warning("스케줄러가 이미 실행 중입니다.")
+            web_logger.warning(f"스케줄러가 이미 실행 중입니다. (서버: {self.server_type})")
             return
+        
+        # 기존 프로세스가 있다면 정리
+        if self.scheduler_process and self.scheduler_process.is_alive():
+            web_logger.info(f"기존 스케줄러 프로세스를 정리합니다. (서버: {self.server_type})")
+            self.scheduler_process.terminate()
+            self.scheduler_process.join(timeout=2)
+            if self.scheduler_process.is_alive():
+                self.scheduler_process.kill()
         
         self.is_running = True
         self.scheduler_process = multiprocessing.Process(
@@ -113,13 +121,13 @@ class AutoTradingScheduler:
             # 자동매매 실행
             self.is_executing = True
             try:
-                web_logger.info("⏰ 스케줄된 시간에 자동매매를 실행합니다.")
+                web_logger.info(f"⏰ 스케줄된 시간에 자동매매를 실행합니다. (서버: {self.server_type})")
                 result = self.engine.execute_strategy()
                 
                 if result['success']:
-                    web_logger.info(f"✅ 스케줄된 자동매매 실행 완료: {result['message']}")
+                    web_logger.info(f"✅ 스케줄된 자동매매 실행 완료 (서버: {self.server_type}): {result['message']}")
                 else:
-                    web_logger.error(f"❌ 스케줄된 자동매매 실행 실패: {result['message']}")
+                    web_logger.error(f"❌ 스케줄된 자동매매 실행 실패 (서버: {self.server_type}): {result['message']}")
             finally:
                 # 실행 완료 후 플래그 해제
                 self.is_executing = False
