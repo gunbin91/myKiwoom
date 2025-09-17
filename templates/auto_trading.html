@@ -448,9 +448,15 @@
                   <strong>수수료율:</strong>
                   <span id="strategy-fee-rate">-</span>
                 </p>
-                <p class="mb-0">
+                <p class="mb-1">
                   <strong>예약 현금:</strong>
                   <span id="strategy-reserve">-</span>
+                </p>
+                <p class="mb-0">
+                  <strong>사용가능금액:</strong>
+                  <span id="available-cash" class="text-primary fw-bold"
+                    >-</span
+                  >
                 </p>
               </div>
             </div>
@@ -1047,6 +1053,14 @@
       strategy.reserve_cash
         ? (strategy.reserve_cash / 10000).toFixed(0) + "만원"
         : "-";
+
+    // 💰 사용가능금액 업데이트
+    const cashInfo = data.cash_info || {};
+    const availableCash = cashInfo.available_cash || 0;
+    document.getElementById("available-cash").textContent =
+      availableCash > 0
+        ? (availableCash / 10000).toFixed(0) + "만원"
+        : "0원";
 
     // 상위 종목 리스트 업데이트
     const topStocksTbody = document.getElementById("top-stocks-tbody");

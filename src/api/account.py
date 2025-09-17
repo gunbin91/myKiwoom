@@ -68,21 +68,20 @@ class KiwoomAccount:
                 response.raise_for_status()
                 result = response.json()
                 
-                if result.get('return_code') == 0:
+                # 키움 API는 return_code 필드가 없으므로 응답이 있으면 성공으로 처리
+                if result:
+                    # 성공 응답에 success 플래그 추가
+                    result['success'] = True
                     return result
                 else:
-                    error_msg = result.get('return_msg', '알 수 없는 오류')
-                    error_code = result.get('return_code', 'UNKNOWN')
-                    api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg}")
-                    
-                    # 오류 정보를 포함한 결과 반환
+                    # 빈 응답인 경우
+                    api_logger.error(f"API {api_id} 빈 응답")
                     return {
                         'success': False,
-                        'error_code': error_code,
-                        'error_message': error_msg,
-                        'message': error_msg,  # 호환성을 위해 추가
-                        'api_id': api_id,
-                        'full_response': result  # 디버깅을 위해 전체 응답 포함
+                        'error_code': 'EMPTY_RESPONSE',
+                        'error_message': '빈 응답',
+                        'message': '빈 응답',
+                        'api_id': api_id
                     }
                     
             except requests.exceptions.RequestException as e:

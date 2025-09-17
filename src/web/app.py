@@ -1434,9 +1434,107 @@ def get_analysis_result():
                 top_n=strategy_params.get('top_n', 5),
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
             )
+            
+            # 🔥 추가: 보유 종목 필터링 (분석결과확인 테스트용)
+            if buy_candidates:
+                try:
+                    from src.api.account import KiwoomAccount
+                    from src.utils.server_manager import get_current_server
+                    
+                    # 현재 서버 타입에 맞는 API 인스턴스 사용
+                    server_type = get_current_server()
+                    account = KiwoomAccount(server_type)
+                    
+                    # 보유 종목 조회
+                    balance_result = account.get_account_balance_detail()
+                    held_stocks = []
+                    
+                    if balance_result and balance_result.get('success') and balance_result.get('data', {}).get('bal'):
+                        for stock in balance_result['data']['bal']:
+                            if int(stock.get('cntr_qty', 0)) > 0:  # 보유 수량이 있는 경우
+                                held_stocks.append(stock.get('stk_cd'))
+                    
+                    # 보유 종목 제외
+                    if held_stocks:
+                        web_logger.info(f"📋 분석결과확인 테스트: 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
+                        original_count = len(buy_candidates)
+                        buy_candidates = [candidate for candidate in buy_candidates 
+                                        if candidate.get('종목코드') not in held_stocks]
+                        web_logger.info(f"✅ 보유 종목 제외 후: {original_count}개 → {len(buy_candidates)}개")
+                    else:
+                        web_logger.info("📋 분석결과확인 테스트: 보유 종목이 없습니다.")
+                        
+                except Exception as filter_error:
+                    web_logger.warning(f"보유 종목 필터링 중 오류 발생 (계속 진행): {filter_error}")
+            
         except Exception as e:
             web_logger.error(f"매수 대상 선정 중 오류 발생: {e}")
             buy_candidates = []  # 빈 리스트로 설정하여 계속 진행
+        
+        # 💰 사용가능금액 계산 (분석결과확인 테스트용)
+        available_cash = 0
+        total_deposit = 0
+        reserve_cash = 0
+        
+        try:
+            from src.api.account import KiwoomAccount
+            from src.utils.server_manager import get_current_server
+            
+            # 현재 서버 타입에 맞는 API 인스턴스 사용
+            server_type = get_current_server()
+            account = KiwoomAccount(server_type)
+            
+            # 예수금 정보 조회 (대시보드와 동일한 로직 사용)
+            deposit_result = account.get_deposit_detail()
+            
+            if deposit_result and deposit_result.get('success') is not False:
+                # 서버별 분기처리 (대시보드와 동일)
+                server_config = get_current_server_config_instance()
+                
+                if server_config.is_real_server():
+                    # 운영서버: kt00002로 최신 예수금 정보 확인
+                    from datetime import datetime
+                    today = datetime.now().strftime('%Y%m%d')
+                    
+                    try:
+                        daily_result = account.get_daily_estimated_deposit_assets(today, today)
+                        if daily_result and daily_result.get('daly_prsm_dpst_aset_amt_prst'):
+                            # 오늘 날짜의 예수금 정보가 있으면 사용
+                            today_data = daily_result['daly_prsm_dpst_aset_amt_prst'][0]
+                            if 'entr' in today_data:
+                                deposit_result['entr'] = today_data['entr']
+                                web_logger.info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
+                    except Exception as e:
+                        web_logger.warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
+                
+                # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
+                if 'd2_entra' in deposit_result and deposit_result['d2_entra'] and deposit_result['d2_entra'] != '000000000000000':
+                    deposit_result['entr'] = deposit_result['d2_entra']
+                    web_logger.info(f"D+2 추정예수금 사용: {deposit_result['d2_entra']}")
+                # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
+                elif 'd1_entra' in deposit_result and deposit_result['d1_entra'] and deposit_result['d1_entra'] != '000000000000000':
+                    deposit_result['entr'] = deposit_result['d1_entra']
+                    web_logger.info(f"D+1 추정예수금 사용: {deposit_result['d1_entra']}")
+                
+                # 예수금 계산
+                total_deposit = int(deposit_result.get('entr', 0))
+                reserve_cash = strategy_params.get('reserve_cash', 1000000)
+                available_cash = total_deposit - reserve_cash
+                
+                web_logger.info(f"💰 분석결과확인 테스트 - 총 예수금: {total_deposit:,}원, 매매제외예수금: {reserve_cash:,}원, 사용가능금액: {available_cash:,}원")
+            else:
+                # 상세한 오류 정보 로그
+                if deposit_result:
+                    error_msg = deposit_result.get('message', '알 수 없는 오류')
+                    error_code = deposit_result.get('error_code', 'UNKNOWN')
+                    full_response = deposit_result.get('full_response', {})
+                    web_logger.warning(f"예수금 정보 조회 실패: [{error_code}] {error_msg}")
+                    web_logger.warning(f"전체 API 응답: {full_response}")
+                else:
+                    web_logger.warning("예수금 정보 조회 결과가 None입니다.")
+                
+        except Exception as cash_error:
+            web_logger.warning(f"사용가능금액 계산 중 오류 발생: {cash_error}")
         
         # 결과 정리
         result = {
@@ -1445,7 +1543,12 @@ def get_analysis_result():
             'total_stocks': analysis_result['data'].get('total_stocks', 0),
             'top_stocks': analysis_result['data'].get('top_stocks', [])[:20],  # 상위 20개만
             'buy_candidates': buy_candidates,
-            'strategy_params': strategy_params
+            'strategy_params': strategy_params,
+            'cash_info': {
+                'total_deposit': total_deposit,
+                'reserve_cash': reserve_cash,
+                'available_cash': available_cash
+            }
         }
         
         return jsonify(result)

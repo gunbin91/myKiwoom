@@ -356,33 +356,46 @@ class DeepLearningAnalyzer:
         """보유 종목 조회"""
         try:
             from src.api.account import KiwoomAccount
-            from src.api.auth import kiwoom_auth
+            from src.utils.server_manager import get_current_server
+            
+            # 현재 서버 타입에 맞는 API 인스턴스 사용
+            server_type = get_current_server()
+            kiwoom_account = KiwoomAccount(server_type)
             
             # 인증 상태 확인
-            if not kiwoom_auth.is_authenticated():
-                log_warning("키움 API 인증이 필요합니다.")
+            from src.api.auth import KiwoomAuth
+            auth = KiwoomAuth(server_type)
+            if not auth.is_token_valid():
+                log_warning(f"키움 API 인증이 필요합니다. (서버: {server_type})")
                 return []
-            
-            kiwoom_account = KiwoomAccount()
             
             # 보유 종목 정보 조회
             balance_result = kiwoom_account.get_account_balance_detail()
+            
             if not balance_result:
                 log_warning("보유 종목 정보 조회 결과가 None입니다.")
                 return []
             elif not balance_result.get('success'):
                 error_msg = balance_result.get('message', '알 수 없는 오류')
                 error_code = balance_result.get('error_code', 'UNKNOWN')
+                full_response = balance_result.get('full_response', {})
                 log_warning(f"보유 종목 정보 조회 실패: [{error_code}] {error_msg}")
+                log_warning(f"전체 API 응답: {full_response}")
                 return []
             
             # 보유 수량이 있는 종목만 필터링
             held_stocks = []
             if balance_result.get('data') and balance_result['data'].get('bal'):
                 for stock in balance_result['data']['bal']:
-                    if int(stock.get('cntr_qty', 0)) > 0:  # 보유 수량이 있는 경우
-                        held_stocks.append(stock.get('stk_cd'))
+                    stock_code = stock.get('stk_cd')
+                    stock_name = stock.get('stk_nm')
+                    qty = int(stock.get('cntr_qty', 0))
+                    
+                    if qty > 0:  # 보유 수량이 있는 경우
+                        held_stocks.append(stock_code)
+                        log_info(f"📋 보유 종목: {stock_name}({stock_code}) - {qty}주")
             
+            log_info(f"📋 총 보유 종목 수: {len(held_stocks)}개")
             return held_stocks
             
         except Exception as e:

@@ -289,16 +289,23 @@ class AutoTradingEngine:
         transaction_fee_rate = strategy_params.get('transaction_fee_rate', 0.015)
         
         try:
+            # 예수금 정보 상세 로그
+            total_deposit = int(account_info['deposit'].get('entr', 0))
+            web_logger.info(f"💰 총 예수금: {total_deposit:,}원")
+            web_logger.info(f"💰 매매제외예수금: {reserve_cash:,}원")
+            
             # 사용 가능한 현금 계산
-            available_cash = int(account_info['deposit'].get('entr', 0)) - reserve_cash
+            available_cash = total_deposit - reserve_cash
+            web_logger.info(f"💰 사용 가능한 현금: {available_cash:,}원 (총예수금 - 매매제외예수금)")
+            
             if available_cash <= 0:
-                web_logger.warning(f"사용 가능한 현금이 부족합니다. (예수금: {account_info['deposit'].get('entr', 0)}, 예약금: {reserve_cash})")
+                web_logger.warning(f"사용 가능한 현금이 부족합니다. (예수금: {total_deposit:,}, 예약금: {reserve_cash:,})")
                 return {'success_count': 0}
             
             # 실전에서는 종목당 동일한 금액 투자 (수수료 고려)
             investment_per_stock = available_cash // len(buy_candidates)
             
-            web_logger.info(f"💰 총 투자 가능 금액: {available_cash:,}원")
+            web_logger.info(f"📊 매수 대상 종목 수: {len(buy_candidates)}개")
             web_logger.info(f"📊 종목당 투자 금액: {investment_per_stock:,}원")
             
             for candidate in buy_candidates:

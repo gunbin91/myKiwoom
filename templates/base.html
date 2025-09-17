@@ -1,122 +1,151 @@
 <!DOCTYPE html>
 <html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}키움 자동매매 대시보드{% endblock %}</title>
-    
+
+    <!-- Favicon -->
+    <link
+      rel="icon"
+      type="image/x-icon"
+      href="{{ url_for('static', filename='favicon.ico') }}"
+    />
+    <link
+      rel="shortcut icon"
+      type="image/x-icon"
+      href="{{ url_for('static', filename='favicon.ico') }}"
+    />
+
     <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
     <!-- Font Awesome -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+      rel="stylesheet"
+    />
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Socket.IO -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    
+
     <!-- Custom CSS -->
-    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
-    
+    <link
+      href="{{ url_for('static', filename='css/style.css') }}"
+      rel="stylesheet"
+    />
+
     {% block extra_head %}{% endblock %}
-</head>
-<body>
+  </head>
+  <body>
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/">
-                <i class="fas fa-chart-line me-2"></i>
-                키움 자동매매
-            </a>
-            
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="/" id="nav-dashboard">
-                            <i class="fas fa-tachometer-alt me-1"></i>대시보드
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/portfolio" id="nav-portfolio">
-                            <i class="fas fa-briefcase me-1"></i>포트폴리오
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/orders" id="nav-orders">
-                            <i class="fas fa-list-alt me-1"></i>주문내역
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/trading-diary" id="nav-trading">
-                            <i class="fas fa-book me-1"></i>매매일지
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/auto-trading" id="nav-auto-trading">
-                            <i class="fas fa-robot me-1"></i>자동매매
-                        </a>
-                    </li>
-                </ul>
-                
-                <ul class="navbar-nav">
-                    <!-- 서버 정보 표시 -->
-                    <li class="nav-item">
-                        <span class="navbar-text me-3" id="server-info">
-                            <i class="fas fa-server me-1"></i>
-                            <span id="server-name">서버 선택 필요</span>
-                        </span>
-                    </li>
-                    <li class="nav-item">
-                        <span class="navbar-text me-3" id="connection-status">
-                            <i class="fas fa-circle text-danger me-1"></i>연결 끊김
-                        </span>
-                    </li>
-                    <li class="nav-item">
-                        <button class="btn btn-outline-light btn-sm me-2" id="auth-btn">
-                            <i class="fas fa-sign-in-alt me-1"></i>로그인
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="btn btn-outline-warning btn-sm" id="server-select-btn">
-                            <i class="fas fa-server me-1"></i>서버 선택
-                        </button>
-                    </li>
-                </ul>
-            </div>
+      <div class="container-fluid">
+        <a class="navbar-brand" href="/">
+          <i class="fas fa-chart-line me-2"></i>
+          키움 자동매매
+        </a>
+
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#navbarNav"
+        >
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+              <a class="nav-link" href="/" id="nav-dashboard">
+                <i class="fas fa-tachometer-alt me-1"></i>대시보드
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="/portfolio" id="nav-portfolio">
+                <i class="fas fa-briefcase me-1"></i>포트폴리오
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="/orders" id="nav-orders">
+                <i class="fas fa-list-alt me-1"></i>주문내역
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="/trading-diary" id="nav-trading">
+                <i class="fas fa-book me-1"></i>매매일지
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="/auto-trading" id="nav-auto-trading">
+                <i class="fas fa-robot me-1"></i>자동매매
+              </a>
+            </li>
+          </ul>
+
+          <ul class="navbar-nav">
+            <!-- 서버 정보 표시 -->
+            <li class="nav-item">
+              <span class="navbar-text me-3" id="server-info">
+                <i class="fas fa-server me-1"></i>
+                <span id="server-name">서버 선택 필요</span>
+              </span>
+            </li>
+            <li class="nav-item">
+              <span class="navbar-text me-3" id="connection-status">
+                <i class="fas fa-circle text-danger me-1"></i>연결 끊김
+              </span>
+            </li>
+            <li class="nav-item">
+              <button class="btn btn-outline-light btn-sm me-2" id="auth-btn">
+                <i class="fas fa-sign-in-alt me-1"></i>로그인
+              </button>
+            </li>
+            <li class="nav-item">
+              <button
+                class="btn btn-outline-warning btn-sm"
+                id="server-select-btn"
+              >
+                <i class="fas fa-server me-1"></i>서버 선택
+              </button>
+            </li>
+          </ul>
         </div>
+      </div>
     </nav>
 
     <!-- Main Content -->
     <div class="container-fluid mt-4">
-        <!-- Alert Messages -->
-        <div id="alert-container"></div>
-        
-        <!-- Loading Spinner -->
-        <div id="loading-spinner" class="text-center d-none">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">로딩중...</span>
-            </div>
+      <!-- Alert Messages -->
+      <div id="alert-container"></div>
+
+      <!-- Loading Spinner -->
+      <div id="loading-spinner" class="text-center d-none">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">로딩중...</span>
         </div>
-        
-        {% block content %}{% endblock %}
+      </div>
+
+      {% block content %}{% endblock %}
     </div>
 
     <!-- Footer -->
     <footer class="bg-light text-center text-muted py-3 mt-5">
-        <div class="container">
-            <small>&copy; 2024 키움 자동매매 시스템. 모든 권리 보유.</small>
-        </div>
+      <div class="container">
+        <small>&copy; 2024 키움 자동매매 시스템. 모든 권리 보유.</small>
+      </div>
     </footer>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Custom JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-    
+
     {% block extra_scripts %}{% endblock %}
-</body>
+  </body>
 </html>
