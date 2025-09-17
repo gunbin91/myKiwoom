@@ -1,582 +1,650 @@
-{% extends "base.html" %}
-
-{% block title %}포트폴리오 - 키움 자동매매{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}포트폴리오 - 키움 자동매매{% endblock
+%} {% block content %}
 <div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="fas fa-briefcase me-2"></i>포트폴리오 분석</h2>
-            <div>
-                <button class="btn btn-outline-primary me-2" onclick="refreshPortfolio()">
-                    <i class="fas fa-sync-alt"></i> 새로고침
-                </button>
-                <button class="btn btn-primary" onclick="exportPortfolio()">
-                    <i class="fas fa-download"></i> 내보내기
-                </button>
-            </div>
-        </div>
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2><i class="fas fa-briefcase me-2"></i>포트폴리오 분석</h2>
+      <div>
+        <button
+          class="btn btn-outline-primary me-2"
+          onclick="refreshPortfolio()"
+        >
+          <i class="fas fa-sync-alt"></i> 새로고침
+        </button>
+        <button class="btn btn-primary" onclick="exportPortfolio()">
+          <i class="fas fa-download"></i> 내보내기
+        </button>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 포트폴리오 요약 카드 -->
 <div class="row mb-4">
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 보유 종목</h6>
-                        <h4 class="mb-0" id="total-stocks">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-chart-pie fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-primary text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 보유 종목</h6>
+            <h4 class="mb-0" id="total-stocks">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-chart-pie fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 평가금액</h6>
-                        <h4 class="mb-0" id="total-value">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-won-sign fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-success text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 평가금액</h6>
+            <h4 class="mb-0" id="total-value">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-won-sign fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 손익금액</h6>
-                        <h4 class="mb-0" id="total-profit">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-chart-line fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-info text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 손익금액</h6>
+            <h4 class="mb-0" id="total-profit">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-chart-line fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-warning text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">평균 수익률</h6>
-                        <h4 class="mb-0" id="avg-return">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-percentage fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-warning text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">평균 수익률</h6>
+            <h4 class="mb-0" id="avg-return">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-percentage fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 </div>
 
 <div class="row">
-    <!-- 보유 종목 상세 테이블 -->
-    <div class="col-lg-8 mb-4">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
-                    <i class="fas fa-list me-2"></i>보유 종목 상세
-                </h5>
-                <div class="d-flex gap-2">
-                    <select class="form-select form-select-sm" id="sort-by" onchange="sortPortfolio()">
-                        <option value="name">종목명</option>
-                        <option value="value">평가금액</option>
-                        <option value="profit">손익금액</option>
-                        <option value="return">수익률</option>
-                    </select>
-                    <input type="text" class="form-control form-control-sm" id="search-stock" placeholder="종목 검색..." onkeyup="searchStocks()">
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover" id="portfolio-table">
-                        <thead>
-                            <tr>
-                                <th>종목명</th>
-                                <th>보유수량</th>
-                                <th>평균단가</th>
-                                <th>현재가</th>
-                                <th>평가금액</th>
-                                <th>손익금액</th>
-                                <th>수익률</th>
-                                <th>비중</th>
-                                <th>액션</th>
-                            </tr>
-                        </thead>
-                        <tbody id="portfolio-tbody">
-                            <tr>
-                                <td colspan="9" class="text-center text-muted">
-                                    데이터를 불러오는 중...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+  <!-- 보유 종목 상세 테이블 -->
+  <div class="col-lg-8 mb-4">
+    <div class="card">
+      <div
+        class="card-header d-flex justify-content-between align-items-center"
+      >
+        <h5 class="mb-0"><i class="fas fa-list me-2"></i>보유 종목 상세</h5>
+        <div class="d-flex gap-2">
+          <select
+            class="form-select form-select-sm"
+            id="sort-by"
+            onchange="sortPortfolio()"
+          >
+            <option value="name">종목명</option>
+            <option value="value">평가금액</option>
+            <option value="profit">손익금액</option>
+            <option value="return">수익률</option>
+          </select>
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            id="search-stock"
+            placeholder="종목 검색..."
+            onkeyup="searchStocks()"
+          />
         </div>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover" id="portfolio-table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                <th>보유수량</th>
+                <th>평균단가</th>
+                <th>현재가</th>
+                <th>평가금액</th>
+                <th>손익금액</th>
+                <th>수익률</th>
+                <th>비중</th>
+                <th>액션</th>
+              </tr>
+            </thead>
+            <tbody id="portfolio-tbody">
+              <tr>
+                <td colspan="9" class="text-center text-muted">
+                  데이터를 불러오는 중...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- 포트폴리오 구성 차트 -->
-    <div class="col-lg-4 mb-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <i class="fas fa-chart-pie me-2"></i>포트폴리오 구성
-                </h5>
-            </div>
-            <div class="card-body">
-                <canvas id="portfolio-chart" width="400" height="400"></canvas>
-            </div>
-        </div>
+  <!-- 포트폴리오 구성 차트 -->
+  <div class="col-lg-4 mb-4">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="mb-0">
+          <i class="fas fa-chart-pie me-2"></i>포트폴리오 구성
+        </h5>
+      </div>
+      <div class="card-body">
+        <canvas id="portfolio-chart" width="400" height="400"></canvas>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 수익률 차트 -->
 <div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
-                    <i class="fas fa-chart-line me-2"></i>종목별 수익률
-                </h5>
-                <div>
-                    <button class="btn btn-sm btn-outline-primary" onclick="toggleChartView()">
-                        <i class="fas fa-chart-bar"></i> 막대 차트
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <canvas id="return-chart" width="800" height="300"></canvas>
-            </div>
+  <div class="col-12">
+    <div class="card">
+      <div
+        class="card-header d-flex justify-content-between align-items-center"
+      >
+        <h5 class="mb-0">
+          <i class="fas fa-chart-line me-2"></i>종목별 수익률
+        </h5>
+        <div>
+          <button
+            class="btn btn-sm btn-outline-primary"
+            onclick="toggleChartView()"
+          >
+            <i class="fas fa-chart-bar"></i> 막대 차트
+          </button>
         </div>
+      </div>
+      <div class="card-body">
+        <canvas id="return-chart" width="800" height="300"></canvas>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 종목 상세 모달 -->
 <div class="modal fade" id="stockDetailModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="stockDetailTitle">종목 상세 정보</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="stockDetailBody">
-                <!-- 종목 상세 정보가 여기에 표시됩니다 -->
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-                <button type="button" class="btn btn-primary" onclick="viewStockChart()">차트 보기</button>
-            </div>
-        </div>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="stockDetailTitle">종목 상세 정보</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body" id="stockDetailBody">
+        <!-- 종목 상세 정보가 여기에 표시됩니다 -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          닫기
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          onclick="viewStockChart()"
+        >
+          차트 보기
+        </button>
+      </div>
     </div>
+  </div>
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
+{% endblock %} {% block extra_scripts %}
 <style>
-/* 포트폴리오 요약 카드 높이 통일 */
-.row.mb-4 .card {
+  /* 포트폴리오 요약 카드 높이 통일 */
+  .row.mb-4 .card {
     height: 85px;
     display: flex;
     flex-direction: column;
-}
+  }
 
-.row.mb-4 .card-body {
+  .row.mb-4 .card-body {
     flex: 1;
     display: flex;
     align-items: center;
     padding: 0.75rem 1rem;
-}
+  }
 
-/* 동적 색상 클래스가 높이에 영향을 주지 않도록 */
-.row.mb-4 .card-body h4 {
+  /* 동적 색상 클래스가 높이에 영향을 주지 않도록 */
+  .row.mb-4 .card-body h4 {
     margin-bottom: 0;
     line-height: 1.2;
     font-size: 1.4rem;
     font-weight: 600;
-}
+  }
 
-/* 아이콘을 오른쪽 끝으로 배치 */
-.row.mb-4 .card-body .d-flex {
+  /* 아이콘을 오른쪽 끝으로 배치 */
+  .row.mb-4 .card-body .d-flex {
     width: 100%;
     justify-content: space-between;
-}
+  }
 
-.row.mb-4 .card-body .align-self-center {
+  .row.mb-4 .card-body .align-self-center {
     align-self: center !important;
     margin-left: auto;
-}
+  }
 </style>
 <script>
-// 포트폴리오 전용 JavaScript
-let portfolioData = [];
-let portfolioChart = null;
-let returnChart = null;
-let isBarChart = false;
+  // 포트폴리오 전용 JavaScript
+  let portfolioData = [];
+  let portfolioChart = null;
+  let returnChart = null;
+  let isBarChart = false;
 
-document.addEventListener('DOMContentLoaded', function() {
+  document.addEventListener("DOMContentLoaded", function () {
     loadPortfolio();
-    
+
     // 60초마다 자동 새로고침
     setInterval(loadPortfolio, 60000);
-});
+  });
 
-function loadPortfolio() {
-    fetch('/api/account/evaluation')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.data.stk_acnt_evlt_prst) {
-                portfolioData = data.data.stk_acnt_evlt_prst;
-                updatePortfolioSummary(data.data);
-                updatePortfolioTable(portfolioData);
-                updatePortfolioChart(portfolioData);
-                updateReturnChart(portfolioData);
-            } else if (data.authenticated === false) {
-                isAuthenticated = false;
-                updateAuthUI(false);
-                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
-                return;
-            } else {
-                document.getElementById('portfolio-tbody').innerHTML = 
-                    '<tr><td colspan="9" class="text-center text-muted">보유 종목이 없습니다.</td></tr>';
-            }
-        })
-        .catch(error => {
-            console.error('포트폴리오 조회 실패:', error);
-            document.getElementById('portfolio-tbody').innerHTML = 
-                '<tr><td colspan="9" class="text-center text-danger">데이터 조회 실패</td></tr>';
-        });
-}
+  function loadPortfolio() {
+    fetch("/api/account/evaluation")
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success && data.data.stk_acnt_evlt_prst) {
+          portfolioData = data.data.stk_acnt_evlt_prst;
+          updatePortfolioSummary(data.data);
+          updatePortfolioTable(portfolioData);
+          updatePortfolioChart(portfolioData);
+          updateReturnChart(portfolioData);
+        } else if (data.authenticated === false) {
+          isAuthenticated = false;
+          updateAuthUI(false);
+          showAlert("세션이 만료되었습니다. 다시 로그인해주세요.", "warning");
+          return;
+        } else {
+          document.getElementById("portfolio-tbody").innerHTML =
+            '<tr><td colspan="9" class="text-center text-muted">보유 종목이 없습니다.</td></tr>';
+        }
+      })
+      .catch((error) => {
+        console.error("포트폴리오 조회 실패:", error);
+        document.getElementById("portfolio-tbody").innerHTML =
+          '<tr><td colspan="9" class="text-center text-danger">데이터 조회 실패</td></tr>';
+      });
+  }
 
-function updatePortfolioSummary(data) {
+  function updatePortfolioSummary(data) {
     const stocks = data.stk_acnt_evlt_prst || [];
     const totalStocks = stocks.length;
-    const totalValue = parseFloat(data.tot_evlt_amt || '0');
-    const totalProfit = parseFloat(data.tot_evlt_pl || '0');
-    const avgReturn = parseFloat(data.tot_prft_rt || '0');
-    
-    document.getElementById('total-stocks').textContent = totalStocks + '개';
-    document.getElementById('total-value').textContent = formatNumber(totalValue) + '원';
-    document.getElementById('total-profit').textContent = formatNumber(totalProfit) + '원';
-    document.getElementById('avg-return').textContent = avgReturn + '%';
-    
-    // 색상 설정
-    const profitElement = document.getElementById('total-profit');
-    const returnElement = document.getElementById('avg-return');
-    
-    if (totalProfit > 0) {
-        profitElement.className = 'text-success';
-        returnElement.className = 'text-success';
-    } else if (totalProfit < 0) {
-        profitElement.className = 'text-danger';
-        returnElement.className = 'text-danger';
-    } else {
-        profitElement.className = 'text-muted';
-        returnElement.className = 'text-muted';
-    }
-}
+    const totalValue = parseFloat(data.tot_evlt_amt || "0");
+    const totalProfit = parseFloat(data.tot_evlt_pl || "0");
+    const avgReturn = parseFloat(data.tot_prft_rt || "0");
 
-function updatePortfolioTable(stocks) {
-    const tbody = document.getElementById('portfolio-tbody');
-    tbody.innerHTML = '';
-    
-    const totalValue = stocks.reduce((sum, stock) => sum + parseFloat(stock.evlt_amt || '0'), 0);
-    
-    stocks.forEach(stock => {
-        const row = document.createElement('tr');
-        const profit = parseFloat(stock.pl_amt || '0');
-        const returnRate = parseFloat(stock.pl_rt || '0');
-        const value = parseFloat(stock.evlt_amt || '0');
-        const weight = totalValue > 0 ? (value / totalValue * 100).toFixed(1) : '0.0';
-        
-        row.innerHTML = `
+    document.getElementById("total-stocks").textContent = totalStocks + "개";
+    document.getElementById("total-value").textContent =
+      formatNumber(totalValue) + "원";
+    document.getElementById("total-profit").textContent =
+      formatNumber(totalProfit) + "원";
+    document.getElementById("avg-return").textContent = avgReturn + "%";
+
+    // 색상 설정
+    const profitElement = document.getElementById("total-profit");
+    const returnElement = document.getElementById("avg-return");
+
+    if (totalProfit > 0) {
+      profitElement.className = "text-success";
+      returnElement.className = "text-success";
+    } else if (totalProfit < 0) {
+      profitElement.className = "text-danger";
+      returnElement.className = "text-danger";
+    } else {
+      profitElement.className = "text-muted";
+      returnElement.className = "text-muted";
+    }
+  }
+
+  function updatePortfolioTable(stocks) {
+    const tbody = document.getElementById("portfolio-tbody");
+    tbody.innerHTML = "";
+
+    const totalValue = stocks.reduce(
+      (sum, stock) => sum + parseFloat(stock.evlt_amt || "0"),
+      0
+    );
+
+    stocks.forEach((stock) => {
+      const row = document.createElement("tr");
+      const profit = parseFloat(stock.pl_amt || "0");
+      const returnRate = parseFloat(stock.pl_rt || "0");
+      const value = parseFloat(stock.evlt_amt || "0");
+      const weight =
+        totalValue > 0 ? ((value / totalValue) * 100).toFixed(1) : "0.0";
+
+      row.innerHTML = `
             <td>
-                <strong>${stock.stk_nm || '-'}</strong>
-                <br><small class="text-muted">${stock.stk_cd || ''}</small>
+                <strong>${stock.stk_nm || "-"}</strong>
+                <br><small class="text-muted">${stock.stk_cd || ""}</small>
             </td>
-            <td>${formatNumber(stock.rmnd_qty || '0')}</td>
-            <td>${formatNumber(stock.avg_prc || '0')}원</td>
-            <td>${formatNumber(stock.cur_prc || '0')}원</td>
-            <td>${formatNumber(stock.evlt_amt || '0')}원</td>
-            <td class="${profit >= 0 ? 'text-success' : 'text-danger'}">
-                ${formatNumber(stock.pl_amt || '0')}원
+            <td>${formatNumber(stock.rmnd_qty || "0")}</td>
+            <td>${formatNumber(stock.avg_prc || "0")}원</td>
+            <td>${formatNumber(stock.cur_prc || "0")}원</td>
+            <td>${formatNumber(stock.evlt_amt || "0")}원</td>
+            <td class="${profit >= 0 ? "text-up" : "text-down"}">
+                ${formatNumber(stock.pl_amt || "0")}원
             </td>
-            <td class="${returnRate >= 0 ? 'text-success' : 'text-danger'}">
-                ${stock.pl_rt || '0'}%
+            <td class="${returnRate >= 0 ? "text-up" : "text-down"}">
+                ${stock.pl_rt || "0"}%
             </td>
             <td>${weight}%</td>
             <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="showStockDetail('${stock.stk_cd}', '${stock.stk_nm}')">
+                <button class="btn btn-sm btn-outline-primary" onclick="showStockDetail('${
+                  stock.stk_cd
+                }', '${stock.stk_nm}')">
                     <i class="fas fa-info-circle"></i>
                 </button>
             </td>
         `;
-        tbody.appendChild(row);
+      tbody.appendChild(row);
     });
-}
+  }
 
-function updatePortfolioChart(stocks) {
-    const ctx = document.getElementById('portfolio-chart').getContext('2d');
-    
+  function updatePortfolioChart(stocks) {
+    const ctx = document.getElementById("portfolio-chart").getContext("2d");
+
     if (portfolioChart) {
-        portfolioChart.destroy();
+      portfolioChart.destroy();
     }
-    
-    const labels = stocks.map(stock => stock.stk_nm || 'Unknown');
-    const data = stocks.map(stock => parseFloat(stock.evlt_amt || '0'));
+
+    const labels = stocks.map((stock) => stock.stk_nm || "Unknown");
+    const data = stocks.map((stock) => parseFloat(stock.evlt_amt || "0"));
     const colors = generateColors(stocks.length);
-    
+
     portfolioChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: data,
-                backgroundColor: colors,
-                borderWidth: 2,
-                borderColor: '#fff'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        padding: 20,
-                        usePointStyle: true
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            const value = context.parsed;
-                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                            const percentage = ((value / total) * 100).toFixed(1);
-                            return context.label + ': ' + formatNumber(value) + '원 (' + percentage + '%)';
-                        }
-                    }
-                }
-            }
-        }
-    });
-}
-
-function updateReturnChart(stocks) {
-    const ctx = document.getElementById('return-chart').getContext('2d');
-    
-    if (returnChart) {
-        returnChart.destroy();
-    }
-    
-    const labels = stocks.map(stock => stock.stk_nm || 'Unknown');
-    const data = stocks.map(stock => parseFloat(stock.pl_rt || '0'));
-    const colors = data.map(value => value >= 0 ? '#28a745' : '#dc3545');
-    
-    returnChart = new Chart(ctx, {
-        type: isBarChart ? 'bar' : 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: '수익률 (%)',
-                data: data,
-                backgroundColor: colors,
-                borderColor: colors,
-                borderWidth: 2,
-                fill: false
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: {
-                        color: 'rgba(0,0,0,0.1)'
-                    }
-                },
-                x: {
-                    grid: {
-                        display: false
-                    }
-                }
+      type: "doughnut",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            data: data,
+            backgroundColor: colors,
+            borderWidth: 2,
+            borderColor: "#fff",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: {
+              padding: 20,
+              usePointStyle: true,
             },
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return context.label + ': ' + context.parsed.y.toFixed(2) + '%';
-                        }
-                    }
-                }
-            }
-        }
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                const value = context.parsed;
+                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                const percentage = ((value / total) * 100).toFixed(1);
+                return (
+                  context.label +
+                  ": " +
+                  formatNumber(value) +
+                  "원 (" +
+                  percentage +
+                  "%)"
+                );
+              },
+            },
+          },
+        },
+      },
     });
-}
+  }
 
-function generateColors(count) {
+  function updateReturnChart(stocks) {
+    const ctx = document.getElementById("return-chart").getContext("2d");
+
+    if (returnChart) {
+      returnChart.destroy();
+    }
+
+    const labels = stocks.map((stock) => stock.stk_nm || "Unknown");
+    const data = stocks.map((stock) => parseFloat(stock.pl_rt || "0"));
+    const colors = data.map((value) => (value >= 0 ? "#28a745" : "#dc3545"));
+
+    returnChart = new Chart(ctx, {
+      type: isBarChart ? "bar" : "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "수익률 (%)",
+            data: data,
+            backgroundColor: colors,
+            borderColor: colors,
+            borderWidth: 2,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: "rgba(0,0,0,0.1)",
+            },
+          },
+          x: {
+            grid: {
+              display: false,
+            },
+          },
+        },
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                return context.label + ": " + context.parsed.y.toFixed(2) + "%";
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function generateColors(count) {
     const colors = [];
     const hueStep = 360 / count;
-    
+
     for (let i = 0; i < count; i++) {
-        const hue = i * hueStep;
-        colors.push(`hsl(${hue}, 70%, 60%)`);
+      const hue = i * hueStep;
+      colors.push(`hsl(${hue}, 70%, 60%)`);
     }
-    
+
     return colors;
-}
+  }
 
-function sortPortfolio() {
-    const sortBy = document.getElementById('sort-by').value;
-    
+  function sortPortfolio() {
+    const sortBy = document.getElementById("sort-by").value;
+
     portfolioData.sort((a, b) => {
-        switch (sortBy) {
-            case 'name':
-                return (a.stk_nm || '').localeCompare(b.stk_nm || '');
-            case 'value':
-                return parseFloat(b.evlt_amt || '0') - parseFloat(a.evlt_amt || '0');
-            case 'profit':
-                return parseFloat(b.pl_amt || '0') - parseFloat(a.pl_amt || '0');
-            case 'return':
-                return parseFloat(b.pl_rt || '0') - parseFloat(a.pl_rt || '0');
-            default:
-                return 0;
-        }
+      switch (sortBy) {
+        case "name":
+          return (a.stk_nm || "").localeCompare(b.stk_nm || "");
+        case "value":
+          return parseFloat(b.evlt_amt || "0") - parseFloat(a.evlt_amt || "0");
+        case "profit":
+          return parseFloat(b.pl_amt || "0") - parseFloat(a.pl_amt || "0");
+        case "return":
+          return parseFloat(b.pl_rt || "0") - parseFloat(a.pl_rt || "0");
+        default:
+          return 0;
+      }
     });
-    
+
     updatePortfolioTable(portfolioData);
-}
+  }
 
-function searchStocks() {
-    const searchTerm = document.getElementById('search-stock').value.toLowerCase();
-    const filteredData = portfolioData.filter(stock => 
-        (stock.stk_nm || '').toLowerCase().includes(searchTerm) ||
-        (stock.stk_cd || '').toLowerCase().includes(searchTerm)
+  function searchStocks() {
+    const searchTerm = document
+      .getElementById("search-stock")
+      .value.toLowerCase();
+    const filteredData = portfolioData.filter(
+      (stock) =>
+        (stock.stk_nm || "").toLowerCase().includes(searchTerm) ||
+        (stock.stk_cd || "").toLowerCase().includes(searchTerm)
     );
-    
-    updatePortfolioTable(filteredData);
-}
 
-function showStockDetail(stockCode, stockName) {
-    document.getElementById('stockDetailTitle').textContent = stockName + ' (' + stockCode + ')';
-    
+    updatePortfolioTable(filteredData);
+  }
+
+  function showStockDetail(stockCode, stockName) {
+    document.getElementById("stockDetailTitle").textContent =
+      stockName + " (" + stockCode + ")";
+
     // 종목 상세 정보 로드
     fetch(`/api/quote/stock/${stockCode}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const stockInfo = data.data;
-                document.getElementById('stockDetailBody').innerHTML = `
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success) {
+          const stockInfo = data.data;
+          document.getElementById("stockDetailBody").innerHTML = `
                     <div class="row">
                         <div class="col-md-6">
                             <h6>기본 정보</h6>
                             <table class="table table-sm">
                                 <tr><td>종목명</td><td>${stockName}</td></tr>
                                 <tr><td>종목코드</td><td>${stockCode}</td></tr>
-                                <tr><td>현재가</td><td>${formatNumber(stockInfo.cur_prc || '0')}원</td></tr>
-                                <tr><td>전일대비</td><td>${formatNumber(stockInfo.diff_amt || '0')}원</td></tr>
+                                <tr><td>현재가</td><td>${formatNumber(
+                                  stockInfo.cur_prc || "0"
+                                )}원</td></tr>
+                                <tr><td>전일대비</td><td>${formatNumber(
+                                  stockInfo.diff_amt || "0"
+                                )}원</td></tr>
                             </table>
                         </div>
                         <div class="col-md-6">
                             <h6>거래 정보</h6>
                             <table class="table table-sm">
-                                <tr><td>거래량</td><td>${formatNumber(stockInfo.vol || '0')}</td></tr>
-                                <tr><td>거래대금</td><td>${formatNumber(stockInfo.trd_amt || '0')}원</td></tr>
-                                <tr><td>시가총액</td><td>${formatNumber(stockInfo.mkt_cap || '0')}원</td></tr>
+                                <tr><td>거래량</td><td>${formatNumber(
+                                  stockInfo.vol || "0"
+                                )}</td></tr>
+                                <tr><td>거래대금</td><td>${formatNumber(
+                                  stockInfo.trd_amt || "0"
+                                )}원</td></tr>
+                                <tr><td>시가총액</td><td>${formatNumber(
+                                  stockInfo.mkt_cap || "0"
+                                )}원</td></tr>
                             </table>
                         </div>
                     </div>
                 `;
-            } else {
-                document.getElementById('stockDetailBody').innerHTML = 
-                    '<p class="text-muted">종목 정보를 불러올 수 없습니다.</p>';
-            }
-        })
-        .catch(error => {
-            console.error('종목 정보 조회 실패:', error);
-            document.getElementById('stockDetailBody').innerHTML = 
-                '<p class="text-danger">종목 정보 조회에 실패했습니다.</p>';
-        });
-    
-    new bootstrap.Modal(document.getElementById('stockDetailModal')).show();
-}
+        } else {
+          document.getElementById("stockDetailBody").innerHTML =
+            '<p class="text-muted">종목 정보를 불러올 수 없습니다.</p>';
+        }
+      })
+      .catch((error) => {
+        console.error("종목 정보 조회 실패:", error);
+        document.getElementById("stockDetailBody").innerHTML =
+          '<p class="text-danger">종목 정보 조회에 실패했습니다.</p>';
+      });
 
-function toggleChartView() {
+    new bootstrap.Modal(document.getElementById("stockDetailModal")).show();
+  }
+
+  function toggleChartView() {
     isBarChart = !isBarChart;
     updateReturnChart(portfolioData);
-    
-    const button = event.target.closest('button');
-    button.innerHTML = isBarChart ? 
-        '<i class="fas fa-chart-line"></i> 선 차트' : 
-        '<i class="fas fa-chart-bar"></i> 막대 차트';
-}
 
-function refreshPortfolio() {
+    const button = event.target.closest("button");
+    button.innerHTML = isBarChart
+      ? '<i class="fas fa-chart-line"></i> 선 차트'
+      : '<i class="fas fa-chart-bar"></i> 막대 차트';
+  }
+
+  function refreshPortfolio() {
     loadPortfolio();
-    showAlert('포트폴리오가 새로고침되었습니다.', 'success');
-}
+    showAlert("포트폴리오가 새로고침되었습니다.", "success");
+  }
 
-function exportPortfolio() {
+  function exportPortfolio() {
     // CSV 내보내기 기능
     const csvContent = generateCSV(portfolioData);
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'portfolio_' + new Date().toISOString().split('T')[0] + '.csv');
-    link.style.visibility = 'hidden';
-    
+
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      "portfolio_" + new Date().toISOString().split("T")[0] + ".csv"
+    );
+    link.style.visibility = "hidden";
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    showAlert('포트폴리오가 내보내기되었습니다.', 'success');
-}
 
-function generateCSV(data) {
-    const headers = ['종목명', '종목코드', '보유수량', '평균단가', '현재가', '평가금액', '손익금액', '수익률'];
-    const rows = data.map(stock => [
-        stock.stk_nm || '',
-        stock.stk_cd || '',
-        stock.rmnd_qty || '0',
-        stock.avg_prc || '0',
-        stock.cur_prc || '0',
-        stock.evlt_amt || '0',
-        stock.pl_amt || '0',
-        stock.pl_rt || '0'
+    showAlert("포트폴리오가 내보내기되었습니다.", "success");
+  }
+
+  function generateCSV(data) {
+    const headers = [
+      "종목명",
+      "종목코드",
+      "보유수량",
+      "평균단가",
+      "현재가",
+      "평가금액",
+      "손익금액",
+      "수익률",
+    ];
+    const rows = data.map((stock) => [
+      stock.stk_nm || "",
+      stock.stk_cd || "",
+      stock.rmnd_qty || "0",
+      stock.avg_prc || "0",
+      stock.cur_prc || "0",
+      stock.evlt_amt || "0",
+      stock.pl_amt || "0",
+      stock.pl_rt || "0",
     ]);
-    
-    return [headers, ...rows].map(row => row.join(',')).join('\n');
-}
 
-function viewStockChart() {
+    return [headers, ...rows].map((row) => row.join(",")).join("\n");
+  }
+
+  function viewStockChart() {
     // 종목 차트 보기 기능 (추후 구현)
-    showAlert('차트 보기 기능은 추후 구현 예정입니다.', 'info');
-}
+    showAlert("차트 보기 기능은 추후 구현 예정입니다.", "info");
+  }
 </script>
 {% endblock %}
-
-
