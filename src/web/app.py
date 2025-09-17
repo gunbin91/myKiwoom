@@ -1424,7 +1424,73 @@ def get_analysis_result():
                 }
             }), 400
         
-        # 매수 대상 선정
+        # 매도 대상 선정
+        sell_candidates = []
+        try:
+            from src.api.account import KiwoomAccount
+            from src.utils.server_manager import get_current_server
+            
+            # 현재 서버 타입에 맞는 API 인스턴스 사용
+            server_type = get_current_server()
+            account = KiwoomAccount(server_type)
+            
+            # 보유 종목 조회
+            balance_result = account.get_account_balance_detail()
+            
+            if balance_result and balance_result.get('success') and balance_result.get('acnt_evlt_remn_indv_tot'):
+                config = get_current_config_manager().load_config()
+                strategy_params = config.get('strategy_params', {})
+                
+                take_profit_pct = strategy_params.get('take_profit_pct', 5.0)
+                stop_loss_pct = strategy_params.get('stop_loss_pct', 3.0)
+                max_hold_period = strategy_params.get('max_hold_period', 15)
+                
+                for stock in balance_result['acnt_evlt_remn_indv_tot']:
+                    stock_code = stock.get('stk_cd', '')
+                    stock_name = stock.get('stk_nm', '')
+                    quantity = int(stock.get('rmnd_qty', 0))
+                    avg_price = float(stock.get('pur_pric', 0))
+                    current_price = float(stock.get('cur_prc', 0))
+                    
+                    if quantity <= 0 or avg_price <= 0 or current_price <= 0:
+                        continue
+                    
+                    # 매도 조건 확인
+                    should_sell = False
+                    sell_reason = ""
+                    
+                    # 익절/손절 조건
+                    profit_rate = ((current_price - avg_price) / avg_price) * 100
+                    if profit_rate >= take_profit_pct:
+                        should_sell = True
+                        sell_reason = f"익절 ({profit_rate:.1f}%)"
+                    elif profit_rate <= -stop_loss_pct:
+                        should_sell = True
+                        sell_reason = f"손절 ({profit_rate:.1f}%)"
+                    
+                    if should_sell:
+                        # 매도 예상금액 계산 (수수료 제외)
+                        sell_amount = quantity * current_price
+                        sell_proceeds += sell_amount
+                        
+                        sell_candidates.append({
+                            '종목코드': stock_code,
+                            '종목명': stock_name,
+                            '보유수량': quantity,
+                            '평균단가': avg_price,
+                            '현재가': current_price,
+                            '수익률': profit_rate,
+                            '매도사유': sell_reason,
+                            '매도예상금액': sell_amount
+                        })
+            
+            web_logger.info(f"📉 분석결과확인 테스트: 매도 대상 {len(sell_candidates)}개 종목이 선정되었습니다.")
+            
+        except Exception as e:
+            web_logger.error(f"매도 대상 선정 중 오류 발생: {e}")
+            sell_candidates = []
+        
+        # 매수 대상 선정 (매도 후 확보된 현금 고려)
         try:
             config = get_current_config_manager().load_config()
             strategy_params = config.get('strategy_params', {})
@@ -1435,46 +1501,19 @@ def get_analysis_result():
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
             )
             
-            # 🔥 추가: 보유 종목 필터링 (분석결과확인 테스트용)
-            if buy_candidates:
-                try:
-                    from src.api.account import KiwoomAccount
-                    from src.utils.server_manager import get_current_server
-                    
-                    # 현재 서버 타입에 맞는 API 인스턴스 사용
-                    server_type = get_current_server()
-                    account = KiwoomAccount(server_type)
-                    
-                    # 보유 종목 조회
-                    balance_result = account.get_account_balance_detail()
-                    held_stocks = []
-                    
-                    if balance_result and balance_result.get('success') and balance_result.get('data', {}).get('bal'):
-                        for stock in balance_result['data']['bal']:
-                            if int(stock.get('cntr_qty', 0)) > 0:  # 보유 수량이 있는 경우
-                                held_stocks.append(stock.get('stk_cd'))
-                    
-                    # 보유 종목 제외
-                    if held_stocks:
-                        web_logger.info(f"📋 분석결과확인 테스트: 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
-                        original_count = len(buy_candidates)
-                        buy_candidates = [candidate for candidate in buy_candidates 
-                                        if candidate.get('종목코드') not in held_stocks]
-                        web_logger.info(f"✅ 보유 종목 제외 후: {original_count}개 → {len(buy_candidates)}개")
-                    else:
-                        web_logger.info("📋 분석결과확인 테스트: 보유 종목이 없습니다.")
-                        
-                except Exception as filter_error:
-                    web_logger.warning(f"보유 종목 필터링 중 오류 발생 (계속 진행): {filter_error}")
+            # get_top_stocks() 함수에서 이미 보유종목이 제외되어 반환됨
+            web_logger.info(f"📋 분석결과확인 테스트: 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
             
         except Exception as e:
             web_logger.error(f"매수 대상 선정 중 오류 발생: {e}")
             buy_candidates = []  # 빈 리스트로 설정하여 계속 진행
         
         # 💰 사용가능금액 계산 (분석결과확인 테스트용)
+        # 매도 후 예수금을 고려한 계산
         available_cash = 0
         total_deposit = 0
         reserve_cash = 0
+        sell_proceeds = 0  # 매도로 확보될 예상 현금
         
         try:
             from src.api.account import KiwoomAccount
@@ -1516,12 +1555,19 @@ def get_analysis_result():
                     deposit_result['entr'] = deposit_result['d1_entra']
                     web_logger.info(f"D+1 추정예수금 사용: {deposit_result['d1_entra']}")
                 
-                # 예수금 계산
+                # 예수금 계산 (매도 후 예상금액 반영)
                 total_deposit = int(deposit_result.get('entr', 0))
                 reserve_cash = strategy_params.get('reserve_cash', 1000000)
-                available_cash = total_deposit - reserve_cash
                 
-                web_logger.info(f"💰 분석결과확인 테스트 - 총 예수금: {total_deposit:,}원, 매매제외예수금: {reserve_cash:,}원, 사용가능금액: {available_cash:,}원")
+                # 매도 후 예상 예수금 = 현재 예수금 + 매도 예상금액
+                expected_deposit_after_sell = total_deposit + sell_proceeds
+                available_cash = expected_deposit_after_sell - reserve_cash
+                
+                web_logger.info(f"💰 분석결과확인 테스트 - 현재 예수금: {total_deposit:,}원")
+                web_logger.info(f"💰 매도 예상금액: {sell_proceeds:,}원")
+                web_logger.info(f"💰 매도 후 예상 예수금: {expected_deposit_after_sell:,}원")
+                web_logger.info(f"💰 매매제외예수금: {reserve_cash:,}원")
+                web_logger.info(f"💰 매도 후 사용가능금액: {available_cash:,}원")
             else:
                 # 상세한 오류 정보 로그
                 if deposit_result:
@@ -1542,10 +1588,13 @@ def get_analysis_result():
             'analysis_date': analysis_result['data'].get('analysis_date'),
             'total_stocks': analysis_result['data'].get('total_stocks', 0),
             'top_stocks': analysis_result['data'].get('top_stocks', [])[:20],  # 상위 20개만
+            'sell_candidates': sell_candidates,  # 매도 대상 추가
             'buy_candidates': buy_candidates,
             'strategy_params': strategy_params,
             'cash_info': {
-                'total_deposit': total_deposit,
+                'current_deposit': total_deposit,
+                'sell_proceeds': sell_proceeds,
+                'expected_deposit_after_sell': total_deposit + sell_proceeds,
                 'reserve_cash': reserve_cash,
                 'available_cash': available_cash
             }

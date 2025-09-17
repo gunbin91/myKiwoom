@@ -2,7 +2,7 @@
   "auto_trading_enabled": false,
   "schedule_time": "01:30",
   "strategy_params": {
-    "reserve_cash": 9000000,
+    "reserve_cash": 5000000,
     "max_hold_period": 15,
     "take_profit_pct": 5,
     "stop_loss_pct": 3,

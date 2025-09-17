@@ -847,16 +847,16 @@
     fetch("/api/account/balance")
       .then((response) => response.json())
       .then((data) => {
-        if (data.success && data.data && data.data.bal) {
-          data.data.bal.forEach((stock) => {
-            if (parseInt(stock.cntr_qty || "0") > 0) {
+        if (data.success && data.acnt_evlt_remn_indv_tot) {
+          data.acnt_evlt_remn_indv_tot.forEach((stock) => {
+            if (parseInt(stock.rmnd_qty || "0") > 0) {
               // 보유 수량이 있는 경우만
               const option = document.createElement("option");
               option.value = stock.stk_cd;
               option.textContent = `${stock.stk_nm} (${
                 stock.stk_cd
-              }) - ${formatNumber(stock.cntr_qty)}주`;
-              option.dataset.quantity = stock.cntr_qty;
+              }) - ${formatNumber(stock.rmnd_qty)}주`;
+              option.dataset.quantity = stock.rmnd_qty;
               option.dataset.stockName = stock.stk_nm;
               stockSelect.appendChild(option);
             }

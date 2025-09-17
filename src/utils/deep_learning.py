@@ -385,15 +385,17 @@ class DeepLearningAnalyzer:
             
             # 보유 수량이 있는 종목만 필터링
             held_stocks = []
-            if balance_result.get('data') and balance_result['data'].get('bal'):
-                for stock in balance_result['data']['bal']:
+            if balance_result.get('acnt_evlt_remn_indv_tot'):
+                for stock in balance_result['acnt_evlt_remn_indv_tot']:
                     stock_code = stock.get('stk_cd')
                     stock_name = stock.get('stk_nm')
-                    qty = int(stock.get('cntr_qty', 0))
+                    qty = int(stock.get('rmnd_qty', 0))
                     
                     if qty > 0:  # 보유 수량이 있는 경우
-                        held_stocks.append(stock_code)
-                        log_info(f"📋 보유 종목: {stock_name}({stock_code}) - {qty}주")
+                        # 종목코드에서 A 접두사 제거 (6자리 숫자만 사용)
+                        clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                        held_stocks.append(clean_stock_code)
+                        log_info(f"📋 보유 종목: {stock_name}({stock_code} → {clean_stock_code}) - {qty}주")
             
             log_info(f"📋 총 보유 종목 수: {len(held_stocks)}개")
             return held_stocks

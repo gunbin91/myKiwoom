@@ -153,10 +153,39 @@ class AutoTradingEngine:
             web_logger.info("📉 매도 주문을 실행하는 중...")
             sell_results = self._execute_sell_orders(account_info, strategy_params)
             sell_count = sell_results['success_count']
+            sell_orders = sell_results.get('sell_orders', [])
             
-            # 5. 매수 대상 선정
+            # 5. 매도 체결 확인 및 대기
+            if sell_count > 0 and sell_orders:
+                self.current_status = "매도 체결 확인 중"
+                self.progress_percentage = 65
+                web_logger.info("⏳ 매도 주문 체결을 확인하는 중...")
+                
+                # 매도 체결 확인 (최대 30초 대기)
+                execution_confirmed = self._wait_for_sell_execution(sell_orders, max_wait_time=30)
+                
+                if execution_confirmed:
+                    web_logger.info("✅ 매도 체결 확인 완료")
+                else:
+                    web_logger.warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
+            
+            # 6. 매도 후 계좌 정보 재조회 (매도로 확보된 현금 반영)
+            if sell_count > 0:
+                self.current_status = "매도 후 계좌 정보 조회 중"
+                self.progress_percentage = 70
+                web_logger.info("💰 매도 후 계좌 정보를 재조회하는 중...")
+                
+                # 계좌 정보 재조회
+                updated_account_info = self._get_account_info()
+                if updated_account_info:
+                    account_info = updated_account_info
+                    web_logger.info("✅ 매도 후 계좌 정보 업데이트 완료")
+                else:
+                    web_logger.warning("⚠️ 매도 후 계좌 정보 조회 실패, 기존 정보 사용")
+            
+            # 7. 매수 대상 선정
             self.current_status = "매수 대상 선정 중"
-            self.progress_percentage = 70
+            self.progress_percentage = 75
             web_logger.info("📊 매수 대상을 선정하는 중...")
             buy_candidates = self.analyzer.get_top_stocks(
                 analysis_result,
@@ -181,14 +210,14 @@ class AutoTradingEngine:
             buy_candidates = buy_validation['valid_candidates']
             web_logger.info(f"✅ {len(buy_candidates)}개 매수 대상 선정 및 검증 완료")
             
-            # 6. 매수 주문 실행
+            # 8. 매수 주문 실행 (매도 후 업데이트된 계좌 정보 사용)
             self.current_status = "매수 주문 실행 중"
             self.progress_percentage = 85
             web_logger.info("📈 매수 주문을 실행하는 중...")
             buy_results = self._execute_buy_orders(buy_candidates, account_info, strategy_params)
             buy_count = buy_results['success_count']
             
-            # 7. 실행 결과 판단 및 이력 기록
+            # 9. 실행 결과 판단 및 이력 기록
             self.current_status = "이력 기록 중"
             self.progress_percentage = 95
             execution_type = "수동" if manual_execution else "자동"
@@ -398,14 +427,71 @@ class AutoTradingEngine:
             print(f"❌ 매수 주문 실행 중 오류: {e}")
             return {'success_count': success_count}
     
+    def _wait_for_sell_execution(self, sell_orders, max_wait_time=30):
+        """매도 주문 체결 대기 및 확인"""
+        import time
+        from datetime import datetime, timedelta
+        
+        if not sell_orders:
+            return True
+        
+        web_logger.info(f"📋 {len(sell_orders)}건의 매도 주문 체결을 확인하는 중...")
+        
+        start_time = datetime.now()
+        max_wait = timedelta(seconds=max_wait_time)
+        
+        while datetime.now() - start_time < max_wait:
+            try:
+                # 오늘 날짜로 체결내역 조회
+                today = datetime.now().strftime('%Y%m%d')
+                execution_result = self.order.get_order_history(
+                    start_date=today,
+                    end_date=today,
+                    order_type="1"  # 매도만
+                )
+                
+                if execution_result and execution_result.get('acnt_ord_cntr_prps_dtl'):
+                    executed_orders = execution_result['acnt_ord_cntr_prps_dtl']
+                    
+                    # 매도 주문 중 체결된 것들 확인
+                    executed_count = 0
+                    for sell_order in sell_orders:
+                        stock_code = sell_order.get('stock_code', '')
+                        order_qty = sell_order.get('quantity', 0)
+                        
+                        # 해당 종목의 체결내역 확인
+                        for execution in executed_orders:
+                            if (execution.get('stk_cd', '').replace('A', '') == stock_code and
+                                int(execution.get('cntr_qty', 0)) >= order_qty):
+                                executed_count += 1
+                                web_logger.info(f"✅ {stock_code} 매도 체결 확인: {execution.get('cntr_qty')}주")
+                                break
+                    
+                    if executed_count >= len(sell_orders):
+                        web_logger.info(f"✅ 모든 매도 주문 체결 확인 완료: {executed_count}/{len(sell_orders)}건")
+                        return True
+                    else:
+                        web_logger.info(f"⏳ 매도 체결 대기 중: {executed_count}/{len(sell_orders)}건 체결")
+                
+                # 3초 대기 후 재확인
+                time.sleep(3)
+                
+            except Exception as e:
+                web_logger.warning(f"매도 체결 확인 중 오류: {e}")
+                time.sleep(3)
+        
+        web_logger.warning(f"⚠️ 매도 체결 확인 시간 초과 ({max_wait_time}초), 계속 진행합니다.")
+        return False
+
     def _execute_sell_orders(self, account_info, strategy_params):
         """매도 주문 실행 (백테스팅 로직과 일치)"""
         success_count = 0
+        sell_orders = []  # 매도 주문 정보 저장
         
         try:
             # 보유 종목 조회
             balance_data = account_info['balance']
-            if not balance_data or not balance_data.get('bal'):
+            if not balance_data or not balance_data.get('acnt_evlt_remn_indv_tot'):
                 return {'success_count': 0}
             
             take_profit_pct = strategy_params.get('take_profit_pct', 5.0)
@@ -416,12 +502,12 @@ class AutoTradingEngine:
             take_profit_multiplier = 1 + (take_profit_pct / 100)
             stop_loss_multiplier = 1 - (stop_loss_pct / 100)
             
-            for stock in balance_data['bal']:
+            for stock in balance_data['acnt_evlt_remn_indv_tot']:
                 try:
                     stock_code = stock.get('stk_cd', '')
                     stock_name = stock.get('stk_nm', '')
-                    quantity = int(stock.get('cntr_qty', 0))
-                    avg_price = float(stock.get('avg_prc', 0))
+                    quantity = int(stock.get('rmnd_qty', 0))
+                    avg_price = float(stock.get('pur_pric', 0))
                     current_price = float(stock.get('cur_prc', 0))
                     
                     if quantity <= 0 or avg_price <= 0 or current_price <= 0:
@@ -463,8 +549,15 @@ class AutoTradingEngine:
                         
                         if order_result and order_result.get('success') is not False:
                             success_count += 1
+                            # 매도 주문 정보 저장 (체결 확인용)
+                            sell_orders.append({
+                                'stock_code': stock_code,
+                                'stock_name': stock_name,
+                                'quantity': quantity,
+                                'price': current_price,
+                                'reason': sell_reason
+                            })
                             web_logger.info(f"✅ {stock_name} 매도 주문 성공")
-                            # 매도 기록은 체결내역에서 자동으로 관리됨
                         else:
                             web_logger.warning(f"❌ {stock_name} 매도 주문 실패")
                             
@@ -472,11 +565,11 @@ class AutoTradingEngine:
                     web_logger.error(f"매도 주문 실행 중 오류: {e}")
                     continue
             
-            return {'success_count': success_count}
+            return {'success_count': success_count, 'sell_orders': sell_orders}
             
         except Exception as e:
             web_logger.error(f"매도 주문 실행 중 오류: {e}")
-            return {'success_count': success_count}
+            return {'success_count': success_count, 'sell_orders': sell_orders}
     
     def _validate_analysis_result(self, analysis_result):
         """분석 결과 검증"""
@@ -772,15 +865,44 @@ class AutoTradingEngine:
             web_logger.info("📉 매도 주문을 실행하는 중...")
             sell_results = self._execute_sell_orders(account_info, strategy_params)
             sell_count = sell_results['success_count']
+            sell_orders = sell_results.get('sell_orders', [])
             
-            # 5. 매수 주문 실행
+            # 5. 매도 체결 확인 및 대기
+            if sell_count > 0 and sell_orders:
+                self.current_status = "매도 체결 확인 중"
+                self.progress_percentage = 75
+                web_logger.info("⏳ 매도 주문 체결을 확인하는 중...")
+                
+                # 매도 체결 확인 (최대 30초 대기)
+                execution_confirmed = self._wait_for_sell_execution(sell_orders, max_wait_time=30)
+                
+                if execution_confirmed:
+                    web_logger.info("✅ 매도 체결 확인 완료")
+                else:
+                    web_logger.warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
+            
+            # 6. 매도 후 계좌 정보 재조회 (매도로 확보된 현금 반영)
+            if sell_count > 0:
+                self.current_status = "매도 후 계좌 정보 조회 중"
+                self.progress_percentage = 80
+                web_logger.info("💰 매도 후 계좌 정보를 재조회하는 중...")
+                
+                # 계좌 정보 재조회
+                updated_account_info = self._get_account_info()
+                if updated_account_info:
+                    account_info = updated_account_info
+                    web_logger.info("✅ 매도 후 계좌 정보 업데이트 완료")
+                else:
+                    web_logger.warning("⚠️ 매도 후 계좌 정보 조회 실패, 기존 정보 사용")
+            
+            # 7. 매수 주문 실행 (매도 후 업데이트된 계좌 정보 사용)
             self.current_status = "매수 주문 실행 중"
             self.progress_percentage = 85
             web_logger.info("📈 매수 주문을 실행하는 중...")
             buy_results = self._execute_buy_orders(validated_candidates, account_info, strategy_params)
             buy_count = buy_results['success_count']
             
-            # 6. 실행 결과 판단 및 이력 기록
+            # 7. 실행 결과 판단 및 이력 기록
             self.current_status = "이력 기록 중"
             self.progress_percentage = 95
             execution_type = "수동" if manual_execution else "자동"
@@ -801,7 +923,7 @@ class AutoTradingEngine:
                 message=message
             )
             
-            # 7. 완료
+            # 8. 완료
             self.current_status = "완료"
             self.progress_percentage = 100
             

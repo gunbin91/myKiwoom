@@ -465,7 +465,7 @@
 
         <!-- 상위 종목 리스트 -->
         <div class="mb-4">
-          <h6>상위 종목 리스트 (상위 20개)</h6>
+          <h6 style="color: black;">상위 종목 리스트 (상위 20개)</h6>
           <div class="table-responsive">
             <table class="table table-sm table-hover" id="top-stocks-table">
               <thead class="table-light">
@@ -489,9 +489,37 @@
           </div>
         </div>
 
-        <!-- 매수 대상 종목 -->
+        <!-- 매도 대상 종목 -->
         <div class="mb-4">
-          <h6>매수 대상 종목</h6>
+          <h6 style="color: black;">매도 대상 종목</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover" id="sell-candidates-table">
+              <thead class="table-danger">
+                <tr>
+                  <th>종목명</th>
+                  <th>종목코드</th>
+                  <th>보유수량</th>
+                  <th>평균단가</th>
+                  <th>현재가</th>
+                  <th>수익률</th>
+                  <th>매도예상금액</th>
+                  <th>매도사유</th>
+                </tr>
+              </thead>
+              <tbody id="sell-candidates-tbody">
+                <tr>
+                  <td colspan="8" class="text-center text-muted">
+                    매도 대상을 불러오는 중...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 매수 대상 종목 (매도 후) -->
+        <div class="mb-4">
+          <h6 style="color: black;">매수 대상 종목 (매도 후)</h6>
           <div class="table-responsive">
             <table class="table table-sm table-hover" id="buy-candidates-table">
               <thead class="table-success">
@@ -528,7 +556,7 @@
           class="btn btn-success"
           id="execute-with-candidates"
         >
-          <i class="fas fa-play me-1"></i>이 결과로 매매 실행
+          <i class="fas fa-play me-1"></i>매도 후 매수 실행
         </button>
       </div>
     </div>
@@ -1092,6 +1120,33 @@
         '<tr><td colspan="6" class="text-center text-muted">상위 종목이 없습니다.</td></tr>';
     }
 
+    // 매도 대상 종목 업데이트
+    const sellCandidatesTbody = document.getElementById("sell-candidates-tbody");
+    sellCandidatesTbody.innerHTML = "";
+
+    if (data.sell_candidates && data.sell_candidates.length > 0) {
+      data.sell_candidates.forEach((stock) => {
+        const row = document.createElement("tr");
+        const profitRate = stock.수익률 || 0;
+        const profitClass = profitRate > 0 ? "text-up" : profitRate < 0 ? "text-down" : "text-neutral";
+        
+        row.innerHTML = `
+                <td>${stock.종목명 || "-"}</td>
+                <td>${stock.종목코드 || "-"}</td>
+                <td>${stock.보유수량 ? stock.보유수량.toLocaleString() + "주" : "-"}</td>
+                <td>${stock.평균단가 ? stock.평균단가.toLocaleString() + "원" : "-"}</td>
+                <td>${stock.현재가 ? stock.현재가.toLocaleString() + "원" : "-"}</td>
+                <td class="${profitClass}">${profitRate.toFixed(2)}%</td>
+                <td>${stock.매도예상금액 ? stock.매도예상금액.toLocaleString() + "원" : "-"}</td>
+                <td><span class="badge bg-danger">${stock.매도사유 || "-"}</span></td>
+            `;
+        sellCandidatesTbody.appendChild(row);
+      });
+    } else {
+      sellCandidatesTbody.innerHTML =
+        '<tr><td colspan="8" class="text-center text-muted">매도 대상이 없습니다.</td></tr>';
+    }
+
     // 매수 대상 종목 업데이트
     const buyCandidatesTbody = document.getElementById("buy-candidates-tbody");
     buyCandidatesTbody.innerHTML = "";
@@ -1122,7 +1177,8 @@
         '<tr><td colspan="6" class="text-center text-muted">매수 대상이 없습니다.</td></tr>';
     }
 
-    // 매수 대상 데이터를 전역 변수에 저장 (매매 실행 시 사용)
+    // 매도/매수 대상 데이터를 전역 변수에 저장 (매매 실행 시 사용)
+    window.currentSellCandidates = data.sell_candidates || [];
     window.currentBuyCandidates = data.buy_candidates || [];
   }
 
