@@ -46,9 +46,8 @@ TOKEN_CACHE_FILE = CACHE_DIR / "access_token.json"
 TOKEN_EXPIRE_BUFFER = 300  # 토큰 만료 5분 전 갱신
 
 # API 요청 제한
-API_REQUEST_DELAY = 2.0  # API 요청 간 최소 지연시간 (초) - 429 오류 방지
+API_REQUEST_DELAY = 5.0  # API 요청 간 최소 지연시간 (초) - 429 오류 방지
 MAX_RETRY_COUNT = 3
-API_CACHE_DURATION = 300  # API 응답 캐시 지속시간 (초) - 5분
 
 # 웹소켓 설정 (실시간 데이터)
 WEBSOCKET_URL = "wss://mockapi.kiwoom.com/ws"

@@ -23,6 +23,9 @@ class KiwoomAuth:
     """키움증권 OAuth 인증 관리 클래스"""
     
     def __init__(self, server_type: str = None):
+        # 서버 타입 저장
+        self.server_type = server_type
+        
         # 서버 설정 로드
         if server_type:
             from src.config.server_config import get_server_config
@@ -63,10 +66,10 @@ class KiwoomAuth:
                     
                     # 토큰이 아직 유효한지 확인
                     if datetime.now() < expires_dt - timedelta(seconds=TOKEN_EXPIRE_BUFFER):
-                        api_logger.info("캐시된 토큰을 사용합니다.")
+                        # 토큰 로드 로그 제거 - 너무 자주 출력됨
                         return
                     else:
-                        api_logger.info("캐시된 토큰이 만료되었습니다.")
+                        api_logger.info(f"캐시된 토큰이 만료되었습니다. (서버: {self.server_type})")
                 
                 # 만료된 토큰 정리
                 self._access_token = None
@@ -82,7 +85,7 @@ class KiwoomAuth:
         try:
             with open(self.token_cache_file, 'w', encoding='utf-8') as f:
                 json.dump(token_data, f, ensure_ascii=False, indent=2)
-            api_logger.info(f"토큰이 캐시에 저장되었습니다. (서버: {self.server_config.server_type}, 파일: {self.token_cache_file.name})")
+            api_logger.info(f"토큰이 캐시에 저장되었습니다. (서버: {self.server_config.server_type})")
         except Exception as e:
             api_logger.error(f"토큰 캐시 저장 실패: {e}")
     
@@ -107,7 +110,7 @@ class KiwoomAuth:
     def _request_new_token(self) -> Optional[str]:
         """새로운 접근 토큰 발급 요청"""
         try:
-            api_logger.info("새로운 접근 토큰을 발급받습니다.")
+            api_logger.info(f"새로운 접근 토큰을 발급받습니다. (서버: {self.server_type})")
             
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8'

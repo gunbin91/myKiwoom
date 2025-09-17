@@ -647,6 +647,9 @@
 <script>
   // 자동매매 페이지 전용 JavaScript
   document.addEventListener("DOMContentLoaded", function () {
+    // 서버 정보 즉시 업데이트
+    updateServerInfoFromTemplate();
+
     loadAutoTradingConfig();
     loadExecutionHistory();
     updateAutoTradingStatus(); // 초기 상태 업데이트
@@ -654,26 +657,45 @@
 
     // 30초마다 상태 업데이트
     setInterval(updateAutoTradingStatus, 30000);
-    
+
     // 시간 변경 시 다음 실행 시간 업데이트
     document.getElementById("schedule-hour").addEventListener("change", updateNextExecutionInfo);
     document.getElementById("schedule-minute").addEventListener("change", updateNextExecutionInfo);
   });
+
+  function updateServerInfoFromTemplate() {
+    // 템플릿에서 전달받은 서버 정보로 즉시 업데이트
+    {% if server_info %}
+    const serverNameElement = document.getElementById('server-name');
+    const serverInfoElement = document.getElementById('server-info');
+
+    if (serverNameElement && serverInfoElement) {
+      serverNameElement.textContent = '{{ server_info.server_name }}';
+
+      // 서버별 색상 적용
+      if ('{{ server_info.server_type }}' === 'mock') {
+        serverInfoElement.style.color = '#4CAF50';
+      } else {
+        serverInfoElement.style.color = '#F44336';
+      }
+    }
+    {% endif %}
+  }
 
   // 다음 실행 시간 정보 업데이트
   function updateNextExecutionInfo() {
     const hour = document.getElementById("schedule-hour").value;
     const minute = document.getElementById("schedule-minute").value;
     const scheduleTime = `${hour}:${minute}`;
-    
+
     // 현재 시간과 비교하여 다음 실행 시간 계산
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const scheduledTime = new Date(today.getTime() + parseInt(hour) * 60 * 60 * 1000 + parseInt(minute) * 60 * 1000);
-    
+
     let nextExecutionDate;
     let executionStatus;
-    
+
     if (scheduledTime > now) {
       // 오늘 실행 예정
       nextExecutionDate = scheduledTime;
@@ -683,12 +705,12 @@
       nextExecutionDate = new Date(scheduledTime.getTime() + 24 * 60 * 60 * 1000);
       executionStatus = "내일";
     }
-    
+
     const year = nextExecutionDate.getFullYear();
     const month = (nextExecutionDate.getMonth() + 1).toString().padStart(2, '0');
     const day = nextExecutionDate.getDate().toString().padStart(2, '0');
     const timeStr = `${hour}시 ${minute}분`;
-    
+
     const infoElement = document.getElementById("next-execution-info");
     infoElement.innerHTML = `다음 실행 시간: ${year}년 ${month}월 ${day}일 ${timeStr} (${executionStatus})`;
   }
@@ -702,13 +724,13 @@
           const config = data.data;
           document.getElementById("auto-trading-enabled").checked =
             config.auto_trading_enabled;
-          
+
           // 시간 설정 로드
           const scheduleTime = config.schedule_time || "08:30";
           const [hour, minute] = scheduleTime.split(':');
           document.getElementById("schedule-hour").value = hour;
           document.getElementById("schedule-minute").value = minute;
-          
+
           // 다음 실행 시간 업데이트
           updateNextExecutionInfo();
           document.getElementById("reserve-cash").value =
@@ -743,7 +765,7 @@
       const hour = document.getElementById("schedule-hour").value;
       const minute = document.getElementById("schedule-minute").value;
       const scheduleTime = `${hour}:${minute}`;
-      
+
       const config = {
         auto_trading_enabled: document.getElementById("auto-trading-enabled")
           .checked,
@@ -935,7 +957,7 @@
             button.innerHTML = originalText;
             return;
           }
-          
+
           if (!authData.authenticated) {
             showAlert("키움 API 인증이 필요합니다. 먼저 인증을 완료해주세요.", "warning");
             button.disabled = false;
@@ -984,7 +1006,7 @@
               errorMessage += `\n시간: ${data.error_details.timestamp}`;
             }
             console.error("분석 실행 실패:", data);
-            
+
             // 오류 타입에 따른 다른 메시지 표시
             if (data.error_details && data.error_details.error_type === 'auth_required') {
               showAlert("키움 API 인증이 필요합니다. 먼저 인증을 완료해주세요.", "warning");

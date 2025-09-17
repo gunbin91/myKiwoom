@@ -419,6 +419,9 @@
   let patternChart = null;
 
   document.addEventListener("DOMContentLoaded", function () {
+    // 서버 정보 즉시 업데이트
+    updateServerInfoFromTemplate();
+
     // 기본 날짜 설정 (최근 30일)
     const today = new Date();
     const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -435,6 +438,25 @@
     // 5분마다 자동 새로고침 (API 호출 빈도 감소)
     setInterval(loadTradingDiary, 300000);
   });
+
+  function updateServerInfoFromTemplate() {
+    // 템플릿에서 전달받은 서버 정보로 즉시 업데이트
+    {% if server_info %}
+    const serverNameElement = document.getElementById('server-name');
+    const serverInfoElement = document.getElementById('server-info');
+
+    if (serverNameElement && serverInfoElement) {
+      serverNameElement.textContent = '{{ server_info.server_name }}';
+
+      // 서버별 색상 적용
+      if ('{{ server_info.server_type }}' === 'mock') {
+        serverInfoElement.style.color = '#4CAF50';
+      } else {
+        serverInfoElement.style.color = '#F44336';
+      }
+    }
+    {% endif %}
+  }
 
   function loadTradingDiary() {
     // API 호출을 순차적으로 실행하여 429 오류 방지

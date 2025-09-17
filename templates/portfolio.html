@@ -257,11 +257,33 @@
   let isBarChart = false;
 
   document.addEventListener("DOMContentLoaded", function () {
+    // 서버 정보 즉시 업데이트
+    updateServerInfoFromTemplate();
+
     loadPortfolio();
 
     // 60초마다 자동 새로고침
     setInterval(loadPortfolio, 60000);
   });
+
+  function updateServerInfoFromTemplate() {
+    // 템플릿에서 전달받은 서버 정보로 즉시 업데이트
+    {% if server_info %}
+    const serverNameElement = document.getElementById('server-name');
+    const serverInfoElement = document.getElementById('server-info');
+
+    if (serverNameElement && serverInfoElement) {
+      serverNameElement.textContent = '{{ server_info.server_name }}';
+
+      // 서버별 색상 적용
+      if ('{{ server_info.server_type }}' === 'mock') {
+        serverInfoElement.style.color = '#4CAF50';
+      } else {
+        serverInfoElement.style.color = '#F44336';
+      }
+    }
+    {% endif %}
+  }
 
   function loadPortfolio() {
     fetch("/api/account/evaluation")

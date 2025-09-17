@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from src.config.server_config import get_current_server_config
 from src.config.settings import API_REQUEST_DELAY
 from src.utils import api_logger
-from src.utils.cache import api_cache
 from .auth import KiwoomAuth
 import time
 
@@ -30,26 +29,23 @@ class KiwoomAccount:
             self.server_config = get_current_server_config()
         self.base_url = self.server_config.account_url
         self.server_type = server_type
+        
     
     def _make_request(self, api_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """API 요청 공통 메서드 (재시도 로직 포함, 캐싱 지원)"""
+        """API 요청 공통 메서드 (재시도 로직 포함)"""
         from src.config.settings import MAX_RETRY_COUNT
         
-        # 캐시에서 먼저 확인
-        cached_result = api_cache.get(api_id, data)
-        if cached_result is not None:
-            api_logger.info(f"API {api_id} 캐시에서 조회")
-            return cached_result
         
         for attempt in range(MAX_RETRY_COUNT):
             try:
+                # API 호출 간격 지연 (429 오류 방지)
+                if attempt > 0:  # 첫 번째 시도가 아닌 경우에만 지연
+                    time.sleep(API_REQUEST_DELAY)
+                
                 # 현재 서버 타입에 맞는 인증 인스턴스 사용
                 current_auth = KiwoomAuth(self.server_type)
                 headers = current_auth.get_auth_headers()
                 headers['api-id'] = api_id
-                
-                # API 요청 지연
-                time.sleep(API_REQUEST_DELAY)
                 
                 response = requests.post(
                     self.base_url,
@@ -73,14 +69,11 @@ class KiwoomAccount:
                 result = response.json()
                 
                 if result.get('return_code') == 0:
-                    # 성공적인 응답을 캐시에 저장
-                    api_cache.set(api_id, data, result)
                     return result
                 else:
                     error_msg = result.get('return_msg', '알 수 없는 오류')
                     error_code = result.get('return_code', 'UNKNOWN')
                     api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg}")
-                    api_logger.error(f"전체 응답: {result}")  # 전체 응답 로그 추가
                     
                     # 오류 정보를 포함한 결과 반환
                     return {
@@ -124,6 +117,26 @@ class KiwoomAccount:
         }
         
         return self._make_request('kt00001', data)
+    
+    def get_daily_estimated_deposit_assets(self, start_date: str, end_date: str) -> Optional[Dict[str, Any]]:
+        """
+        일별추정예탁자산현황요청 (kt00002)
+        
+        Args:
+            start_date: 시작일자 (YYYYMMDD)
+            end_date: 종료일자 (YYYYMMDD)
+            
+        Returns:
+            일별 추정예탁자산 현황
+        """
+        api_logger.info(f"일별추정예탁자산현황 조회 (시작일: {start_date}, 종료일: {end_date})")
+        
+        data = {
+            'start_dt': start_date,
+            'end_dt': end_date
+        }
+        
+        return self._make_request('kt00002', data)
     
     def get_estimated_assets(self, query_type: str = "0") -> Optional[Dict[str, Any]]:
         """

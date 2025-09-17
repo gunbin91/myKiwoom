@@ -1,660 +1,728 @@
-{% extends "base.html" %}
-
-{% block title %}주문내역 - 키움 자동매매{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}주문내역 - 키움 자동매매{% endblock
+%} {% block content %}
 <div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2><i class="fas fa-list-alt me-2"></i>주문내역</h2>
-            <div>
-                <button class="btn btn-outline-primary me-2" onclick="refreshOrders()">
-                    <i class="fas fa-sync-alt"></i> 새로고침
-                </button>
-                <button class="btn btn-primary" onclick="exportOrders()">
-                    <i class="fas fa-download"></i> 내보내기
-                </button>
-            </div>
-        </div>
+  <div class="col-12">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2><i class="fas fa-list-alt me-2"></i>주문내역</h2>
+      <div>
+        <button class="btn btn-outline-primary me-2" onclick="refreshOrders()">
+          <i class="fas fa-sync-alt"></i> 새로고침
+        </button>
+        <button class="btn btn-primary" onclick="exportOrders()">
+          <i class="fas fa-download"></i> 내보내기
+        </button>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 주문 통계 카드 -->
 <div class="row mb-4 orders-summary-cards">
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 주문 건수</h6>
-                        <h4 class="mb-0" id="total-orders">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-list fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-primary text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 주문 건수</h6>
+            <h4 class="mb-0" id="total-orders">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-list fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 매수금액</h6>
-                        <h4 class="mb-0" id="total-buy">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-arrow-up fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-success text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 매수금액</h6>
+            <h4 class="mb-0" id="total-buy">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-arrow-up fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-danger text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 매도금액</h6>
-                        <h4 class="mb-0" id="total-sell">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-arrow-down fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-danger text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 매도금액</h6>
+            <h4 class="mb-0" id="total-sell">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-arrow-down fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-title">총 수수료</h6>
-                        <h4 class="mb-0" id="total-fee">-</h4>
-                    </div>
-                    <div class="align-self-center">
-                        <i class="fas fa-coins fa-2x"></i>
-                    </div>
-                </div>
-            </div>
+  <div class="col-lg-3 col-md-6 mb-3">
+    <div class="card bg-info text-white">
+      <div class="card-body">
+        <div class="d-flex justify-content-between">
+          <div>
+            <h6 class="card-title">총 수수료</h6>
+            <h4 class="mb-0" id="total-fee">-</h4>
+          </div>
+          <div class="align-self-center">
+            <i class="fas fa-coins fa-2x"></i>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 필터 및 검색 -->
 <div class="row mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-3">
-                        <label for="date-from" class="form-label">시작일</label>
-                        <input type="date" class="form-control" id="date-from" onchange="filterOrders()">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="date-to" class="form-label">종료일</label>
-                        <input type="date" class="form-control" id="date-to" onchange="filterOrders()">
-                    </div>
-                    <div class="col-md-3">
-                        <label for="order-type-filter" class="form-label">주문구분</label>
-                        <select class="form-select" id="order-type-filter" onchange="filterOrders()">
-                            <option value="">전체</option>
-                            <option value="buy">매수</option>
-                            <option value="sell">매도</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label for="stock-search" class="form-label">종목 검색</label>
-                        <input type="text" class="form-control" id="stock-search" placeholder="종목명 또는 코드" onkeyup="filterOrders()">
-                    </div>
-                </div>
-            </div>
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label for="date-from" class="form-label">시작일</label>
+            <input
+              type="date"
+              class="form-control"
+              id="date-from"
+              onchange="filterOrders()"
+            />
+          </div>
+          <div class="col-md-3">
+            <label for="date-to" class="form-label">종료일</label>
+            <input
+              type="date"
+              class="form-control"
+              id="date-to"
+              onchange="filterOrders()"
+            />
+          </div>
+          <div class="col-md-3">
+            <label for="order-type-filter" class="form-label">주문구분</label>
+            <select
+              class="form-select"
+              id="order-type-filter"
+              onchange="filterOrders()"
+            >
+              <option value="">전체</option>
+              <option value="buy">매수</option>
+              <option value="sell">매도</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="stock-search" class="form-label">종목 검색</label>
+            <input
+              type="text"
+              class="form-control"
+              id="stock-search"
+              placeholder="종목명 또는 코드"
+              onkeyup="filterOrders()"
+            />
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 탭 네비게이션 -->
 <ul class="nav nav-tabs mb-4" id="orderTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="executed-tab" data-bs-toggle="tab" data-bs-target="#executed" type="button" role="tab">
-            <i class="fas fa-check-circle me-1"></i>체결내역
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="unexecuted-tab" data-bs-toggle="tab" data-bs-target="#unexecuted" type="button" role="tab">
-            <i class="fas fa-clock me-1"></i>미체결
-        </button>
-    </li>
+  <li class="nav-item" role="presentation">
+    <button
+      class="nav-link active"
+      id="executed-tab"
+      data-bs-toggle="tab"
+      data-bs-target="#executed"
+      type="button"
+      role="tab"
+    >
+      <i class="fas fa-check-circle me-1"></i>체결내역
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button
+      class="nav-link"
+      id="unexecuted-tab"
+      data-bs-toggle="tab"
+      data-bs-target="#unexecuted"
+      type="button"
+      role="tab"
+    >
+      <i class="fas fa-clock me-1"></i>미체결
+    </button>
+  </li>
 </ul>
 
 <!-- 탭 콘텐츠 -->
 <div class="tab-content" id="orderTabContent">
-    <!-- 체결내역 탭 -->
-    <div class="tab-pane fade show active" id="executed" role="tabpanel">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
-                    <i class="fas fa-check-circle me-2"></i>체결내역
-                </h5>
-                <div class="d-flex gap-2">
-                    <select class="form-select form-select-sm" id="sort-executed" onchange="sortExecutedOrders()">
-                        <option value="date">주문일시</option>
-                        <option value="stock">종목명</option>
-                        <option value="amount">금액</option>
-                        <option value="type">주문구분</option>
-                    </select>
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover" id="executed-orders-table">
-                        <thead>
-                            <tr>
-                                <th>주문일시</th>
-                                <th>종목명</th>
-                                <th>주문구분</th>
-                                <th>주문수량</th>
-                                <th>체결수량</th>
-                                <th>체결단가</th>
-                                <th>체결금액</th>
-                                <th>수수료</th>
-                                <th>세금</th>
-                                <th>액션</th>
-                            </tr>
-                        </thead>
-                        <tbody id="executed-orders-tbody">
-                            <tr>
-                                <td colspan="10" class="text-center text-muted">
-                                    데이터를 불러오는 중...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+  <!-- 체결내역 탭 -->
+  <div class="tab-pane fade show active" id="executed" role="tabpanel">
+    <div class="card">
+      <div
+        class="card-header d-flex justify-content-between align-items-center"
+      >
+        <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>체결내역</h5>
+        <div class="d-flex gap-2">
+          <select
+            class="form-select form-select-sm"
+            id="sort-executed"
+            onchange="sortExecutedOrders()"
+          >
+            <option value="date">주문일시</option>
+            <option value="stock">종목명</option>
+            <option value="amount">금액</option>
+            <option value="type">주문구분</option>
+          </select>
         </div>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover" id="executed-orders-table">
+            <thead>
+              <tr>
+                <th>주문일시</th>
+                <th>종목명</th>
+                <th>주문구분</th>
+                <th>주문수량</th>
+                <th>체결수량</th>
+                <th>체결단가</th>
+                <th>체결금액</th>
+                <th>수수료</th>
+                <th>세금</th>
+                <th>액션</th>
+              </tr>
+            </thead>
+            <tbody id="executed-orders-tbody">
+              <tr>
+                <td colspan="10" class="text-center text-muted">
+                  데이터를 불러오는 중...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- 미체결 탭 -->
-    <div class="tab-pane fade" id="unexecuted" role="tabpanel">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
-                    <i class="fas fa-clock me-2"></i>미체결 주문
-                </h5>
-                <button class="btn btn-sm btn-outline-primary" onclick="refreshUnexecutedOrders()">
-                    <i class="fas fa-sync-alt"></i> 새로고침
-                </button>
-            </div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover" id="unexecuted-orders-table">
-                        <thead>
-                            <tr>
-                                <th>주문일시</th>
-                                <th>종목명</th>
-                                <th>주문구분</th>
-                                <th>주문수량</th>
-                                <th>주문단가</th>
-                                <th>미체결수량</th>
-                                <th>주문상태</th>
-                                <th>액션</th>
-                            </tr>
-                        </thead>
-                        <tbody id="unexecuted-orders-tbody">
-                            <tr>
-                                <td colspan="8" class="text-center text-muted">
-                                    데이터를 불러오는 중...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+  <!-- 미체결 탭 -->
+  <div class="tab-pane fade" id="unexecuted" role="tabpanel">
+    <div class="card">
+      <div
+        class="card-header d-flex justify-content-between align-items-center"
+      >
+        <h5 class="mb-0"><i class="fas fa-clock me-2"></i>미체결 주문</h5>
+        <button
+          class="btn btn-sm btn-outline-primary"
+          onclick="refreshUnexecutedOrders()"
+        >
+          <i class="fas fa-sync-alt"></i> 새로고침
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover" id="unexecuted-orders-table">
+            <thead>
+              <tr>
+                <th>주문일시</th>
+                <th>종목명</th>
+                <th>주문구분</th>
+                <th>주문수량</th>
+                <th>주문단가</th>
+                <th>미체결수량</th>
+                <th>주문상태</th>
+                <th>액션</th>
+              </tr>
+            </thead>
+            <tbody id="unexecuted-orders-tbody">
+              <tr>
+                <td colspan="8" class="text-center text-muted">
+                  데이터를 불러오는 중...
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 주문 상세 모달 -->
 <div class="modal fade" id="orderDetailModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="orderDetailTitle">주문 상세 정보</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="orderDetailBody">
-                <!-- 주문 상세 정보가 여기에 표시됩니다 -->
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-                <button type="button" class="btn btn-danger" id="cancelOrderBtn" onclick="cancelOrder()" style="display: none;">
-                    <i class="fas fa-times"></i> 주문취소
-                </button>
-            </div>
-        </div>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="orderDetailTitle">주문 상세 정보</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body" id="orderDetailBody">
+        <!-- 주문 상세 정보가 여기에 표시됩니다 -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          닫기
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          id="cancelOrderBtn"
+          onclick="cancelOrder()"
+          style="display: none"
+        >
+          <i class="fas fa-times"></i> 주문취소
+        </button>
+      </div>
     </div>
+  </div>
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
+{% endblock %} {% block extra_scripts %}
 <style>
-/* 주문내역 상단 카드 높이 통일 */
-.orders-summary-cards .card {
+  /* 주문내역 상단 카드 높이 통일 */
+  .orders-summary-cards .card {
     height: 85px !important;
     display: flex;
     flex-direction: column;
-}
+  }
 
-.orders-summary-cards .card-body {
+  .orders-summary-cards .card-body {
     flex: 1;
     display: flex;
     align-items: center;
     padding: 0.75rem 1rem;
-}
+  }
 
-/* 동적 색상 클래스가 높이에 영향을 주지 않도록 */
-.orders-summary-cards .card-body h4 {
+  /* 동적 색상 클래스가 높이에 영향을 주지 않도록 */
+  .orders-summary-cards .card-body h4 {
     margin-bottom: 0;
     line-height: 1.2;
     font-size: 1.4rem;
     font-weight: 600;
-}
+  }
 
-/* 아이콘을 오른쪽 끝으로 배치 */
-.orders-summary-cards .card-body .d-flex {
+  /* 아이콘을 오른쪽 끝으로 배치 */
+  .orders-summary-cards .card-body .d-flex {
     width: 100%;
     justify-content: space-between;
-}
+  }
 
-.orders-summary-cards .card-body .align-self-center {
+  .orders-summary-cards .card-body .align-self-center {
     align-self: center !important;
     margin-left: auto;
-}
+  }
 </style>
 <script>
-// 주문내역 전용 JavaScript
-let executedOrdersData = [];
-let unexecutedOrdersData = [];
-let currentOrderDetail = null;
+  // 주문내역 전용 JavaScript
+  let executedOrdersData = [];
+  let unexecutedOrdersData = [];
+  let currentOrderDetail = null;
 
-document.addEventListener('DOMContentLoaded', function() {
-    // 기본 날짜 설정 (최근 7일)
-    const today = new Date();
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
-    document.getElementById('date-to').value = today.toISOString().split('T')[0];
-    document.getElementById('date-from').value = weekAgo.toISOString().split('T')[0];
-    
-    loadOrders();
-    
-    // 60초마다 자동 새로고침
-    setInterval(loadOrders, 60000);
-});
+  document.addEventListener('DOMContentLoaded', function() {
+      // 서버 정보 즉시 업데이트
+      updateServerInfoFromTemplate();
 
-function loadOrders() {
-    loadExecutedOrders();
-    loadUnexecutedOrders();
-}
+      // 기본 날짜 설정 (최근 7일)
+      const today = new Date();
+      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-function loadExecutedOrders() {
-    const startDate = document.getElementById('date-from').value.replace(/-/g, '');
-    const endDate = document.getElementById('date-to').value.replace(/-/g, '');
-    
-    fetch(`/api/account/orders/executed?start_date=${startDate}&end_date=${endDate}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.data.cntr) {
-                executedOrdersData = data.data.cntr;
-                updateOrderSummary(data.data);
-                updateExecutedOrdersTable(executedOrdersData);
-            } else if (data.authenticated === false) {
-                isAuthenticated = false;
-                updateAuthUI(false);
-                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
-                return;
-            } else {
-                document.getElementById('executed-orders-tbody').innerHTML = 
-                    '<tr><td colspan="10" class="text-center text-muted">체결 내역이 없습니다.</td></tr>';
-            }
-        })
-        .catch(error => {
-            console.error('체결내역 조회 실패:', error);
-            document.getElementById('executed-orders-tbody').innerHTML = 
-                '<tr><td colspan="10" class="text-center text-danger">데이터 조회 실패</td></tr>';
-        });
-}
+      document.getElementById('date-to').value = today.toISOString().split('T')[0];
+      document.getElementById('date-from').value = weekAgo.toISOString().split('T')[0];
 
-function loadUnexecutedOrders() {
-    fetch('/api/account/orders/unexecuted')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.data.oso) {
-                unexecutedOrdersData = data.data.oso;
-                updateUnexecutedOrdersTable(unexecutedOrdersData);
-            } else if (data.authenticated === false) {
-                isAuthenticated = false;
-                updateAuthUI(false);
-                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
-                return;
-            } else {
-                document.getElementById('unexecuted-orders-tbody').innerHTML = 
-                    '<tr><td colspan="8" class="text-center text-muted">미체결 주문이 없습니다.</td></tr>';
-            }
-        })
-        .catch(error => {
-            console.error('미체결 주문 조회 실패:', error);
-            document.getElementById('unexecuted-orders-tbody').innerHTML = 
-                '<tr><td colspan="8" class="text-center text-danger">데이터 조회 실패</td></tr>';
-        });
-}
+      loadOrders();
 
-function updateOrderSummary(data) {
-    const orders = data.cntr || [];
-    const totalOrders = orders.length;
-    
-    let totalBuy = 0;
-    let totalSell = 0;
-    let totalFee = 0;
-    
-    orders.forEach(order => {
-        const amount = parseFloat(order.cntr_amt || '0');
-        const fee = parseFloat(order.cmsn || '0');
-        
-        if (order.sell_tp === '1') { // 매도
-            totalSell += amount;
-        } else { // 매수
-            totalBuy += amount;
-        }
-        
-        totalFee += fee;
-    });
-    
-    document.getElementById('total-orders').textContent = totalOrders + '건';
-    document.getElementById('total-buy').textContent = formatNumber(totalBuy) + '원';
-    document.getElementById('total-sell').textContent = formatNumber(totalSell) + '원';
-    document.getElementById('total-fee').textContent = formatNumber(totalFee) + '원';
-}
+      // 60초마다 자동 새로고침
+      setInterval(loadOrders, 60000);
+  });
 
-function updateExecutedOrdersTable(orders) {
-    const tbody = document.getElementById('executed-orders-tbody');
-    tbody.innerHTML = '';
-    
-    orders.forEach(order => {
-        const row = document.createElement('tr');
-        const orderType = order.sell_tp === '1' ? '매도' : '매수';
-        const orderTypeClass = order.sell_tp === '1' ? 'text-danger' : 'text-success';
-        
-        row.innerHTML = `
-            <td>${formatDateTime(order.cntr_dt, order.cntr_tm)}</td>
-            <td>
-                <strong>${order.stk_nm || '-'}</strong>
-                <br><small class="text-muted">${order.stk_cd || ''}</small>
-            </td>
-            <td><span class="${orderTypeClass}">${orderType}</span></td>
-            <td>${formatNumber(order.ord_qty || '0')}</td>
-            <td>${formatNumber(order.cntr_qty || '0')}</td>
-            <td>${formatNumber(order.cntr_pric || '0')}원</td>
-            <td>${formatNumber(order.cntr_amt || '0')}원</td>
-            <td>${formatNumber(order.cmsn || '0')}원</td>
-            <td>${formatNumber(order.tax || '0')}원</td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="showOrderDetail('${order.ord_no}', 'executed')">
-                    <i class="fas fa-info-circle"></i>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
+  function updateServerInfoFromTemplate() {
+      // 템플릿에서 전달받은 서버 정보로 즉시 업데이트
+      {% if server_info %}
+      const serverNameElement = document.getElementById('server-name');
+      const serverInfoElement = document.getElementById('server-info');
 
-function updateUnexecutedOrdersTable(orders) {
-    const tbody = document.getElementById('unexecuted-orders-tbody');
-    tbody.innerHTML = '';
-    
-    orders.forEach(order => {
-        const row = document.createElement('tr');
-        const orderType = order.ord_stt === '1' ? '매도' : '매수';
-        const orderTypeClass = order.ord_stt === '1' ? 'text-danger' : 'text-success';
-        const statusText = getOrderStatusText(order.ord_stt);
-        
-        row.innerHTML = `
-            <td>${formatDateTime(order.ord_dt, order.ord_tm)}</td>
-            <td>
-                <strong>${order.stk_nm || '-'}</strong>
-                <br><small class="text-muted">${order.stk_cd || ''}</small>
-            </td>
-            <td><span class="${orderTypeClass}">${orderType}</span></td>
-            <td>${formatNumber(order.ord_qty || '0')}</td>
-            <td>${formatNumber(order.ord_pric || '0')}원</td>
-            <td>${formatNumber(order.oso_qty || '0')}</td>
-            <td><span class="badge bg-warning">${statusText}</span></td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary me-1" onclick="showOrderDetail('${order.ord_no}', 'unexecuted')">
-                    <i class="fas fa-info-circle"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-danger" onclick="cancelOrder('${order.ord_no}', '${order.stk_cd}', '${order.oso_qty}')">
-                    <i class="fas fa-times"></i>
-                </button>
-            </td>
-        `;
-        tbody.appendChild(row);
-    });
-}
+      if (serverNameElement && serverInfoElement) {
+        serverNameElement.textContent = '{{ server_info.server_name }}';
 
-function getOrderStatusText(status) {
-    const statusMap = {
-        '0': '접수',
-        '1': '확인',
-        '2': '거부',
-        '3': '체결',
-        '4': '취소',
-        '5': '정정'
-    };
-    return statusMap[status] || '알 수 없음';
-}
-
-function formatDateTime(date, time) {
-    if (!date || !time) return '-';
-    
-    const year = date.substring(0, 4);
-    const month = date.substring(4, 6);
-    const day = date.substring(6, 8);
-    const hour = time.substring(0, 2);
-    const minute = time.substring(2, 4);
-    const second = time.substring(4, 6);
-    
-    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-}
-
-function showOrderDetail(orderNo, type) {
-    const order = type === 'executed' ? 
-        executedOrdersData.find(o => o.ord_no === orderNo) :
-        unexecutedOrdersData.find(o => o.ord_no === orderNo);
-    
-    if (!order) return;
-    
-    currentOrderDetail = { order, type };
-    
-    document.getElementById('orderDetailTitle').textContent = `주문 상세 - ${order.stk_nm} (${orderNo})`;
-    
-    const orderType = order.sell_tp === '1' ? '매도' : '매수';
-    const orderTypeClass = order.sell_tp === '1' ? 'text-danger' : 'text-success';
-    
-    document.getElementById('orderDetailBody').innerHTML = `
-        <div class="row">
-            <div class="col-md-6">
-                <h6>주문 정보</h6>
-                <table class="table table-sm">
-                    <tr><td>주문번호</td><td>${orderNo}</td></tr>
-                    <tr><td>종목명</td><td>${order.stk_nm || '-'}</td></tr>
-                    <tr><td>종목코드</td><td>${order.stk_cd || '-'}</td></tr>
-                    <tr><td>주문구분</td><td><span class="${orderTypeClass}">${orderType}</span></td></tr>
-                    <tr><td>주문수량</td><td>${formatNumber(order.ord_qty || '0')}</td></tr>
-                    <tr><td>주문단가</td><td>${formatNumber(order.ord_pric || '0')}원</td></tr>
-                </table>
-            </div>
-            <div class="col-md-6">
-                <h6>체결 정보</h6>
-                <table class="table table-sm">
-                    <tr><td>체결수량</td><td>${formatNumber(order.cntr_qty || '0')}</td></tr>
-                    <tr><td>체결단가</td><td>${formatNumber(order.cntr_pric || '0')}원</td></tr>
-                    <tr><td>체결금액</td><td>${formatNumber(order.cntr_amt || '0')}원</td></tr>
-                    <tr><td>수수료</td><td>${formatNumber(order.cmsn || '0')}원</td></tr>
-                    <tr><td>세금</td><td>${formatNumber(order.tax || '0')}원</td></tr>
-                    <tr><td>주문일시</td><td>${formatDateTime(order.ord_dt, order.ord_tm)}</td></tr>
-                </table>
-            </div>
-        </div>
-    `;
-    
-    // 미체결 주문인 경우 취소 버튼 표시
-    const cancelBtn = document.getElementById('cancelOrderBtn');
-    if (type === 'unexecuted') {
-        cancelBtn.style.display = 'inline-block';
-        cancelBtn.onclick = () => cancelOrder(orderNo, order.stk_cd, order.oso_qty);
-    } else {
-        cancelBtn.style.display = 'none';
-    }
-    
-    new bootstrap.Modal(document.getElementById('orderDetailModal')).show();
-}
-
-function cancelOrder(orderNo, stockCode, quantity) {
-    if (!confirm('정말로 이 주문을 취소하시겠습니까?')) {
-        return;
-    }
-    
-    fetch('/api/order/cancel', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            order_no: orderNo,
-            stock_code: stockCode,
-            quantity: parseInt(quantity)
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showAlert(data.message, 'success');
-            loadUnexecutedOrders();
-            bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
+        // 서버별 색상 적용
+        if ('{{ server_info.server_type }}' === 'mock') {
+          serverInfoElement.style.color = '#4CAF50';
         } else {
-            showAlert(data.message, 'danger');
+          serverInfoElement.style.color = '#F44336';
         }
-    })
-    .catch(error => {
-        console.error('주문 취소 실패:', error);
-        showAlert('주문 취소 중 오류가 발생했습니다.', 'danger');
-    });
-}
+      }
+      {% endif %}
+  }
 
-function filterOrders() {
-    const startDate = document.getElementById('date-from').value;
-    const endDate = document.getElementById('date-to').value;
-    const orderType = document.getElementById('order-type-filter').value;
-    const searchTerm = document.getElementById('stock-search').value.toLowerCase();
-    
-    // 날짜가 변경된 경우 서버에서 새로 로드
-    if (startDate && endDate) {
-        loadExecutedOrders();
-    }
-    
-    // 클라이언트 사이드 필터링
-    let filteredData = executedOrdersData;
-    
-    if (orderType) {
-        filteredData = filteredData.filter(order => {
-            if (orderType === 'buy') return order.sell_tp !== '1';
-            if (orderType === 'sell') return order.sell_tp === '1';
-            return true;
-        });
-    }
-    
-    if (searchTerm) {
-        filteredData = filteredData.filter(order => 
-            (order.stk_nm || '').toLowerCase().includes(searchTerm) ||
-            (order.stk_cd || '').toLowerCase().includes(searchTerm)
-        );
-    }
-    
-    updateExecutedOrdersTable(filteredData);
-}
+  function loadOrders() {
+      loadExecutedOrders();
+      loadUnexecutedOrders();
+  }
 
-function sortExecutedOrders() {
-    const sortBy = document.getElementById('sort-executed').value;
-    
-    executedOrdersData.sort((a, b) => {
-        switch (sortBy) {
-            case 'date':
-                return new Date(b.cntr_dt + b.cntr_tm) - new Date(a.cntr_dt + a.cntr_tm);
-            case 'stock':
-                return (a.stk_nm || '').localeCompare(b.stk_nm || '');
-            case 'amount':
-                return parseFloat(b.cntr_amt || '0') - parseFloat(a.cntr_amt || '0');
-            case 'type':
-                return (a.sell_tp || '').localeCompare(b.sell_tp || '');
-            default:
-                return 0;
-        }
-    });
-    
-    updateExecutedOrdersTable(executedOrdersData);
-}
+  function loadExecutedOrders() {
+      const startDate = document.getElementById('date-from').value.replace(/-/g, '');
+      const endDate = document.getElementById('date-to').value.replace(/-/g, '');
 
-function refreshOrders() {
-    loadOrders();
-    showAlert('주문내역이 새로고침되었습니다.', 'success');
-}
+      fetch(`/api/account/orders/executed?start_date=${startDate}&end_date=${endDate}`)
+          .then(response => response.json())
+          .then(data => {
+              if (data.success && data.data.cntr) {
+                  executedOrdersData = data.data.cntr;
+                  updateOrderSummary(data.data);
+                  updateExecutedOrdersTable(executedOrdersData);
+              } else if (data.authenticated === false) {
+                  isAuthenticated = false;
+                  updateAuthUI(false);
+                  showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                  return;
+              } else {
+                  document.getElementById('executed-orders-tbody').innerHTML =
+                      '<tr><td colspan="10" class="text-center text-muted">체결 내역이 없습니다.</td></tr>';
+              }
+          })
+          .catch(error => {
+              console.error('체결내역 조회 실패:', error);
+              document.getElementById('executed-orders-tbody').innerHTML =
+                  '<tr><td colspan="10" class="text-center text-danger">데이터 조회 실패</td></tr>';
+          });
+  }
 
-function refreshUnexecutedOrders() {
-    loadUnexecutedOrders();
-    showAlert('미체결 주문이 새로고침되었습니다.', 'success');
-}
+  function loadUnexecutedOrders() {
+      fetch('/api/account/orders/unexecuted')
+          .then(response => response.json())
+          .then(data => {
+              if (data.success && data.data.oso) {
+                  unexecutedOrdersData = data.data.oso;
+                  updateUnexecutedOrdersTable(unexecutedOrdersData);
+              } else if (data.authenticated === false) {
+                  isAuthenticated = false;
+                  updateAuthUI(false);
+                  showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+                  return;
+              } else {
+                  document.getElementById('unexecuted-orders-tbody').innerHTML =
+                      '<tr><td colspan="8" class="text-center text-muted">미체결 주문이 없습니다.</td></tr>';
+              }
+          })
+          .catch(error => {
+              console.error('미체결 주문 조회 실패:', error);
+              document.getElementById('unexecuted-orders-tbody').innerHTML =
+                  '<tr><td colspan="8" class="text-center text-danger">데이터 조회 실패</td></tr>';
+          });
+  }
 
-function exportOrders() {
-    const csvContent = generateOrdersCSV(executedOrdersData);
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'orders_' + new Date().toISOString().split('T')[0] + '.csv');
-    link.style.visibility = 'hidden';
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    showAlert('주문내역이 내보내기되었습니다.', 'success');
-}
+  function updateOrderSummary(data) {
+      const orders = data.cntr || [];
+      const totalOrders = orders.length;
 
-function generateOrdersCSV(data) {
-    const headers = ['주문일시', '종목명', '종목코드', '주문구분', '주문수량', '체결수량', '체결단가', '체결금액', '수수료', '세금'];
-    const rows = data.map(order => [
-        formatDateTime(order.cntr_dt, order.cntr_tm),
-        order.stk_nm || '',
-        order.stk_cd || '',
-        order.sell_tp === '1' ? '매도' : '매수',
-        order.ord_qty || '0',
-        order.cntr_qty || '0',
-        order.cntr_pric || '0',
-        order.cntr_amt || '0',
-        order.cmsn || '0',
-        order.tax || '0'
-    ]);
-    
-    return [headers, ...rows].map(row => row.join(',')).join('\n');
-}
+      let totalBuy = 0;
+      let totalSell = 0;
+      let totalFee = 0;
+
+      orders.forEach(order => {
+          const amount = parseFloat(order.cntr_amt || '0');
+          const fee = parseFloat(order.cmsn || '0');
+
+          if (order.sell_tp === '1') { // 매도
+              totalSell += amount;
+          } else { // 매수
+              totalBuy += amount;
+          }
+
+          totalFee += fee;
+      });
+
+      document.getElementById('total-orders').textContent = totalOrders + '건';
+      document.getElementById('total-buy').textContent = formatNumber(totalBuy) + '원';
+      document.getElementById('total-sell').textContent = formatNumber(totalSell) + '원';
+      document.getElementById('total-fee').textContent = formatNumber(totalFee) + '원';
+  }
+
+  function updateExecutedOrdersTable(orders) {
+      const tbody = document.getElementById('executed-orders-tbody');
+      tbody.innerHTML = '';
+
+      orders.forEach(order => {
+          const row = document.createElement('tr');
+          const orderType = order.sell_tp === '1' ? '매도' : '매수';
+          const orderTypeClass = order.sell_tp === '1' ? 'text-danger' : 'text-success';
+
+          row.innerHTML = `
+              <td>${formatDateTime(order.cntr_dt, order.cntr_tm)}</td>
+              <td>
+                  <strong>${order.stk_nm || '-'}</strong>
+                  <br><small class="text-muted">${order.stk_cd || ''}</small>
+              </td>
+              <td><span class="${orderTypeClass}">${orderType}</span></td>
+              <td>${formatNumber(order.ord_qty || '0')}</td>
+              <td>${formatNumber(order.cntr_qty || '0')}</td>
+              <td>${formatNumber(order.cntr_pric || '0')}원</td>
+              <td>${formatNumber(order.cntr_amt || '0')}원</td>
+              <td>${formatNumber(order.cmsn || '0')}원</td>
+              <td>${formatNumber(order.tax || '0')}원</td>
+              <td>
+                  <button class="btn btn-sm btn-outline-primary" onclick="showOrderDetail('${order.ord_no}', 'executed')">
+                      <i class="fas fa-info-circle"></i>
+                  </button>
+              </td>
+          `;
+          tbody.appendChild(row);
+      });
+  }
+
+  function updateUnexecutedOrdersTable(orders) {
+      const tbody = document.getElementById('unexecuted-orders-tbody');
+      tbody.innerHTML = '';
+
+      orders.forEach(order => {
+          const row = document.createElement('tr');
+          const orderType = order.ord_stt === '1' ? '매도' : '매수';
+          const orderTypeClass = order.ord_stt === '1' ? 'text-danger' : 'text-success';
+          const statusText = getOrderStatusText(order.ord_stt);
+
+          row.innerHTML = `
+              <td>${formatDateTime(order.ord_dt, order.ord_tm)}</td>
+              <td>
+                  <strong>${order.stk_nm || '-'}</strong>
+                  <br><small class="text-muted">${order.stk_cd || ''}</small>
+              </td>
+              <td><span class="${orderTypeClass}">${orderType}</span></td>
+              <td>${formatNumber(order.ord_qty || '0')}</td>
+              <td>${formatNumber(order.ord_pric || '0')}원</td>
+              <td>${formatNumber(order.oso_qty || '0')}</td>
+              <td><span class="badge bg-warning">${statusText}</span></td>
+              <td>
+                  <button class="btn btn-sm btn-outline-primary me-1" onclick="showOrderDetail('${order.ord_no}', 'unexecuted')">
+                      <i class="fas fa-info-circle"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="cancelOrder('${order.ord_no}', '${order.stk_cd}', '${order.oso_qty}')">
+                      <i class="fas fa-times"></i>
+                  </button>
+              </td>
+          `;
+          tbody.appendChild(row);
+      });
+  }
+
+  function getOrderStatusText(status) {
+      const statusMap = {
+          '0': '접수',
+          '1': '확인',
+          '2': '거부',
+          '3': '체결',
+          '4': '취소',
+          '5': '정정'
+      };
+      return statusMap[status] || '알 수 없음';
+  }
+
+  function formatDateTime(date, time) {
+      if (!date || !time) return '-';
+
+      const year = date.substring(0, 4);
+      const month = date.substring(4, 6);
+      const day = date.substring(6, 8);
+      const hour = time.substring(0, 2);
+      const minute = time.substring(2, 4);
+      const second = time.substring(4, 6);
+
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  }
+
+  function showOrderDetail(orderNo, type) {
+      const order = type === 'executed' ?
+          executedOrdersData.find(o => o.ord_no === orderNo) :
+          unexecutedOrdersData.find(o => o.ord_no === orderNo);
+
+      if (!order) return;
+
+      currentOrderDetail = { order, type };
+
+      document.getElementById('orderDetailTitle').textContent = `주문 상세 - ${order.stk_nm} (${orderNo})`;
+
+      const orderType = order.sell_tp === '1' ? '매도' : '매수';
+      const orderTypeClass = order.sell_tp === '1' ? 'text-danger' : 'text-success';
+
+      document.getElementById('orderDetailBody').innerHTML = `
+          <div class="row">
+              <div class="col-md-6">
+                  <h6>주문 정보</h6>
+                  <table class="table table-sm">
+                      <tr><td>주문번호</td><td>${orderNo}</td></tr>
+                      <tr><td>종목명</td><td>${order.stk_nm || '-'}</td></tr>
+                      <tr><td>종목코드</td><td>${order.stk_cd || '-'}</td></tr>
+                      <tr><td>주문구분</td><td><span class="${orderTypeClass}">${orderType}</span></td></tr>
+                      <tr><td>주문수량</td><td>${formatNumber(order.ord_qty || '0')}</td></tr>
+                      <tr><td>주문단가</td><td>${formatNumber(order.ord_pric || '0')}원</td></tr>
+                  </table>
+              </div>
+              <div class="col-md-6">
+                  <h6>체결 정보</h6>
+                  <table class="table table-sm">
+                      <tr><td>체결수량</td><td>${formatNumber(order.cntr_qty || '0')}</td></tr>
+                      <tr><td>체결단가</td><td>${formatNumber(order.cntr_pric || '0')}원</td></tr>
+                      <tr><td>체결금액</td><td>${formatNumber(order.cntr_amt || '0')}원</td></tr>
+                      <tr><td>수수료</td><td>${formatNumber(order.cmsn || '0')}원</td></tr>
+                      <tr><td>세금</td><td>${formatNumber(order.tax || '0')}원</td></tr>
+                      <tr><td>주문일시</td><td>${formatDateTime(order.ord_dt, order.ord_tm)}</td></tr>
+                  </table>
+              </div>
+          </div>
+      `;
+
+      // 미체결 주문인 경우 취소 버튼 표시
+      const cancelBtn = document.getElementById('cancelOrderBtn');
+      if (type === 'unexecuted') {
+          cancelBtn.style.display = 'inline-block';
+          cancelBtn.onclick = () => cancelOrder(orderNo, order.stk_cd, order.oso_qty);
+      } else {
+          cancelBtn.style.display = 'none';
+      }
+
+      new bootstrap.Modal(document.getElementById('orderDetailModal')).show();
+  }
+
+  function cancelOrder(orderNo, stockCode, quantity) {
+      if (!confirm('정말로 이 주문을 취소하시겠습니까?')) {
+          return;
+      }
+
+      fetch('/api/order/cancel', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+              order_no: orderNo,
+              stock_code: stockCode,
+              quantity: parseInt(quantity)
+          })
+      })
+      .then(response => response.json())
+      .then(data => {
+          if (data.success) {
+              showAlert(data.message, 'success');
+              loadUnexecutedOrders();
+              bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
+          } else {
+              showAlert(data.message, 'danger');
+          }
+      })
+      .catch(error => {
+          console.error('주문 취소 실패:', error);
+          showAlert('주문 취소 중 오류가 발생했습니다.', 'danger');
+      });
+  }
+
+  function filterOrders() {
+      const startDate = document.getElementById('date-from').value;
+      const endDate = document.getElementById('date-to').value;
+      const orderType = document.getElementById('order-type-filter').value;
+      const searchTerm = document.getElementById('stock-search').value.toLowerCase();
+
+      // 날짜가 변경된 경우 서버에서 새로 로드
+      if (startDate && endDate) {
+          loadExecutedOrders();
+      }
+
+      // 클라이언트 사이드 필터링
+      let filteredData = executedOrdersData;
+
+      if (orderType) {
+          filteredData = filteredData.filter(order => {
+              if (orderType === 'buy') return order.sell_tp !== '1';
+              if (orderType === 'sell') return order.sell_tp === '1';
+              return true;
+          });
+      }
+
+      if (searchTerm) {
+          filteredData = filteredData.filter(order =>
+              (order.stk_nm || '').toLowerCase().includes(searchTerm) ||
+              (order.stk_cd || '').toLowerCase().includes(searchTerm)
+          );
+      }
+
+      updateExecutedOrdersTable(filteredData);
+  }
+
+  function sortExecutedOrders() {
+      const sortBy = document.getElementById('sort-executed').value;
+
+      executedOrdersData.sort((a, b) => {
+          switch (sortBy) {
+              case 'date':
+                  return new Date(b.cntr_dt + b.cntr_tm) - new Date(a.cntr_dt + a.cntr_tm);
+              case 'stock':
+                  return (a.stk_nm || '').localeCompare(b.stk_nm || '');
+              case 'amount':
+                  return parseFloat(b.cntr_amt || '0') - parseFloat(a.cntr_amt || '0');
+              case 'type':
+                  return (a.sell_tp || '').localeCompare(b.sell_tp || '');
+              default:
+                  return 0;
+          }
+      });
+
+      updateExecutedOrdersTable(executedOrdersData);
+  }
+
+  function refreshOrders() {
+      loadOrders();
+      showAlert('주문내역이 새로고침되었습니다.', 'success');
+  }
+
+  function refreshUnexecutedOrders() {
+      loadUnexecutedOrders();
+      showAlert('미체결 주문이 새로고침되었습니다.', 'success');
+  }
+
+  function exportOrders() {
+      const csvContent = generateOrdersCSV(executedOrdersData);
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'orders_' + new Date().toISOString().split('T')[0] + '.csv');
+      link.style.visibility = 'hidden';
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showAlert('주문내역이 내보내기되었습니다.', 'success');
+  }
+
+  function generateOrdersCSV(data) {
+      const headers = ['주문일시', '종목명', '종목코드', '주문구분', '주문수량', '체결수량', '체결단가', '체결금액', '수수료', '세금'];
+      const rows = data.map(order => [
+          formatDateTime(order.cntr_dt, order.cntr_tm),
+          order.stk_nm || '',
+          order.stk_cd || '',
+          order.sell_tp === '1' ? '매도' : '매수',
+          order.ord_qty || '0',
+          order.cntr_qty || '0',
+          order.cntr_pric || '0',
+          order.cntr_amt || '0',
+          order.cmsn || '0',
+          order.tax || '0'
+      ]);
+
+      return [headers, ...rows].map(row => row.join(',')).join('\n');
+  }
 </script>
 {% endblock %}
-
-

@@ -23,7 +23,7 @@
       <div class="card-body">
         <div class="d-flex justify-content-between">
           <div>
-            <h6 class="card-title">총 자산</h6>
+            <h6 class="card-title">추정자산</h6>
             <h4 class="mb-0" id="total-assets">-</h4>
           </div>
           <div class="align-self-center">
@@ -469,12 +469,34 @@
 <script>
   // 대시보드 전용 JavaScript
   document.addEventListener("DOMContentLoaded", function () {
+    // 서버 정보 즉시 업데이트
+    updateServerInfoFromTemplate();
+
     // 페이지 로드 시 데이터 새로고침
     refreshDashboard();
 
     // 60초마다 자동 새로고침 (API 요청 제한 고려)
     setInterval(refreshDashboard, 60000);
   });
+
+  function updateServerInfoFromTemplate() {
+    // 템플릿에서 전달받은 서버 정보로 즉시 업데이트
+    {% if server_info %}
+    const serverNameElement = document.getElementById('server-name');
+    const serverInfoElement = document.getElementById('server-info');
+
+    if (serverNameElement && serverInfoElement) {
+      serverNameElement.textContent = '{{ server_info.server_name }}';
+
+      // 서버별 색상 적용
+      if ('{{ server_info.server_type }}' === 'mock') {
+        serverInfoElement.style.color = '#4CAF50';
+      } else {
+        serverInfoElement.style.color = '#F44336';
+      }
+    }
+    {% endif %}
+  }
 
   function refreshDashboard() {
     refreshAccountInfo();

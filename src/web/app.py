@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from src.config.settings import WEB_HOST, WEB_PORT, WEB_DEBUG, SECRET_KEY, SESSION_TIMEOUT
 from src.config.server_config import set_server_type, get_current_server_config
 from src.utils import web_logger
-from src.utils.cache import api_cache
+# 캐시 모듈 제거됨
 from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order, mock_account, real_account, mock_quote, real_quote, mock_order, real_order
 from src.auto_trading.config_manager import mock_config_manager, real_config_manager
 from src.auto_trading.engine import mock_engine, real_engine
@@ -57,31 +57,43 @@ class AutoTradingStatusLogFilter(logging.Filter):
 # 로그 필터 적용
 log.addFilter(AutoTradingStatusLogFilter())
 
+# 서버 선택 상태 관리
+from src.utils.server_manager import get_current_server, set_current_server, get_server_info
+
 # 현재 서버에 맞는 config_manager와 engine 가져오기
 def get_current_config_manager():
     """현재 서버에 맞는 config_manager 반환"""
-    server_type = session.get('server_type', 'mock')
+    server_type = get_current_server()
     return mock_config_manager if server_type == 'mock' else real_config_manager
+
+def get_current_server_config_instance():
+    """현재 서버에 맞는 ServerConfig 인스턴스 반환"""
+    server_type = get_current_server()
+    from src.config.server_config import ServerConfig
+    return ServerConfig(server_type)
 
 def get_current_engine():
     """현재 서버에 맞는 engine 반환"""
-    server_type = session.get('server_type', 'mock')
+    server_type = get_current_server()
     return mock_engine if server_type == 'mock' else real_engine
 
 def get_current_account():
     """현재 서버에 맞는 account 반환"""
-    server_type = session.get('server_type', 'mock')
-    return mock_account if server_type == 'mock' else real_account
+    from src.api.account import KiwoomAccount
+    server_type = get_current_server()
+    return KiwoomAccount(server_type)
 
 def get_current_quote():
     """현재 서버에 맞는 quote 반환"""
-    server_type = session.get('server_type', 'mock')
-    return mock_quote if server_type == 'mock' else real_quote
+    from src.api.quote import KiwoomQuote
+    server_type = get_current_server()
+    return KiwoomQuote(server_type)
 
 def get_current_order():
     """현재 서버에 맞는 order 반환"""
-    server_type = session.get('server_type', 'mock')
-    return mock_order if server_type == 'mock' else real_order
+    from src.api.order import KiwoomOrder
+    server_type = get_current_server()
+    return KiwoomOrder(server_type)
 
 # CORS 및 SocketIO 설정
 CORS(app)
@@ -166,13 +178,9 @@ def before_request():
 @app.route('/')
 def index():
     """메인 대시보드 페이지"""
-    # 서버 타입이 설정되지 않은 경우 서버 선택 페이지로 리다이렉트
-    if 'server_type' not in session:
-        return render_template('server_selection.html')
-    
     # 현재 서버 설정 로드
-    server_config = get_current_server_config()
-    return render_template('dashboard.html', server_info=server_config.get_server_info())
+    server_info = get_server_info()
+    return render_template('dashboard.html', server_info=server_info)
 
 
 @app.route('/server-selection')
@@ -205,29 +213,14 @@ def select_server():
             except Exception as e:
                 web_logger.warning(f"이전 서버 토큰 폐기 실패: {e}")
         
-        # 기존 세션 정리
-        session.clear()
+        # 서버 타입 설정 (전역 설정 파일에 저장)
+        set_current_server(server_type)
         
-        # 서버 타입 설정
+        # 세션에 서버 타입 정보 저장 (호환성을 위해)
         session['server_type'] = server_type
-        set_server_type(server_type)
-        
-        # 서버별 인스턴스 재생성
-        global kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order
-        from src.api.auth import KiwoomAuth
-        from src.api.account import KiwoomAccount
-        from src.api.quote import KiwoomQuote
-        from src.api.order import KiwoomOrder
-        
-        # 전역 인스턴스들을 완전히 재생성
-        kiwoom_auth = KiwoomAuth(server_type)
-        kiwoom_account = KiwoomAccount(server_type)
-        kiwoom_quote = KiwoomQuote(server_type)
-        kiwoom_order = KiwoomOrder(server_type)
         
         web_logger.info(f"서버 선택 완료: {server_type}")
         web_logger.info(f"세션에 저장된 server_type: {session.get('server_type')}")
-        web_logger.info(f"전역 server_type 설정: {server_type}")
         
         return jsonify({
             'success': True,
@@ -247,13 +240,13 @@ def select_server():
 def get_server_status():
     """현재 서버 상태 조회"""
     try:
-        server_type = session.get('server_type', 'mock')
-        server_config = get_current_server_config()
+        server_type = get_current_server()
+        server_info = get_server_info()
         
         return jsonify({
             'success': True,
             'server_type': server_type,
-            'server_info': server_config.get_server_info()
+            'server_info': server_info
         })
     except Exception as e:
         web_logger.error(f"서버 상태 조회 실패: {e}")
@@ -266,25 +259,29 @@ def get_server_status():
 @app.route('/portfolio')
 def portfolio():
     """포트폴리오 페이지"""
-    return render_template('portfolio.html')
+    server_info = get_server_info()
+    return render_template('portfolio.html', server_info=server_info)
 
 
 @app.route('/orders')
 def orders():
     """주문내역 페이지"""
-    return render_template('orders.html')
+    server_info = get_server_info()
+    return render_template('orders.html', server_info=server_info)
 
 
 @app.route('/trading-diary')
 def trading_diary():
     """매매일지 페이지"""
-    return render_template('trading_diary.html')
+    server_info = get_server_info()
+    return render_template('trading_diary.html', server_info=server_info)
 
 
 @app.route('/auto-trading')
 def auto_trading():
     """자동매매 페이지"""
-    return render_template('auto_trading.html')
+    server_info = get_server_info()
+    return render_template('auto_trading.html', server_info=server_info)
 
 
 
@@ -293,17 +290,9 @@ def auto_trading():
 def login():
     """OAuth 인증 로그인"""
     try:
-        # 현재 세션의 서버 타입에 맞는 인증 인스턴스 사용
-        server_type = session.get('server_type')
-        web_logger.info(f"로그인 시도 - 세션의 server_type: {server_type}")
-        web_logger.info(f"전체 세션 내용: {dict(session)}")
-        
-        if not server_type:
-            web_logger.warning("서버가 선택되지 않음 - 로그인 실패")
-            return jsonify({
-                'success': False,
-                'message': '서버가 선택되지 않았습니다.'
-            }), 400
+        # 현재 서버 타입에 맞는 인증 인스턴스 사용
+        server_type = get_current_server()
+        web_logger.info(f"로그인 시도 - 현재 서버: {server_type}")
         
         from src.api.auth import KiwoomAuth
         current_auth = KiwoomAuth(server_type)
@@ -358,25 +347,12 @@ def logout():
 def check_auth():
     """인증 상태 체크 데코레이터"""
     session_authenticated = session.get('authenticated', False)
-    server_type = session.get('server_type')
-    
-    web_logger.info(f"check_auth - session_authenticated: {session_authenticated}, server_type: {server_type}")
-    
-    if not server_type:
-        return False, jsonify({
-            'success': False,
-            'message': '서버가 선택되지 않았습니다.',
-            'authenticated': False
-        })
+    server_type = get_current_server()  # 전역 설정에서 서버 타입 가져오기
     
     # 현재 서버 타입에 맞는 인증 인스턴스 사용
     from src.api.auth import KiwoomAuth
     current_auth = KiwoomAuth(server_type)
     token_valid = current_auth.is_token_valid()
-    
-    web_logger.info(f"check_auth - token_valid: {token_valid}")
-    web_logger.info(f"check_auth - current_auth._access_token: {current_auth._access_token is not None}")
-    web_logger.info(f"check_auth - current_auth._token_expires_at: {current_auth._token_expires_at}")
     
     if not (session_authenticated and token_valid):
         return False, jsonify({
@@ -396,8 +372,41 @@ def get_deposit():
         return error_response
     
     try:
+        # kt00001로 예수금 정보 조회
         result = get_current_account().get_deposit_detail()
         if result and result.get('success') is not False:
+            # 서버별 분기처리
+            server_config = get_current_server_config_instance()
+            
+            if server_config.is_real_server():
+                # 운영서버: kt00002로 최신 예수금 정보 확인
+                from datetime import datetime
+                today = datetime.now().strftime('%Y%m%d')
+                
+                try:
+                    daily_result = get_current_account().get_daily_estimated_deposit_assets(today, today)
+                    if daily_result and daily_result.get('daly_prsm_dpst_aset_amt_prst'):
+                        # 오늘 날짜의 예수금 정보가 있으면 사용
+                        today_data = daily_result['daly_prsm_dpst_aset_amt_prst'][0]
+                        if 'entr' in today_data:
+                            result['entr'] = today_data['entr']
+                            web_logger.info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
+                except Exception as e:
+                    web_logger.warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
+            
+            # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
+            if 'd2_entra' in result and result['d2_entra'] and result['d2_entra'] != '000000000000000':
+                result['entr'] = result['d2_entra']
+                web_logger.info(f"D+2 추정예수금 사용: {result['d2_entra']}")
+            # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
+            elif 'd1_entra' in result and result['d1_entra'] and result['d1_entra'] != '000000000000000':
+                result['entr'] = result['d1_entra']
+                web_logger.info(f"D+1 추정예수금 사용: {result['d1_entra']}")
+            
+            # 주문가능금액도 참고용으로 추가
+            if 'ord_alow_amt' in result:
+                result['ord_alow_amt'] = result['ord_alow_amt']
+            
             return jsonify({
                 'success': True,
                 'data': result
@@ -457,6 +466,34 @@ def get_evaluation():
     try:
         result = get_current_account().get_account_evaluation()
         if result:
+            # 개별 종목의 손익을 합산하여 총 손익과 수익률 계산
+            if 'stk_acnt_evlt_prst' in result and result['stk_acnt_evlt_prst']:
+                total_profit_loss = 0
+                total_purchase_amount = 0
+                
+                for stock in result['stk_acnt_evlt_prst']:
+                    # 손익금액 합산
+                    pl_amt = int(stock.get('pl_amt', '0'))
+                    total_profit_loss += pl_amt
+                    
+                    # 매수금액 합산 (수익률 계산용)
+                    pur_amt = int(stock.get('pur_amt', '0'))
+                    total_purchase_amount += pur_amt
+                
+                # 총 수익률 계산
+                if total_purchase_amount > 0:
+                    total_profit_rate = (total_profit_loss / total_purchase_amount) * 100
+                else:
+                    total_profit_rate = 0.0
+                
+                # 계산된 값들을 결과에 추가
+                result['tot_evlt_pl'] = str(total_profit_loss)
+                result['tot_prft_rt'] = f"{total_profit_rate:.2f}"
+            else:
+                # 보유종목이 없는 경우
+                result['tot_evlt_pl'] = '0'
+                result['tot_prft_rt'] = '0.00'
+            
             return jsonify({
                 'success': True,
                 'data': result
@@ -841,19 +878,11 @@ def get_trading_analysis():
 
 @app.route('/api/cache/clear')
 def clear_cache():
-    """API 캐시 클리어"""
-    try:
-        api_cache.clear()
-        return jsonify({
-            'success': True,
-            'message': '캐시가 성공적으로 클리어되었습니다.'
-        })
-    except Exception as e:
-        web_logger.error(f"캐시 클리어 실패: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'캐시 클리어 실패: {str(e)}'
-        })
+    """API 캐시 클리어 (캐시 비활성화로 인해 더 이상 사용되지 않음)"""
+    return jsonify({
+        'success': True,
+        'message': '캐시가 비활성화되어 있습니다. 모든 API 호출은 실시간으로 처리됩니다.'
+    })
 
 
 @app.route('/api/account/trading/daily/<trade_date>')
@@ -1303,19 +1332,9 @@ def execute_auto_trading():
 def get_auth_status():
     """키움 API 인증 상태 조회"""
     try:
-        # 현재 세션의 서버 타입에 맞는 인증 상태 확인
-        server_type = session.get('server_type')
-        web_logger.info(f"인증 상태 확인 - 세션의 server_type: {server_type}")
-        
-        if not server_type:
-            # 서버가 선택되지 않은 경우
-            web_logger.info("서버가 선택되지 않음 - 인증 상태: False")
-            return jsonify({
-                'success': True,
-                'authenticated': False,
-                'token_info': None,
-                'message': '서버가 선택되지 않았습니다.'
-            })
+        # 현재 서버 타입에 맞는 인증 상태 확인
+        server_type = get_current_server()
+        web_logger.info(f"인증 상태 확인 - 현재 서버: {server_type}")
         
         # 현재 서버에 맞는 인증 인스턴스 사용
         from src.api.auth import KiwoomAuth
