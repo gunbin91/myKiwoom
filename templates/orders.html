@@ -132,7 +132,9 @@
         </div>
         <div class="row g-3 mt-2">
           <div class="col-md-3">
-            <label for="order-no-search" class="form-label">주문번호 검색</label>
+            <label for="order-no-search" class="form-label"
+              >주문번호 검색</label
+            >
             <input
               type="text"
               class="form-control"
@@ -396,21 +398,21 @@
       // 날짜 범위가 설정된 경우 과거 이력 API 사용, 그렇지 않으면 당일 체결 API 사용
       const useHistoryAPI = startDate && endDate && (startDate !== endDate || startDate !== new Date().toISOString().slice(0, 10).replace(/-/g, ''));
       const apiEndpoint = useHistoryAPI ? '/api/account/orders/executed/history' : '/api/account/orders/executed';
-      
+
       const params = new URLSearchParams({
           start_date: startDate,
           end_date: endDate
       });
-      
+
       // 서버사이드에서 지원하는 필터링만 전송
       if (orderType) {
           params.append('order_type', orderType);
       }
-      
+
       if (stockSearch) {
           params.append('stock_code', stockSearch);
       }
-      
+
       if (orderNoSearch) {
           params.append('order_no', orderNoSearch);
       }
@@ -428,8 +430,15 @@
                   showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
                   return;
               } else {
+                  // 빈 데이터 처리 개선
+                  let message = '체결 내역이 없습니다.';
+                  if (data.message && data.message.includes('모의투자')) {
+                      message = '모의투자 계좌에 주문 내역이 없습니다.<br><small class="text-muted">실제 주문을 해보시거나 실전 계좌로 테스트해보세요.</small>';
+                  } else if (data.message) {
+                      message = data.message;
+                  }
                   document.getElementById('executed-orders-tbody').innerHTML =
-                      '<tr><td colspan="12" class="text-center text-muted">체결 내역이 없습니다.</td></tr>';
+                      `<tr><td colspan="12" class="text-center text-muted">${message}</td></tr>`;
               }
           })
           .catch(error => {
@@ -453,8 +462,15 @@
                   showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
                   return;
               } else {
+                  // 빈 데이터 처리 개선
+                  let message = '미체결 주문이 없습니다.';
+                  if (data.message && data.message.includes('모의투자')) {
+                      message = '모의투자 계좌에 미체결 주문이 없습니다.<br><small class="text-muted">실제 주문을 해보시거나 실전 계좌로 테스트해보세요.</small>';
+                  } else if (data.message) {
+                      message = data.message;
+                  }
                   document.getElementById('unexecuted-orders-tbody').innerHTML =
-                      '<tr><td colspan="8" class="text-center text-muted">미체결 주문이 없습니다.</td></tr>';
+                      `<tr><td colspan="8" class="text-center text-muted">${message}</td></tr>`;
               }
           })
           .catch(error => {
@@ -537,15 +553,20 @@
           const orderType = order.sell_tp === '1' ? '매도' : '매수';
           const orderTypeClass = order.sell_tp === '1' ? 'text-danger' : 'text-success';
 
-          // 체결율 계산
-          const orderQty = parseFloat(order.ord_qty || '0');
-          const cntrQty = parseFloat(order.cntr_qty || '0');
-          const executionRate = orderQty > 0 ? ((cntrQty / orderQty) * 100).toFixed(1) : '0.0';
-          
+          // 체결율 계산 (서버에서 계산된 값 사용, 없으면 클라이언트에서 계산)
+          let executionRate = '0.0';
+          if (order.cntr_rate !== undefined) {
+              executionRate = parseFloat(order.cntr_rate).toFixed(1);
+          } else {
+              const orderQty = parseFloat(order.ord_qty || '0');
+              const cntrQty = parseFloat(order.cntr_qty || '0');
+              executionRate = orderQty > 0 ? ((cntrQty / orderQty) * 100).toFixed(1) : '0.0';
+          }
+
           // 주문상태 결정
           let orderStatus = '체결';
           let statusClass = 'badge bg-success';
-          
+
           if (order.ord_stt) {
               orderStatus = order.ord_stt;
               if (orderStatus.includes('부분')) {
@@ -744,7 +765,7 @@
           // 클라이언트 사이드 필터링 (날짜 변경이 아닌 경우)
           const filteredData = getFilteredOrders(executedOrdersData);
           updateExecutedOrdersTable(filteredData);
-          
+
           // 통계도 함께 업데이트
           if (executedOrdersData.length > 0) {
               updateOrderSummary({ cntr: executedOrdersData });

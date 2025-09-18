@@ -105,7 +105,10 @@ class AutoTradingEngine:
                         }
                 web_logger.info(f"토큰 확인 완료 (서버: {self.server_type})")
             except Exception as e:
-                web_logger.error(f"토큰 확인 실패: {e}")
+                web_logger.error(f"🚨 토큰 확인 실패: {e}")
+                web_logger.error(f"   📍 서버 타입: {self.server_type}")
+                import traceback
+                web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
                 return {
                     'success': False,
                     'message': f'토큰 확인 실패: {str(e)}'
@@ -253,7 +256,11 @@ class AutoTradingEngine:
             }
             
         except Exception as e:
-            web_logger.error(f"자동매매 실행 중 오류 발생: {e}")
+            web_logger.error(f"🚨 자동매매 실행 중 오류 발생: {e}")
+            web_logger.error(f"   📍 서버 타입: {self.server_type}")
+            web_logger.error(f"   📍 실행 타입: {'수동' if manual_execution else '자동'}")
+            import traceback
+            web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
             execution_type = "수동" if manual_execution else "자동"
             self.config_manager.log_execution(
                 status='error',
@@ -379,8 +386,12 @@ class AutoTradingEngine:
                     order_success = False
                     
                     for retry in range(max_retries):
+                        # 주문 API용 종목코드로 변환 (A 제거)
+                        from src.api.order import convert_stock_code_for_order
+                        order_stock_code = convert_stock_code_for_order(stock_code)
+                        
                         order_result = self.order.buy_stock(
-                            stock_code=stock_code,
+                            stock_code=order_stock_code,  # 변환된 종목코드 사용
                             quantity=quantity,
                             price=0,  # 시장가는 가격을 0으로 설정
                             order_type='3'  # 시장가
@@ -459,9 +470,11 @@ class AutoTradingEngine:
                         stock_code = sell_order.get('stock_code', '')
                         order_qty = sell_order.get('quantity', 0)
                         
-                        # 해당 종목의 체결내역 확인
+                        # 해당 종목의 체결내역 확인 (종목코드 형식 통일)
                         for execution in executed_orders:
-                            if (execution.get('stk_cd', '').replace('A', '') == stock_code and
+                            execution_stock_code = execution.get('stk_cd', '')
+                            # 계좌 API에서 받은 종목코드(A005930)에서 A 제거하여 비교
+                            if (execution_stock_code.replace('A', '') == stock_code.replace('A', '') and
                                 int(execution.get('cntr_qty', 0)) >= order_qty):
                                 executed_count += 1
                                 web_logger.info(f"✅ {stock_code} 매도 체결 확인: {execution.get('cntr_qty')}주")
@@ -540,8 +553,12 @@ class AutoTradingEngine:
                     if should_sell:
                         web_logger.info(f"📉 {stock_name}({stock_code}) 매도 주문: {quantity}주 @ {current_price}원 ({sell_reason})")
                         
+                        # 주문 API용 종목코드로 변환 (A 제거)
+                        from src.api.order import convert_stock_code_for_order
+                        order_stock_code = convert_stock_code_for_order(stock_code)
+                        
                         order_result = self.order.sell_stock(
-                            stock_code=stock_code,
+                            stock_code=order_stock_code,  # 변환된 종목코드 사용
                             quantity=quantity,
                             price=0,  # 시장가는 가격을 0으로 설정
                             order_type='3'  # 시장가
@@ -754,11 +771,14 @@ class AutoTradingEngine:
             end_date = datetime.now().strftime('%Y%m%d')
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
             
-            # 체결내역 조회 (매수만)
+            # 체결내역 조회 (매수만) - 계좌 API용 종목코드로 변환
+            from src.api.order import convert_stock_code_for_account
+            account_stock_code = convert_stock_code_for_account(stock_code)
+            
             order_history = self.order.get_order_history(
                 start_date=start_date,
                 end_date=end_date,
-                stock_code=stock_code,
+                stock_code=account_stock_code,  # 변환된 종목코드 사용
                 order_type='2'  # 매수만
             )
             

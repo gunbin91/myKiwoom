@@ -79,6 +79,10 @@ class KiwoomAccount:
                     error_code = result.get('return_code', 'UNKNOWN')
                     api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg}")
                     
+                    # kt00002 실패 시 대체 호출 메시지 추가
+                    if api_id == 'kt00002':
+                        api_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
+                    
                     # 오류 정보를 포함한 결과 반환
                     return {
                         'success': False,
@@ -90,14 +94,28 @@ class KiwoomAccount:
             except requests.exceptions.RequestException as e:
                 if attempt < MAX_RETRY_COUNT - 1:
                     wait_time = (attempt + 1) * 2
-                    api_logger.warning(f"API {api_id} 요청 실패, {wait_time}초 후 재시도 ({attempt + 1}/{MAX_RETRY_COUNT}): {e}")
+                    api_logger.warning(f"🔄 API {api_id} 요청 실패, {wait_time}초 후 재시도 ({attempt + 1}/{MAX_RETRY_COUNT}): {e}")
+                    api_logger.warning(f"   📍 요청 URL: {url}")
+                    api_logger.warning(f"   📍 요청 데이터: {data}")
                     time.sleep(wait_time)
                     continue
                 else:
-                    api_logger.error(f"API {api_id} 최대 재시도 횟수 초과: {e}")
+                    api_logger.error(f"🚨 API {api_id} 최대 재시도 횟수 초과: {e}")
+                    api_logger.error(f"   📍 요청 URL: {url}")
+                    api_logger.error(f"   📍 요청 데이터: {data}")
+                    # kt00002 실패 시 대체 호출 메시지 추가
+                    if api_id == 'kt00002':
+                        api_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
                     return None
             except Exception as e:
-                api_logger.error(f"API {api_id} 처리 중 오류: {e}")
+                api_logger.error(f"🚨 API {api_id} 처리 중 예상치 못한 오류: {e}")
+                api_logger.error(f"   📍 요청 URL: {url}")
+                api_logger.error(f"   📍 요청 데이터: {data}")
+                # kt00002 실패 시 대체 호출 메시지 추가
+                if api_id == 'kt00002':
+                    api_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
+                import traceback
+                api_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
                 return None
         
         return None
@@ -308,8 +326,8 @@ class KiwoomAccount:
         
         return self._make_request('ka10076', data)
     
-    def get_executed_orders_history(self, query_type: str = "4", sell_type: str = "0", 
-                                   start_date: str = "", end_date: str = "", exchange: str = "KRX",
+    def get_executed_orders_history(self, query_type: str = "1", sell_type: str = "0", 
+                                   start_date: str = "", end_date: str = "", exchange: str = "%",
                                    stock_code: str = "", from_order_no: str = "") -> Optional[Dict[str, Any]]:
         """
         계좌별주문체결내역상세요청 (kt00007) - 과거 이력 조회용
@@ -330,7 +348,7 @@ class KiwoomAccount:
         
         data = {
             'qry_tp': query_type,
-            'stk_bond_tp': '1',  # 1: 주식만
+            'stk_bond_tp': '0',  # 0: 전체 (더 유연한 기본값)
             'sell_tp': sell_type,
             'dmst_stex_tp': exchange
         }
@@ -348,6 +366,50 @@ class KiwoomAccount:
             data['fr_ord_no'] = from_order_no
         
         return self._make_request('kt00007', data)
+    
+    def get_order_status(self, start_date: str = "", end_date: str = "", 
+                        query_type: str = "0", sell_type: str = "0", 
+                        stock_code: str = "", from_order_no: str = "",
+                        market_type: str = "0", exchange: str = "KRX") -> Optional[Dict[str, Any]]:
+        """
+        계좌별주문체결현황요청 (kt00009) - 통합 주문내역 조회
+        
+        Args:
+            start_date: 시작일자 (YYYYMMDD)
+            end_date: 종료일자 (YYYYMMDD)
+            query_type: 조회구분 ("0": 전체, "1": 체결)
+            sell_type: 매도수구분 ("0": 전체, "1": 매도, "2": 매수)
+            stock_code: 종목코드 (공백시 전체종목)
+            from_order_no: 시작주문번호 (공백시 전체주문)
+            market_type: 시장구분 ("0": 전체, "1": 코스피, "2": 코스닥, "3": OTCBB, "4": ECN)
+            exchange: 국내거래소구분 ("KRX": 한국거래소, "NXT": 넥스트트레이드, "%": 전체)
+            
+        Returns:
+            통합 주문내역 (체결/미체결 포함)
+        """
+        api_logger.info(f"계좌별주문체결현황 조회 (조회구분: {query_type}, 매도수구분: {sell_type}, 거래소: {exchange}, 종목: {stock_code})")
+        
+        data = {
+            'qry_tp': query_type,
+            'stk_bond_tp': '1',  # 1: 주식만
+            'mrkt_tp': market_type,
+            'sell_tp': sell_type,
+            'dmst_stex_tp': exchange
+        }
+        
+        # 날짜 필터링 (kt00009 API는 ord_dt 파라미터 사용)
+        if start_date:
+            data['ord_dt'] = start_date
+        
+        # 종목코드 필터링
+        if stock_code:
+            data['stk_cd'] = stock_code
+        
+        # 주문번호 필터링
+        if from_order_no:
+            data['fr_ord_no'] = from_order_no
+        
+        return self._make_request('kt00009', data)
     
     def get_today_trading_diary(self, base_date: str = "", odd_lot_type: str = "0", 
                                cash_credit_type: str = "0") -> Optional[Dict[str, Any]]:

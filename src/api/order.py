@@ -26,6 +26,56 @@ from .auth import KiwoomAuth
 import time
 
 
+def convert_stock_code_for_order(stock_code: str) -> str:
+    """
+    계좌 API 종목코드를 주문 API 종목코드로 변환
+    
+    Args:
+        stock_code: 계좌 API 종목코드 (A005930) 또는 주문 API 종목코드 (005930)
+        
+    Returns:
+        주문 API용 종목코드 (005930)
+    """
+    if not stock_code:
+        return stock_code
+    
+    # A로 시작하는 경우 A 제거
+    if stock_code.startswith('A') and len(stock_code) == 7:
+        return stock_code[1:]  # A 제거
+    
+    # 이미 6자리인 경우 그대로 반환
+    if len(stock_code) == 6 and stock_code.isdigit():
+        return stock_code
+    
+    # 기타 경우 원본 반환
+    return stock_code
+
+
+def convert_stock_code_for_account(stock_code: str) -> str:
+    """
+    주문 API 종목코드를 계좌 API 종목코드로 변환
+    
+    Args:
+        stock_code: 주문 API 종목코드 (005930) 또는 계좌 API 종목코드 (A005930)
+        
+    Returns:
+        계좌 API용 종목코드 (A005930)
+    """
+    if not stock_code:
+        return stock_code
+    
+    # A로 시작하는 경우 그대로 반환
+    if stock_code.startswith('A') and len(stock_code) == 7:
+        return stock_code
+    
+    # 6자리인 경우 A 추가
+    if len(stock_code) == 6 and stock_code.isdigit():
+        return f"A{stock_code}"
+    
+    # 기타 경우 원본 반환
+    return stock_code
+
+
 class KiwoomOrder:
     """키움증권 주문 관련 API 클래스"""
     
@@ -46,11 +96,19 @@ class KiwoomOrder:
             headers = current_auth.get_auth_headers()
             headers['api-id'] = api_id
             
+            # API ID에 따라 올바른 엔드포인트 선택
+            if api_id == 'kt00007':
+                # kt00007은 계좌 API이므로 계좌 엔드포인트 사용
+                url = self.server_config.account_url
+            else:
+                # 기타 주문 관련 API는 주문 엔드포인트 사용
+                url = self.base_url
+            
             # API 요청 지연
             time.sleep(API_REQUEST_DELAY)
             
             response = requests.post(
-                self.base_url,
+                url,
                 headers=headers,
                 json=data,
                 timeout=30
@@ -75,10 +133,16 @@ class KiwoomOrder:
                 }
                 
         except requests.exceptions.RequestException as e:
-            api_logger.error(f"API {api_id} 요청 실패: {e}")
+            api_logger.error(f"🚨 API {api_id} 요청 실패: {e}")
+            api_logger.error(f"   📍 요청 URL: {url}")
+            api_logger.error(f"   📍 요청 데이터: {data}")
             return None
         except Exception as e:
-            api_logger.error(f"API {api_id} 처리 중 오류: {e}")
+            api_logger.error(f"🚨 API {api_id} 처리 중 예상치 못한 오류: {e}")
+            api_logger.error(f"   📍 요청 URL: {url}")
+            api_logger.error(f"   📍 요청 데이터: {data}")
+            import traceback
+            api_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
             return None
     
     def buy_stock(self, stock_code: str, quantity: int, price: int, 
@@ -99,11 +163,14 @@ class KiwoomOrder:
         # 수량을 정수로 변환 (키움 API는 정수만 허용)
         quantity = int(quantity)
         
-        trading_logger.info(f"매수주문 (종목: {stock_code}, 수량: {quantity}, 가격: {price}, 구분: {order_type}, 거래소: {exchange})")
+        # 주문 API용 종목코드로 변환 (A 제거)
+        order_stock_code = convert_stock_code_for_order(stock_code)
+        
+        trading_logger.info(f"매수주문 (종목: {stock_code} -> {order_stock_code}, 수량: {quantity}, 가격: {price}, 구분: {order_type}, 거래소: {exchange})")
         
         data = {
             'dmst_stex_tp': exchange,
-            'stk_cd': stock_code,
+            'stk_cd': order_stock_code,  # 변환된 종목코드 사용
             'ord_qty': str(quantity),
             'trde_tp': order_type
         }
@@ -141,11 +208,14 @@ class KiwoomOrder:
         # 수량을 정수로 변환 (키움 API는 정수만 허용)
         quantity = int(quantity)
         
-        trading_logger.info(f"매도주문 (종목: {stock_code}, 수량: {quantity}, 가격: {price}, 구분: {order_type}, 거래소: {exchange})")
+        # 주문 API용 종목코드로 변환 (A 제거)
+        order_stock_code = convert_stock_code_for_order(stock_code)
+        
+        trading_logger.info(f"매도주문 (종목: {stock_code} -> {order_stock_code}, 수량: {quantity}, 가격: {price}, 구분: {order_type}, 거래소: {exchange})")
         
         data = {
             'dmst_stex_tp': exchange,
-            'stk_cd': stock_code,
+            'stk_cd': order_stock_code,  # 변환된 종목코드 사용
             'ord_qty': str(quantity),
             'trde_tp': order_type
         }
@@ -181,11 +251,14 @@ class KiwoomOrder:
         Returns:
             정정 결과
         """
-        trading_logger.info(f"정정주문 (주문번호: {order_no}, 종목: {stock_code}, 수량: {quantity}, 가격: {price})")
+        # 주문 API용 종목코드로 변환 (A 제거)
+        order_stock_code = convert_stock_code_for_order(stock_code)
+        
+        trading_logger.info(f"정정주문 (주문번호: {order_no}, 종목: {stock_code} -> {order_stock_code}, 수량: {quantity}, 가격: {price})")
         
         data = {
             'ord_no': order_no,
-            'stk_cd': stock_code,
+            'stk_cd': order_stock_code,  # 변환된 종목코드 사용
             'ord_qty': str(quantity),
             'ord_pric': str(price),
             'ord_tp': order_type,
@@ -215,11 +288,14 @@ class KiwoomOrder:
         Returns:
             취소 결과
         """
-        trading_logger.info(f"취소주문 (주문번호: {order_no}, 종목: {stock_code}, 수량: {quantity})")
+        # 주문 API용 종목코드로 변환 (A 제거)
+        order_stock_code = convert_stock_code_for_order(stock_code)
+        
+        trading_logger.info(f"취소주문 (주문번호: {order_no}, 종목: {stock_code} -> {order_stock_code}, 수량: {quantity})")
         
         data = {
             'ord_no': order_no,
-            'stk_cd': stock_code,
+            'stk_cd': order_stock_code,  # 변환된 종목코드 사용
             'ord_qty': str(quantity),
             'acnt_tp': account_type
         }
@@ -247,14 +323,17 @@ class KiwoomOrder:
         Returns:
             주문체결내역
         """
-        trading_logger.info(f"주문체결내역 조회 (시작일: {start_date}, 종료일: {end_date}, 종목: {stock_code}, 구분: {order_type})")
+        # 계좌 API용 종목코드로 변환 (A 추가)
+        account_stock_code = convert_stock_code_for_account(stock_code)
+        
+        trading_logger.info(f"주문체결내역 조회 (시작일: {start_date}, 종료일: {end_date}, 종목: {stock_code} -> {account_stock_code}, 구분: {order_type})")
         
         data = {
             'ord_dt': start_date,  # 주문일자
             'qry_tp': '4',  # 체결내역만
             'stk_bond_tp': '1',  # 주식만
             'sell_tp': order_type,  # 매도수구분
-            'stk_cd': stock_code,  # 종목코드
+            'stk_cd': account_stock_code,  # 변환된 종목코드 사용
             'fr_ord_no': '',  # 시작주문번호
             'dmst_stex_tp': '%'  # 전체거래소
         }

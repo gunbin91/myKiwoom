@@ -229,7 +229,10 @@ def select_server():
         })
         
     except Exception as e:
-        web_logger.error(f"서버 선택 실패: {e}")
+        web_logger.error(f"🚨 서버 선택 실패: {e}")
+        web_logger.error(f"   📍 요청 데이터: {request.get_json()}")
+        import traceback
+        web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'서버 선택 실패: {str(e)}'
@@ -249,7 +252,9 @@ def get_server_status():
             'server_info': server_info
         })
     except Exception as e:
-        web_logger.error(f"서버 상태 조회 실패: {e}")
+        web_logger.error(f"🚨 서버 상태 조회 실패: {e}")
+        import traceback
+        web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'서버 상태 조회 실패: {str(e)}'
@@ -312,7 +317,10 @@ def login():
                 'message': '토큰 발급 실패'
             })
     except Exception as e:
-        web_logger.error(f"로그인 실패: {e}")
+        web_logger.error(f"🚨 로그인 실패: {e}")
+        web_logger.error(f"   📍 요청 데이터: {request.get_json()}")
+        import traceback
+        web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'로그인 실패: {str(e)}'
@@ -393,6 +401,7 @@ def get_deposit():
                             web_logger.info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
                 except Exception as e:
                     web_logger.warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
+                    web_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
             
             # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
             if 'd2_entra' in result and result['d2_entra'] and result['d2_entra'] != '000000000000000':
@@ -590,17 +599,29 @@ def get_executed_orders():
                 }
                 
                 for order in result['cntr']:
-                    # 매도수구분 판단 (io_tp_nm에서 "-매도" 포함 여부로 판단)
-                    sell_tp = '1' if order.get('io_tp_nm', '').find('매도') != -1 else '0'
+                    # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
+                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
                     
-                    # 체결금액 계산 (체결수량 * 체결가)
-                    cntr_qty = int(order.get('cntr_qty', '0'))
-                    cntr_pric = int(order.get('cntr_pric', '0'))
-                    cntr_amt = str(cntr_qty * cntr_pric)
+                    # 체결금액 계산 (체결수량 * 체결가) - 안전한 정수 변환
+                    try:
+                        cntr_qty = int(order.get('cntr_qty', '0') or '0')
+                        cntr_pric = int(order.get('cntr_pric', '0') or '0')
+                        cntr_amt = str(cntr_qty * cntr_pric)
+                    except (ValueError, TypeError):
+                        cntr_qty = 0
+                        cntr_pric = 0
+                        cntr_amt = '0'
                     
                     # 오늘 날짜와 주문시간을 결합하여 완전한 날짜시간 생성
                     today = datetime.now().strftime('%Y%m%d')
                     ord_tm = order.get('ord_tm', '')
+                    
+                    # 체결율 계산
+                    try:
+                        ord_qty = int(order.get('ord_qty', '0') or '0')
+                        cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
+                    except (ValueError, TypeError, ZeroDivisionError):
+                        cntr_rate = 0
                     
                     mapped_order = {
                         'ord_no': order.get('ord_no', ''),
@@ -609,6 +630,7 @@ def get_executed_orders():
                         'sell_tp': sell_tp,
                         'ord_qty': order.get('ord_qty', '0'),
                         'cntr_qty': order.get('cntr_qty', '0'),
+                        'cntr_rate': cntr_rate,  # 체결율 추가
                         'cntr_pric': order.get('cntr_pric', '0'),
                         'cntr_amt': cntr_amt,
                         'cmsn': order.get('tdy_trde_cmsn', '0'),  # 수수료
@@ -621,7 +643,11 @@ def get_executed_orders():
                         'orig_ord_no': order.get('orig_ord_no', ''),
                         'ord_stt': order.get('ord_stt', ''),
                         'trde_tp': order.get('trde_tp', ''),
-                        'io_tp_nm': order.get('io_tp_nm', '')
+                        'io_tp_nm': order.get('io_tp_nm', ''),
+                        'stex_tp': order.get('stex_tp', ''),  # 거래소구분 추가
+                        'stex_tp_txt': order.get('stex_tp_txt', ''),  # 거래소구분텍스트 추가
+                        'sor_yn': order.get('sor_yn', ''),  # SOR 여부 추가
+                        'stop_pric': order.get('stop_pric', '')  # 스톱가 추가
                     }
                     mapped_data['cntr'].append(mapped_order)
                 
@@ -663,14 +689,14 @@ def get_executed_orders_history():
     if not auth_ok:
         return error_response
     
+    # 쿼리 파라미터에서 필터링 조건 가져오기
+    start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
+    end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+    order_type = request.args.get('order_type', '0')
+    stock_code = request.args.get('stock_code', '')
+    order_no = request.args.get('order_no', '')
+    
     try:
-        # 쿼리 파라미터에서 필터링 조건 가져오기
-        start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
-        end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
-        order_type = request.args.get('order_type', '0')
-        stock_code = request.args.get('stock_code', '')
-        order_no = request.args.get('order_no', '')
-        
         # 매도수구분 매핑 (프론트엔드: buy/sell -> API: 2/1)
         sell_type = "0"  # 기본값: 전체
         if order_type == "buy":
@@ -680,10 +706,10 @@ def get_executed_orders_history():
         
         # kt00007 API 사용 (과거 이력 조회 가능)
         result = get_current_account().get_executed_orders_history(
-            query_type="4",  # 체결내역만
+            query_type="1",  # 주문순 (더 일반적인 기본값)
             sell_type=sell_type,
             start_date=start_date,
-            exchange="KRX",
+            exchange="%",    # 전체 거래소
             stock_code=stock_code,
             from_order_no=order_no
         )
@@ -697,22 +723,39 @@ def get_executed_orders_history():
                 
                 for order in result['acnt_ord_cntr_prps_dtl']:
                     # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
-                    sell_tp = '1' if order.get('io_tp_nm', '').find('매도') != -1 else '0'
+                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
                     
-                    # 체결금액 계산
-                    cntr_qty = int(order.get('cntr_qty', '0'))
-                    cntr_uv = int(order.get('cntr_uv', '0'))
-                    cntr_amt = str(cntr_qty * cntr_uv)
+                    # 체결금액 계산 (안전한 정수 변환)
+                    try:
+                        cntr_qty = int(order.get('cntr_qty', '0') or '0')
+                        cntr_uv = int(order.get('cntr_uv', '0') or '0')
+                        cntr_amt = str(cntr_qty * cntr_uv)
+                    except (ValueError, TypeError):
+                        cntr_qty = 0
+                        cntr_uv = 0
+                        cntr_amt = '0'
                     
-                    # 주문시간에서 날짜 추출 (ord_tm이 "YYYYMMDDHHMMSS" 형태라고 가정)
+                    # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태)
                     ord_tm = order.get('ord_tm', '')
-                    if len(ord_tm) >= 8:
+                    if ':' in ord_tm:
+                        # "13:05:43" 형식인 경우
+                        ord_time = ord_tm
+                        ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
+                    elif len(ord_tm) >= 8:
+                        # "YYYYMMDDHHMMSS" 형식인 경우 (기존 로직 유지)
                         ord_date = ord_tm[:8]  # YYYYMMDD
                         ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''  # HHMMSS
                     else:
                         # 시간만 있는 경우 오늘 날짜 사용
                         ord_date = datetime.now().strftime('%Y%m%d')
                         ord_time = ord_tm
+                    
+                    # 체결율 계산
+                    try:
+                        ord_qty = int(order.get('ord_qty', '0') or '0')
+                        cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
+                    except (ValueError, TypeError, ZeroDivisionError):
+                        cntr_rate = 0
                     
                     mapped_order = {
                         'ord_no': order.get('ord_no', ''),
@@ -721,6 +764,7 @@ def get_executed_orders_history():
                         'sell_tp': sell_tp,
                         'ord_qty': order.get('ord_qty', '0'),
                         'cntr_qty': order.get('cntr_qty', '0'),
+                        'cntr_rate': cntr_rate,  # 체결율 추가
                         'cntr_pric': order.get('cntr_uv', '0'),  # 체결단가
                         'cntr_amt': cntr_amt,
                         'cmsn': '0',  # kt00007에서는 수수료 정보 없음
@@ -733,7 +777,11 @@ def get_executed_orders_history():
                         'orig_ord_no': order.get('ori_ord', ''),
                         'ord_stt': order.get('acpt_tp', ''),
                         'trde_tp': order.get('trde_tp', ''),
-                        'io_tp_nm': order.get('io_tp_nm', '')
+                        'io_tp_nm': order.get('io_tp_nm', ''),
+                        'crd_tp': order.get('crd_tp', ''),  # 신용구분 추가
+                        'comm_ord_tp': order.get('comm_ord_tp', ''),  # 통신구분 추가
+                        'mdfy_cncl': order.get('mdfy_cncl', ''),  # 정정취소 추가
+                        'dmst_stex_tp': order.get('dmst_stex_tp', '')  # 거래소구분 추가
                     }
                     mapped_data['cntr'].append(mapped_order)
                 
@@ -762,9 +810,206 @@ def get_executed_orders_history():
                 })
     except Exception as e:
         web_logger.error(f"체결 주문 이력 조회 실패: {e}")
+        import traceback
+        web_logger.error(f"상세 오류: {traceback.format_exc()}")
         return jsonify({
             'success': False,
-            'message': f'체결 주문 이력 조회 실패: {str(e)}'
+            'message': f'체결 주문 이력 조회 실패: {str(e)}',
+            'error_type': 'server_error'
+        })
+
+
+@app.route('/api/account/orders/unified')
+def get_unified_orders():
+    """통합 주문내역 조회 - kt00009 API 사용 (체결/미체결 통합)"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
+    # 쿼리 파라미터에서 필터링 조건 가져오기
+    start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
+    end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+    order_type = request.args.get('order_type', '0')
+    stock_code = request.args.get('stock_code', '')
+    order_no = request.args.get('order_no', '')
+    
+    try:
+        # 매도수구분 매핑 (프론트엔드: buy/sell -> API: 2/1)
+        sell_type = "0"  # 기본값: 전체
+        if order_type == "buy":
+            sell_type = "2"  # 매수
+        elif order_type == "sell":
+            sell_type = "1"  # 매도
+        
+        # kt00009 API 사용 (통합 주문내역 조회)
+        result = get_current_account().get_order_status(
+            start_date=start_date,
+            end_date=end_date,
+            query_type="0",  # 전체 (체결/미체결 모두)
+            sell_type=sell_type,
+            stock_code=stock_code,
+            from_order_no=order_no,
+            market_type="0",  # 전체 시장
+            exchange="KRX"
+        )
+        
+        if result and result.get('success') is not False:
+            # kt00009 API 응답 데이터 구조에 맞게 매핑
+            if 'acnt_ord_cntr_prst_array' in result:
+                mapped_data = {
+                    'cntr': [],  # 체결내역
+                    'oso': []    # 미체결내역
+                }
+                
+                for order in result['acnt_ord_cntr_prst_array']:
+                    # 매도수구분 판단
+                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
+                    
+                    # 체결수량과 주문수량 비교하여 체결/미체결 구분 - 안전한 정수 변환
+                    try:
+                        cntr_qty = int(order.get('cntr_qty', '0') or '0')
+                        ord_qty = int(order.get('ord_qty', '0') or '0')
+                    except (ValueError, TypeError):
+                        cntr_qty = 0
+                        ord_qty = 0
+                    
+                    if cntr_qty > 0:  # 체결된 주문
+                        # 체결금액 계산 - 안전한 정수 변환
+                        try:
+                            cntr_uv = int(order.get('cntr_uv', '0') or '0')
+                            cntr_amt = str(cntr_qty * cntr_uv)
+                        except (ValueError, TypeError):
+                            cntr_amt = '0'
+                        
+                        # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태)
+                        ord_tm = order.get('ord_tm', '')
+                        if ':' in ord_tm:
+                            # "13:05:43" 형식인 경우
+                            ord_time = ord_tm
+                            ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
+                        elif len(ord_tm) >= 8:
+                            # "YYYYMMDDHHMMSS" 형식인 경우 (기존 로직 유지)
+                            ord_date = ord_tm[:8]
+                            ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''
+                        else:
+                            # 시간만 있는 경우 오늘 날짜 사용
+                            ord_date = datetime.now().strftime('%Y%m%d')
+                            ord_time = ord_tm
+                        
+                        # 체결율 계산
+                        try:
+                            cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
+                        except (ValueError, TypeError, ZeroDivisionError):
+                            cntr_rate = 0
+                        
+                        mapped_order = {
+                            'ord_no': order.get('ord_no', ''),
+                            'stk_cd': order.get('stk_cd', ''),
+                            'stk_nm': order.get('stk_nm', ''),
+                            'sell_tp': sell_tp,
+                            'ord_qty': order.get('ord_qty', '0'),
+                            'cntr_qty': order.get('cntr_qty', '0'),
+                            'cntr_rate': cntr_rate,  # 체결율 추가
+                            'cntr_pric': order.get('cntr_uv', '0'),
+                            'cntr_amt': cntr_amt,
+                            'cmsn': '0',  # kt00009에서는 수수료 정보 없음
+                            'tax': '0',   # kt00009에서는 세금 정보 없음
+                            'cntr_dt': ord_date,
+                            'cntr_tm': ord_time,
+                            'ord_dt': ord_date,
+                            'ord_tm': ord_time,
+                            'ord_pric': order.get('ord_uv', '0'),
+                            'orig_ord_no': order.get('orig_ord_no', ''),  # 개발가이드에 맞게 수정
+                            'ord_stt': order.get('acpt_tp', ''),
+                            'trde_tp': order.get('trde_tp', ''),
+                            'io_tp_nm': order.get('io_tp_nm', ''),
+                            'stk_bond_tp': order.get('stk_bond_tp', ''),  # 주식채권구분 추가
+                            'setl_tp': order.get('setl_tp', ''),  # 결제구분 추가
+                            'crd_deal_tp': order.get('crd_deal_tp', ''),  # 신용거래구분 추가
+                            'comm_ord_tp': order.get('comm_ord_tp', ''),  # 통신구분 추가
+                            'mdfy_cncl_tp': order.get('mdfy_cncl_tp', ''),  # 정정/취소구분 추가
+                            'cntr_tm': order.get('cntr_tm', ''),  # 체결시간 추가
+                            'dmst_stex_tp': order.get('dmst_stex_tp', ''),  # 거래소구분 추가
+                            'cond_uv': order.get('cond_uv', '')  # 스톱가 추가
+                        }
+                        mapped_data['cntr'].append(mapped_order)
+                    
+                    if cntr_qty < ord_qty:  # 미체결 주문
+                        # 미체결수량 계산 - 안전한 계산
+                        try:
+                            oso_qty = str(ord_qty - cntr_qty)
+                        except (ValueError, TypeError):
+                            oso_qty = '0'
+                        
+                        # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태)
+                        ord_tm = order.get('ord_tm', '')
+                        if ':' in ord_tm:
+                            # "13:05:43" 형식인 경우
+                            ord_time = ord_tm
+                            ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
+                        elif len(ord_tm) >= 8:
+                            # "YYYYMMDDHHMMSS" 형식인 경우 (기존 로직 유지)
+                            ord_date = ord_tm[:8]
+                            ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''
+                        else:
+                            # 시간만 있는 경우 오늘 날짜 사용
+                            ord_date = datetime.now().strftime('%Y%m%d')
+                            ord_time = ord_tm
+                        
+                        mapped_order = {
+                            'ord_no': order.get('ord_no', ''),
+                            'stk_cd': order.get('stk_cd', ''),
+                            'stk_nm': order.get('stk_nm', ''),
+                            'ord_qty': order.get('ord_qty', '0'),
+                            'ord_pric': order.get('ord_uv', '0'),
+                            'oso_qty': oso_qty,
+                            'ord_stt': order.get('acpt_tp', ''),
+                            'ord_dt': ord_date,
+                            'ord_tm': ord_time,
+                            'orig_ord_no': order.get('orig_ord_no', ''),  # 개발가이드에 맞게 수정
+                            'trde_tp': order.get('trde_tp', ''),
+                            'io_tp_nm': order.get('io_tp_nm', ''),
+                            'stk_bond_tp': order.get('stk_bond_tp', ''),  # 주식채권구분 추가
+                            'setl_tp': order.get('setl_tp', ''),  # 결제구분 추가
+                            'crd_deal_tp': order.get('crd_deal_tp', ''),  # 신용거래구분 추가
+                            'comm_ord_tp': order.get('comm_ord_tp', ''),  # 통신구분 추가
+                            'mdfy_cncl_tp': order.get('mdfy_cncl_tp', ''),  # 정정/취소구분 추가
+                            'dmst_stex_tp': order.get('dmst_stex_tp', ''),  # 거래소구분 추가
+                            'cond_uv': order.get('cond_uv', '')  # 스톱가 추가
+                        }
+                        mapped_data['oso'].append(mapped_order)
+                
+                return jsonify({
+                    'success': True,
+                    'data': mapped_data
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'data': {'cntr': [], 'oso': []}
+                })
+        else:
+            # API 오류 정보가 있는 경우
+            if result and result.get('error_code'):
+                error_response = create_error_response(
+                    result.get('error_code'), 
+                    result.get('error_message', '통합 주문내역 조회에 실패했습니다.'), 
+                    "get_unified_orders"
+                )
+                return jsonify(error_response)
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '통합 주문내역 조회 실패'
+                })
+    except Exception as e:
+        web_logger.error(f"통합 주문내역 조회 실패: {e}")
+        import traceback
+        web_logger.error(f"상세 오류: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'message': f'통합 주문내역 조회 실패: {str(e)}',
+            'error_type': 'server_error'
         })
 
 
@@ -1710,6 +1955,7 @@ def get_analysis_result():
                                 web_logger.info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
                     except Exception as e:
                         web_logger.warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
+                        web_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
                 
                 # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
                 if 'd2_entra' in deposit_result and deposit_result['d2_entra'] and deposit_result['d2_entra'] != '000000000000000':
