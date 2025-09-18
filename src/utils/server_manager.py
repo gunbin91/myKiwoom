@@ -48,9 +48,9 @@ def set_current_server(server_type: str) -> bool:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
         # 서버 선택 시에만 로그 출력
-        from src.utils import api_logger
+        from src.utils import get_api_logger
         server_name = "모의투자" if server_type == "mock" else "실전투자"
-        api_logger.info(f"서버 선택: {server_name} ({server_type})")
+        get_api_logger().info(f"서버 선택: {server_name} ({server_type})")
         print(f"서버 선택 상태 업데이트: {server_type}")
         return True
         

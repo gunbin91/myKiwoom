@@ -16,7 +16,7 @@ import json
 from datetime import datetime, timedelta
 from src.config.settings import WEB_HOST, WEB_PORT, WEB_DEBUG, SECRET_KEY, SESSION_TIMEOUT
 from src.config.server_config import set_server_type, get_current_server_config
-from src.utils import web_logger
+from src.utils import get_web_logger
 # 캐시 모듈 제거됨
 from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order, mock_account, real_account, mock_quote, real_quote, mock_order, real_order
 from src.auto_trading.config_manager import mock_config_manager, real_config_manager
@@ -209,9 +209,9 @@ def select_server():
                 from src.api.auth import KiwoomAuth
                 old_auth = KiwoomAuth(old_server_type)
                 old_auth.revoke_token()
-                web_logger.info(f"이전 서버({old_server_type})의 토큰을 폐기했습니다.")
+                get_web_logger().info(f"이전 서버({old_server_type})의 토큰을 폐기했습니다.")
             except Exception as e:
-                web_logger.warning(f"이전 서버 토큰 폐기 실패: {e}")
+                get_web_logger().warning(f"이전 서버 토큰 폐기 실패: {e}")
         
         # 서버 타입 설정 (전역 설정 파일에 저장)
         set_current_server(server_type)
@@ -219,8 +219,8 @@ def select_server():
         # 세션에 서버 타입 정보 저장 (호환성을 위해)
         session['server_type'] = server_type
         
-        web_logger.info(f"서버 선택 완료: {server_type}")
-        web_logger.info(f"세션에 저장된 server_type: {session.get('server_type')}")
+        get_web_logger().info(f"서버 선택 완료: {server_type}")
+        get_web_logger().info(f"세션에 저장된 server_type: {session.get('server_type')}")
         
         return jsonify({
             'success': True,
@@ -229,10 +229,10 @@ def select_server():
         })
         
     except Exception as e:
-        web_logger.error(f"🚨 서버 선택 실패: {e}")
-        web_logger.error(f"   📍 요청 데이터: {request.get_json()}")
+        get_web_logger().error(f"🚨 서버 선택 실패: {e}")
+        get_web_logger().error(f"   📍 요청 데이터: {request.get_json()}")
         import traceback
-        web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
+        get_web_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'서버 선택 실패: {str(e)}'
@@ -252,9 +252,9 @@ def get_server_status():
             'server_info': server_info
         })
     except Exception as e:
-        web_logger.error(f"🚨 서버 상태 조회 실패: {e}")
+        get_web_logger().error(f"🚨 서버 상태 조회 실패: {e}")
         import traceback
-        web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
+        get_web_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'서버 상태 조회 실패: {str(e)}'
@@ -297,16 +297,16 @@ def login():
     try:
         # 현재 서버 타입에 맞는 인증 인스턴스 사용
         server_type = get_current_server()
-        web_logger.info(f"로그인 시도 - 현재 서버: {server_type}")
+        get_web_logger().info(f"로그인 시도 - 현재 서버: {server_type}")
         
         from src.api.auth import KiwoomAuth
         current_auth = KiwoomAuth(server_type)
-        web_logger.info(f"로그인 시도 - {server_type} 서버용 인증 인스턴스 생성")
+        get_web_logger().info(f"로그인 시도 - {server_type} 서버용 인증 인스턴스 생성")
         token = current_auth.get_access_token(force_refresh=True)
         if token:
             session['authenticated'] = True
             session['login_time'] = datetime.now().isoformat()
-            web_logger.info("사용자 로그인 성공")
+            get_web_logger().info("사용자 로그인 성공")
             return jsonify({
                 'success': True,
                 'message': '로그인 성공'
@@ -317,10 +317,10 @@ def login():
                 'message': '토큰 발급 실패'
             })
     except Exception as e:
-        web_logger.error(f"🚨 로그인 실패: {e}")
-        web_logger.error(f"   📍 요청 데이터: {request.get_json()}")
+        get_web_logger().error(f"🚨 로그인 실패: {e}")
+        get_web_logger().error(f"   📍 요청 데이터: {request.get_json()}")
         import traceback
-        web_logger.error(f"   📍 스택 트레이스: {traceback.format_exc()}")
+        get_web_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'로그인 실패: {str(e)}'
@@ -339,13 +339,13 @@ def logout():
             current_auth.revoke_token()
         
         session.clear()
-        web_logger.info("사용자 로그아웃")
+        get_web_logger().info("사용자 로그아웃")
         return jsonify({
             'success': True,
             'message': '로그아웃 성공'
         })
     except Exception as e:
-        web_logger.error(f"로그아웃 실패: {e}")
+        get_web_logger().error(f"로그아웃 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'로그아웃 실패: {str(e)}'
@@ -398,19 +398,19 @@ def get_deposit():
                         today_data = daily_result['daly_prsm_dpst_aset_amt_prst'][0]
                         if 'entr' in today_data:
                             result['entr'] = today_data['entr']
-                            web_logger.info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
+                            get_web_logger().info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
                 except Exception as e:
-                    web_logger.warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
-                    web_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
+                    get_web_logger().warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
+                    get_web_logger().info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
             
             # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
             if 'd2_entra' in result and result['d2_entra'] and result['d2_entra'] != '000000000000000':
                 result['entr'] = result['d2_entra']
-                web_logger.info(f"D+2 추정예수금 사용: {result['d2_entra']}")
+                get_web_logger().info(f"D+2 추정예수금 사용: {result['d2_entra']}")
             # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
             elif 'd1_entra' in result and result['d1_entra'] and result['d1_entra'] != '000000000000000':
                 result['entr'] = result['d1_entra']
-                web_logger.info(f"D+1 추정예수금 사용: {result['d1_entra']}")
+                get_web_logger().info(f"D+1 추정예수금 사용: {result['d1_entra']}")
             
             # 주문가능금액도 참고용으로 추가
             if 'ord_alow_amt' in result:
@@ -433,7 +433,7 @@ def get_deposit():
                 error_response = create_error_response("1513", "예수금 정보를 가져올 수 없습니다.", "get_deposit")
                 return jsonify(error_response)
     except Exception as e:
-        web_logger.error(f"예수금 조회 실패: {e}")
+        get_web_logger().error(f"예수금 조회 실패: {e}")
         error_response = create_error_response("2000", f"예수금 조회 실패: {str(e)}", "get_deposit")
         return jsonify(error_response)
 
@@ -458,7 +458,7 @@ def get_assets():
                 'message': '자산 정보 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"자산 조회 실패: {e}")
+        get_web_logger().error(f"자산 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'자산 조회 실패: {str(e)}'
@@ -497,7 +497,7 @@ def get_evaluation():
                 'message': '계좌 평가 정보 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"계좌 평가 조회 실패: {e}")
+        get_web_logger().error(f"계좌 평가 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'계좌 평가 조회 실패: {str(e)}'
@@ -524,7 +524,7 @@ def get_balance():
                 'message': '잔고 정보 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"잔고 조회 실패: {e}")
+        get_web_logger().error(f"잔고 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'잔고 조회 실패: {str(e)}'
@@ -551,7 +551,7 @@ def get_unexecuted_orders():
                 'message': '미체결 주문 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"미체결 주문 조회 실패: {e}")
+        get_web_logger().error(f"미체결 주문 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'미체결 주문 조회 실패: {str(e)}'
@@ -675,7 +675,7 @@ def get_executed_orders():
                     'message': '체결 주문 조회 실패'
                 })
     except Exception as e:
-        web_logger.error(f"체결 주문 조회 실패: {e}")
+        get_web_logger().error(f"체결 주문 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'체결 주문 조회 실패: {str(e)}'
@@ -809,9 +809,9 @@ def get_executed_orders_history():
                     'message': '체결 주문 이력 조회 실패'
                 })
     except Exception as e:
-        web_logger.error(f"체결 주문 이력 조회 실패: {e}")
+        get_web_logger().error(f"체결 주문 이력 조회 실패: {e}")
         import traceback
-        web_logger.error(f"상세 오류: {traceback.format_exc()}")
+        get_web_logger().error(f"상세 오류: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'체결 주문 이력 조회 실패: {str(e)}',
@@ -1003,9 +1003,9 @@ def get_unified_orders():
                     'message': '통합 주문내역 조회 실패'
                 })
     except Exception as e:
-        web_logger.error(f"통합 주문내역 조회 실패: {e}")
+        get_web_logger().error(f"통합 주문내역 조회 실패: {e}")
         import traceback
-        web_logger.error(f"상세 오류: {traceback.format_exc()}")
+        get_web_logger().error(f"상세 오류: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'통합 주문내역 조회 실패: {str(e)}',
@@ -1033,7 +1033,7 @@ def get_trading_diary():
                 'message': '매매일지 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"매매일지 조회 실패: {e}")
+        get_web_logger().error(f"매매일지 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'매매일지 조회 실패: {str(e)}'
@@ -1106,7 +1106,7 @@ def get_daily_trading():
                 }
             })
     except Exception as e:
-        web_logger.error(f"일별 매매일지 조회 실패: {e}")
+        get_web_logger().error(f"일별 매매일지 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'일별 매매일지 조회 실패: {str(e)}'
@@ -1181,7 +1181,7 @@ def get_monthly_trading():
                 }
             })
     except Exception as e:
-        web_logger.error(f"월별 매매일지 조회 실패: {e}")
+        get_web_logger().error(f"월별 매매일지 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'월별 매매일지 조회 실패: {str(e)}'
@@ -1279,7 +1279,7 @@ def get_trading_analysis():
                 }
             })
     except Exception as e:
-        web_logger.error(f"매매 분석 조회 실패: {e}")
+        get_web_logger().error(f"매매 분석 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'매매 분석 조회 실패: {str(e)}'
@@ -1322,7 +1322,7 @@ def get_daily_trading_detail(trade_date):
                 'message': '해당 날짜의 매매 내역이 없습니다.'
             })
     except Exception as e:
-        web_logger.error(f"일별 매매 상세 조회 실패: {e}")
+        get_web_logger().error(f"일별 매매 상세 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'일별 매매 상세 조회 실패: {str(e)}'
@@ -1345,7 +1345,7 @@ def get_stock_info(stock_code):
                 'message': '종목 정보 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"종목 정보 조회 실패: {e}")
+        get_web_logger().error(f"종목 정보 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'종목 정보 조회 실패: {str(e)}'
@@ -1368,7 +1368,7 @@ def get_stock_price(stock_code):
                 'message': '주식 호가 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"주식 호가 조회 실패: {e}")
+        get_web_logger().error(f"주식 호가 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'주식 호가 조회 실패: {str(e)}'
@@ -1405,7 +1405,7 @@ def get_stock_chart(stock_code):
                 'message': '차트 데이터 조회 실패'
             })
     except Exception as e:
-        web_logger.error(f"차트 데이터 조회 실패: {e}")
+        get_web_logger().error(f"차트 데이터 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'차트 데이터 조회 실패: {str(e)}'
@@ -1525,7 +1525,7 @@ def buy_stock():
                 return jsonify(error_response)
             
     except Exception as e:
-        web_logger.error(f"매수 주문 실패: {e}")
+        get_web_logger().error(f"매수 주문 실패: {e}")
         error_response = create_error_response("2000", f"매수 주문 실패: {str(e)}", "buy_stock")
         return jsonify(error_response)
 
@@ -1600,7 +1600,7 @@ def sell_stock():
                 return jsonify(error_response)
             
     except Exception as e:
-        web_logger.error(f"매도 주문 실패: {e}")
+        get_web_logger().error(f"매도 주문 실패: {e}")
         error_response = create_error_response("2000", f"매도 주문 실패: {str(e)}", "sell_stock")
         return jsonify(error_response)
 
@@ -1636,7 +1636,7 @@ def cancel_order():
             return jsonify(error_response)
             
     except Exception as e:
-        web_logger.error(f"주문 취소 실패: {e}")
+        get_web_logger().error(f"주문 취소 실패: {e}")
         error_response = create_error_response("2000", f"주문 취소 실패: {str(e)}", "cancel_order")
         return jsonify(error_response)
 
@@ -1652,7 +1652,7 @@ def get_auto_trading_config():
             'data': config
         })
     except Exception as e:
-        web_logger.error(f"자동매매 설정 조회 실패: {e}")
+        get_web_logger().error(f"자동매매 설정 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'설정 조회 실패: {str(e)}'
@@ -1675,7 +1675,7 @@ def save_auto_trading_config():
                 'message': '설정 저장에 실패했습니다.'
             })
     except Exception as e:
-        web_logger.error(f"자동매매 설정 저장 실패: {e}")
+        get_web_logger().error(f"자동매매 설정 저장 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'설정 저장 실패: {str(e)}'
@@ -1706,7 +1706,7 @@ def get_auto_trading_status():
             }
         })
     except Exception as e:
-        web_logger.error(f"자동매매 상태 조회 실패: {e}")
+        get_web_logger().error(f"자동매매 상태 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'상태 조회 실패: {str(e)}'
@@ -1731,7 +1731,7 @@ def execute_auto_trading():
         from datetime import datetime
         error_message = f'자동매매 실행 실패: {str(e)}'
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ {error_message}")
-        web_logger.error(f"자동매매 실행 실패: {e}")
+        get_web_logger().error(f"자동매매 실행 실패: {e}")
         return jsonify({
             'success': False,
             'message': error_message
@@ -1744,16 +1744,16 @@ def get_auth_status():
     try:
         # 현재 서버 타입에 맞는 인증 상태 확인
         server_type = get_current_server()
-        web_logger.info(f"인증 상태 확인 - 현재 서버: {server_type}")
+        get_web_logger().info(f"인증 상태 확인 - 현재 서버: {server_type}")
         
         # 현재 서버에 맞는 인증 인스턴스 사용
         from src.api.auth import KiwoomAuth
         current_auth = KiwoomAuth(server_type)
-        web_logger.info(f"인증 상태 확인 - {server_type} 서버용 인증 인스턴스 사용")
+        get_web_logger().info(f"인증 상태 확인 - {server_type} 서버용 인증 인스턴스 사용")
         
         # 토큰 유효성 확인 (토큰 파일 기반)
         is_authenticated = current_auth.is_authenticated()
-        web_logger.info(f"토큰 파일 기반 인증 상태: {is_authenticated}")
+        get_web_logger().info(f"토큰 파일 기반 인증 상태: {is_authenticated}")
         
         token_info = current_auth.get_token_info() if is_authenticated else None
         
@@ -1763,14 +1763,14 @@ def get_auth_status():
             'token_info': token_info
         })
     except AttributeError as e:
-        web_logger.error(f"인증 메서드 없음: {e}")
+        get_web_logger().error(f"인증 메서드 없음: {e}")
         return jsonify({
             'success': False,
             'message': '인증 시스템이 초기화되지 않았습니다.',
             'authenticated': False
         }), 500
     except Exception as e:
-        web_logger.error(f"인증 상태 조회 실패: {e}")
+        get_web_logger().error(f"인증 상태 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'인증 상태 조회 실패: {str(e)}',
@@ -1796,7 +1796,7 @@ def get_analysis_result():
                     }
                 }), 401
         except Exception as e:
-            web_logger.error(f"인증 상태 확인 실패: {e}")
+            get_web_logger().error(f"인증 상태 확인 실패: {e}")
             return jsonify({
                 'success': False,
                 'message': f'인증 상태 확인 실패: {str(e)}',
@@ -1810,7 +1810,7 @@ def get_analysis_result():
         try:
             analysis_result = get_current_engine().analyzer.get_stock_analysis(force_realtime=force_realtime)
         except Exception as e:
-            web_logger.error(f"분석 실행 중 예외 발생: {e}")
+            get_web_logger().error(f"분석 실행 중 예외 발생: {e}")
             return jsonify({
                 'success': False,
                 'message': f"분석 실행 중 오류 발생: {str(e)}",
@@ -1823,7 +1823,7 @@ def get_analysis_result():
         
         if not analysis_result.get('success'):
             error_message = analysis_result.get('message', '알 수 없는 오류')
-            web_logger.error(f"분석 결과 조회 실패: {error_message}")
+            get_web_logger().error(f"분석 결과 조회 실패: {error_message}")
             return jsonify({
                 'success': False,
                 'message': f"분석 실행 실패: {error_message}",
@@ -1894,10 +1894,10 @@ def get_analysis_result():
                             '매도예상금액': sell_amount
                         })
             
-            web_logger.info(f"📉 분석결과확인 테스트: 매도 대상 {len(sell_candidates)}개 종목이 선정되었습니다.")
+            get_web_logger().info(f"📉 분석결과확인 테스트: 매도 대상 {len(sell_candidates)}개 종목이 선정되었습니다.")
             
         except Exception as e:
-            web_logger.error(f"매도 대상 선정 중 오류 발생: {e}")
+            get_web_logger().error(f"매도 대상 선정 중 오류 발생: {e}")
             sell_candidates = []
         
         # 매수 대상 선정 (매도 후 확보된 현금 고려)
@@ -1912,10 +1912,10 @@ def get_analysis_result():
             )
             
             # get_top_stocks() 함수에서 이미 보유종목이 제외되어 반환됨
-            web_logger.info(f"📋 분석결과확인 테스트: 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
+            get_web_logger().info(f"📋 분석결과확인 테스트: 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
             
         except Exception as e:
-            web_logger.error(f"매수 대상 선정 중 오류 발생: {e}")
+            get_web_logger().error(f"매수 대상 선정 중 오류 발생: {e}")
             buy_candidates = []  # 빈 리스트로 설정하여 계속 진행
         
         # 💰 사용가능금액 계산 (분석결과확인 테스트용)
@@ -1942,7 +1942,6 @@ def get_analysis_result():
                 
                 if server_config.is_real_server():
                     # 운영서버: kt00002로 최신 예수금 정보 확인
-                    from datetime import datetime
                     today = datetime.now().strftime('%Y%m%d')
                     
                     try:
@@ -1952,21 +1951,21 @@ def get_analysis_result():
                             today_data = daily_result['daly_prsm_dpst_aset_amt_prst'][0]
                             if 'entr' in today_data:
                                 deposit_result['entr'] = today_data['entr']
-                                web_logger.info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
+                                get_web_logger().info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
                     except Exception as e:
-                        web_logger.warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
-                        web_logger.info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
+                        get_web_logger().warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
+                        get_web_logger().info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
                 
                 # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
                 if 'd2_entra' in deposit_result and deposit_result['d2_entra'] and deposit_result['d2_entra'] != '000000000000000':
                     deposit_result['entr'] = deposit_result['d2_entra']
-                    web_logger.info(f"D+2 추정예수금 사용: {deposit_result['d2_entra']}")
+                    get_web_logger().info(f"D+2 추정예수금 사용: {deposit_result['d2_entra']}")
                 # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
                 elif 'd1_entra' in deposit_result and deposit_result['d1_entra'] and deposit_result['d1_entra'] != '000000000000000':
                     deposit_result['entr'] = deposit_result['d1_entra']
-                    web_logger.info(f"D+1 추정예수금 사용: {deposit_result['d1_entra']}")
+                    get_web_logger().info(f"D+1 추정예수금 사용: {deposit_result['d1_entra']}")
                 
-                # 예수금 계산 (매도 후 예상금액 반영)
+                # 예수금 계산 (매도 후 예상금액 반영) - d2_entra 또는 d1_entra 사용
                 total_deposit = int(deposit_result.get('entr', 0))
                 reserve_cash = strategy_params.get('reserve_cash', 1000000)
                 
@@ -1974,24 +1973,24 @@ def get_analysis_result():
                 expected_deposit_after_sell = total_deposit + sell_proceeds
                 available_cash = expected_deposit_after_sell - reserve_cash
                 
-                web_logger.info(f"💰 분석결과확인 테스트 - 현재 예수금: {total_deposit:,}원")
-                web_logger.info(f"💰 매도 예상금액: {sell_proceeds:,}원")
-                web_logger.info(f"💰 매도 후 예상 예수금: {expected_deposit_after_sell:,}원")
-                web_logger.info(f"💰 매매제외예수금: {reserve_cash:,}원")
-                web_logger.info(f"💰 매도 후 사용가능금액: {available_cash:,}원")
+                get_web_logger().info(f"💰 분석결과확인 테스트 - 현재 예수금: {total_deposit:,}원")
+                get_web_logger().info(f"💰 매도 예상금액: {sell_proceeds:,}원")
+                get_web_logger().info(f"💰 매도 후 예상 예수금: {expected_deposit_after_sell:,}원")
+                get_web_logger().info(f"💰 매매제외예수금: {reserve_cash:,}원")
+                get_web_logger().info(f"💰 매도 후 사용가능금액: {available_cash:,}원")
             else:
                 # 상세한 오류 정보 로그
                 if deposit_result:
                     error_msg = deposit_result.get('message', '알 수 없는 오류')
                     error_code = deposit_result.get('error_code', 'UNKNOWN')
                     full_response = deposit_result.get('full_response', {})
-                    web_logger.warning(f"예수금 정보 조회 실패: [{error_code}] {error_msg}")
-                    web_logger.warning(f"전체 API 응답: {full_response}")
+                    get_web_logger().warning(f"예수금 정보 조회 실패: [{error_code}] {error_msg}")
+                    get_web_logger().warning(f"전체 API 응답: {full_response}")
                 else:
-                    web_logger.warning("예수금 정보 조회 결과가 None입니다.")
+                    get_web_logger().warning("예수금 정보 조회 결과가 None입니다.")
                 
         except Exception as cash_error:
-            web_logger.warning(f"사용가능금액 계산 중 오류 발생: {cash_error}")
+            get_web_logger().warning(f"사용가능금액 계산 중 오류 발생: {cash_error}")
         
         # 결과 정리
         result = {
@@ -2014,7 +2013,7 @@ def get_analysis_result():
         return jsonify(result)
         
     except Exception as e:
-        web_logger.error(f"분석 결과 조회 중 오류: {e}")
+        get_web_logger().error(f"분석 결과 조회 중 오류: {e}")
         return jsonify({
             'success': False,
             'message': f'분석 결과 조회 중 오류가 발생했습니다: {str(e)}'
@@ -2043,7 +2042,7 @@ def execute_auto_trading_with_candidates():
         return jsonify(result)
         
     except Exception as e:
-        web_logger.error(f"자동매매 실행 중 오류: {e}")
+        get_web_logger().error(f"자동매매 실행 중 오류: {e}")
         return jsonify({
             'success': False,
             'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}'
@@ -2056,7 +2055,7 @@ def stop_auto_trading():
         result = get_current_engine().stop_trading()
         return jsonify(result)
     except Exception as e:
-        web_logger.error(f"자동매매 중지 실패: {e}")
+        get_web_logger().error(f"자동매매 중지 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'자동매매 중지 실패: {str(e)}'
@@ -2074,7 +2073,7 @@ def get_auto_trading_history():
             'data': history
         })
     except Exception as e:
-        web_logger.error(f"자동매매 이력 조회 실패: {e}")
+        get_web_logger().error(f"자동매매 이력 조회 실패: {e}")
         return jsonify({
             'success': False,
             'message': f'이력 조회 실패: {str(e)}'
@@ -2086,7 +2085,7 @@ def handle_connect():
     """웹소켓 연결 처리"""
     global is_connected
     is_connected = True
-    web_logger.info(f"클라이언트 연결: {request.sid}")
+    get_web_logger().info(f"클라이언트 연결: {request.sid}")
     emit('status', {'message': '연결됨', 'timestamp': datetime.now().isoformat()})
 
 
@@ -2095,7 +2094,7 @@ def handle_disconnect():
     """웹소켓 연결 해제 처리"""
     global is_connected
     is_connected = False
-    web_logger.info(f"클라이언트 연결 해제: {request.sid}")
+    get_web_logger().info(f"클라이언트 연결 해제: {request.sid}")
 
 
 @socketio.on('subscribe_stock')
@@ -2103,7 +2102,7 @@ def handle_subscribe_stock(data):
     """종목 실시간 데이터 구독"""
     stock_code = data.get('stock_code')
     if stock_code:
-        web_logger.info(f"종목 구독: {stock_code}")
+        get_web_logger().info(f"종목 구독: {stock_code}")
         emit('subscribed', {'stock_code': stock_code, 'message': '구독됨'})
 
 
@@ -2120,7 +2119,7 @@ def start_real_time_updates():
                 })
             time.sleep(5)  # 5초마다 업데이트
         except Exception as e:
-            web_logger.error(f"실시간 업데이트 오류: {e}")
+            get_web_logger().error(f"실시간 업데이트 오류: {e}")
             time.sleep(10)
 
 
@@ -2133,27 +2132,27 @@ def start_schedulers():
     
     # Werkzeug reloader 환경에서는 메인 프로세스에서만 스케줄러 시작
     if os.environ.get('WERKZEUG_RUN_MAIN') != 'true' and WEB_DEBUG:
-        web_logger.info("Werkzeug reloader 환경에서 서브프로세스는 스케줄러를 시작하지 않습니다.")
+        get_web_logger().info("Werkzeug reloader 환경에서 서브프로세스는 스케줄러를 시작하지 않습니다.")
         return
     
     if _schedulers_started:
-        web_logger.info("스케줄러가 이미 시작되었습니다. 중복 시작을 방지합니다.")
+        get_web_logger().info("스케줄러가 이미 시작되었습니다. 중복 시작을 방지합니다.")
         return
     
     try:
         # 모의투자 스케줄러 시작 (설정과 관계없이 항상 시작)
         mock_scheduler.start()
-        web_logger.info("✅ 모의투자 자동매매 스케줄러가 시작되었습니다.")
+        get_web_logger().info("✅ 모의투자 자동매매 스케줄러가 시작되었습니다.")
         
         # 실전투자 스케줄러 시작 (설정과 관계없이 항상 시작)
         real_scheduler.start()
-        web_logger.info("✅ 실전투자 자동매매 스케줄러가 시작되었습니다.")
+        get_web_logger().info("✅ 실전투자 자동매매 스케줄러가 시작되었습니다.")
         
         _schedulers_started = True
-        web_logger.info("✅ 자동매매 스케줄러들이 시작되었습니다. (설정파일에 따라 실행 여부 결정)")
+        get_web_logger().info("✅ 자동매매 스케줄러들이 시작되었습니다. (설정파일에 따라 실행 여부 결정)")
             
     except Exception as e:
-        web_logger.error(f"스케줄러 시작 실패: {e}")
+        get_web_logger().error(f"스케줄러 시작 실패: {e}")
 
 if __name__ == '__main__':
     # 실시간 업데이트 스레드 시작
@@ -2163,5 +2162,5 @@ if __name__ == '__main__':
     # 스케줄러 시작
     start_schedulers()
     
-    web_logger.info(f"웹 서버 시작: http://{WEB_HOST}:{WEB_PORT}")
+    get_web_logger().info(f"웹 서버 시작: http://{WEB_HOST}:{WEB_PORT}")
     socketio.run(app, host=WEB_HOST, port=WEB_PORT, debug=WEB_DEBUG)

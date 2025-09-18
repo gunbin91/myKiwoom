@@ -20,11 +20,11 @@ class AutoTradingConfigManager:
         self.server_type = server_type
         self.config_dir = Path(__file__).parent.parent.parent / "data"
         self.config_file = self.config_dir / f"auto_trading_config_{server_type}.json"
-        self.execution_log_file = Path(__file__).parent.parent.parent / "logs" / server_type / "auto_trading_execution.log"
+        self.trading_result_file = Path(__file__).parent.parent.parent / "logs" / server_type / "trading_result.log"
         
         # 설정 디렉토리 생성
         self.config_dir.mkdir(exist_ok=True)
-        self.execution_log_file.parent.mkdir(parents=True, exist_ok=True)
+        self.trading_result_file.parent.mkdir(parents=True, exist_ok=True)
         
         # 서버별 기본 설정
         if server_type == 'mock':
@@ -95,11 +95,11 @@ class AutoTradingConfigManager:
     def is_today_executed(self):
         """오늘 이미 실행되었는지 확인"""
         try:
-            if not self.execution_log_file.exists():
+            if not self.trading_result_file.exists():
                 return False
             
             today = datetime.now().strftime('%Y-%m-%d')
-            with open(self.execution_log_file, 'r', encoding='utf-8') as f:
+            with open(self.trading_result_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     if line.strip().startswith(today):
                         return True
@@ -108,54 +108,324 @@ class AutoTradingConfigManager:
             print(f"실행 이력 확인 실패: {e}")
             return False
     
-    def log_execution(self, status, buy_count=0, sell_count=0, message=""):
-        """실행 이력 기록"""
+    def log_execution(self, status, buy_count=0, sell_count=0, message="", 
+                     strategy_params=None, buy_candidates=None, sell_candidates=None, 
+                     execution_type="자동", error_details=None, 
+                     buy_results=None, sell_results=None, account_info=None):
+        """자동매매 실행 결과 상세 기록"""
         try:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            log_entry = f"{timestamp} | {status} | 매수:{buy_count} | 매도:{sell_count} | {message}\n"
+            server_name = "모의투자" if self.server_type == "mock" else "실전투자"
             
-            with open(self.execution_log_file, 'a', encoding='utf-8') as f:
-                f.write(log_entry)
+            # 기본 정보
+            log_entry = f"\n{'='*100}\n"
+            log_entry += f"🤖 자동매매 실행 결과 - {server_name} ({self.server_type})\n"
+            log_entry += f"⏰ 실행 시간: {timestamp}\n"
+            log_entry += f"🔄 실행 유형: {execution_type}\n"
+            log_entry += f"📊 실행 상태: {status}\n"
+            log_entry += f"📈 매수 시도: {buy_count}건\n"
+            log_entry += f"📉 매도 시도: {sell_count}건\n"
+            log_entry += f"💬 메시지: {message}\n"
+            
+            # 계좌 정보 (실행 전/후 예수금 비교)
+            if account_info:
+                deposit_info = account_info.get('deposit', {})
+                balance_info = account_info.get('balance', {})
+                
+                log_entry += f"\n💰 계좌 정보:\n"
+                total_deposit = int(deposit_info.get('entr', 0))
+                reserve_cash = strategy_params.get('reserve_cash', 0) if strategy_params else 0
+                available_amount = max(0, total_deposit - reserve_cash)
+                
+                log_entry += f"  - 총 예수금: {total_deposit:,}원\n"
+                log_entry += f"  - D+1 추정예수금: {int(deposit_info.get('d1_entra', 0)):,}원\n"
+                log_entry += f"  - D+2 추정예수금: {int(deposit_info.get('d2_entra', 0)):,}원\n"
+                log_entry += f"  - 주문가능금액: {available_amount:,}원 (총예수금 - 매매제외예수금)\n"
+                
+                if balance_info and 'output1' in balance_info:
+                    holdings = balance_info['output1']
+                    log_entry += f"  - 보유 종목 수: {len(holdings)}개\n"
+            
+            # 전략 파라미터 정보
+            if strategy_params:
+                log_entry += f"\n⚙️ 전략 파라미터:\n"
+                
+                # 파라미터 한글명 매핑
+                param_names = {
+                    'reserve_cash': '매매제외예수금',
+                    'transaction_fee_rate': '수수료율',
+                    'take_profit_pct': '익절률',
+                    'stop_loss_pct': '손절률',
+                    'max_hold_period': '최대보유기간',
+                    'investment_amount': '투자금액',
+                    'max_stocks': '최대종목수',
+                    'min_price': '최소가격',
+                    'max_price': '최대가격',
+                    'min_volume': '최소거래량',
+                    'confidence_threshold': '신뢰도임계값'
+                }
+                
+                for key, value in strategy_params.items():
+                    korean_name = param_names.get(key, key)
+                    if isinstance(value, (int, float)):
+                        if 'rate' in key.lower() or 'fee' in key.lower() or 'pct' in key.lower():
+                            log_entry += f"  - {korean_name}: {value}%\n"
+                        elif 'cash' in key.lower() or 'amount' in key.lower():
+                            log_entry += f"  - {korean_name}: {value:,}원\n"
+                        elif 'period' in key.lower() or 'days' in key.lower():
+                            log_entry += f"  - {korean_name}: {value}일\n"
+                        elif 'stocks' in key.lower() or 'count' in key.lower():
+                            log_entry += f"  - {korean_name}: {value}개\n"
+                        else:
+                            log_entry += f"  - {korean_name}: {value}\n"
+                    else:
+                        log_entry += f"  - {korean_name}: {value}\n"
+            
+            # 매수 실행 결과 상세 정보
+            if buy_results:
+                log_entry += f"\n📈 매수 실행 결과:\n"
+                log_entry += f"  - 총 시도: {buy_results.get('total_attempts', 0)}건\n"
+                log_entry += f"  - 성공: {buy_results.get('success_count', 0)}건\n"
+                log_entry += f"  - 실패: {buy_results.get('failed_count', 0)}건\n"
+                log_entry += f"  - 총 매수금액: {buy_results.get('total_buy_amount', 0):,}원\n"
+                log_entry += f"  - 총 매수수량: {buy_results.get('total_buy_quantity', 0):,}주\n"
+                
+                if buy_results.get('details'):
+                    log_entry += f"\n  📋 매수 상세 내역:\n"
+                    for i, detail in enumerate(buy_results['details'], 1):
+                        stock_name = detail.get('stock_name', 'N/A')
+                        stock_code = detail.get('stock_code', 'N/A')
+                        quantity = detail.get('quantity', 0)
+                        price = detail.get('price', 0)
+                        amount = detail.get('amount', 0)
+                        status = detail.get('status', 'N/A')
+                        error_msg = detail.get('error_message', '')
+                        reason = detail.get('reason', 'AI 분석 추천')
+                        
+                        log_entry += f"    {i}. {stock_name}({stock_code})\n"
+                        log_entry += f"       - 수량: {quantity:,}주\n"
+                        log_entry += f"       - 가격: {price:,}원\n"
+                        log_entry += f"       - 금액: {amount:,}원\n"
+                        log_entry += f"       - 상태: {status}\n"
+                        log_entry += f"       - 매수사유: {reason}\n"
+                        if error_msg:
+                            log_entry += f"       - 실패사유: {error_msg}\n"
+            
+            # 매도 실행 결과 상세 정보
+            if sell_results:
+                log_entry += f"\n📉 매도 실행 결과:\n"
+                log_entry += f"  - 총 시도: {sell_results.get('total_attempts', 0)}건\n"
+                log_entry += f"  - 성공: {sell_results.get('success_count', 0)}건\n"
+                log_entry += f"  - 실패: {sell_results.get('failed_count', 0)}건\n"
+                log_entry += f"  - 총 매도금액: {sell_results.get('total_sell_amount', 0):,}원\n"
+                log_entry += f"  - 총 매도수량: {sell_results.get('total_sell_quantity', 0):,}주\n"
+                
+                if sell_results.get('details'):
+                    log_entry += f"\n  📋 매도 상세 내역:\n"
+                    for i, detail in enumerate(sell_results['details'], 1):
+                        stock_name = detail.get('stock_name', 'N/A')
+                        stock_code = detail.get('stock_code', 'N/A')
+                        quantity = detail.get('quantity', 0)
+                        price = detail.get('price', 0)
+                        amount = detail.get('amount', 0)
+                        status = detail.get('status', 'N/A')
+                        error_msg = detail.get('error_message', '')
+                        reason = detail.get('reason', 'N/A')
+                        
+                        log_entry += f"    {i}. {stock_name}({stock_code})\n"
+                        log_entry += f"       - 수량: {quantity:,}주\n"
+                        log_entry += f"       - 가격: {price:,}원\n"
+                        log_entry += f"       - 금액: {amount:,}원\n"
+                        log_entry += f"       - 상태: {status}\n"
+                        log_entry += f"       - 매도사유: {reason}\n"
+                        if error_msg:
+                            log_entry += f"       - 실패사유: {error_msg}\n"
+            
+            # 매수 대상 종목 정보 (실행 전 계획)
+            if buy_candidates:
+                log_entry += f"\n📋 매수 대상 종목 계획 ({len(buy_candidates)}개):\n"
+                for i, candidate in enumerate(buy_candidates, 1):
+                    stock_code = candidate.get('종목코드', 'N/A')
+                    stock_name = candidate.get('종목명', 'N/A')
+                    quantity = candidate.get('수량', 'N/A')
+                    price = candidate.get('가격', 'N/A')
+                    reason = candidate.get('매수사유', 'N/A')
+                    log_entry += f"  {i}. {stock_name}({stock_code}) - 수량:{quantity}, 가격:{price}원, 사유:{reason}\n"
+            
+            # 매도 대상 종목 정보 (실행 전 계획)
+            if sell_candidates:
+                log_entry += f"\n📋 매도 대상 종목 계획 ({len(sell_candidates)}개):\n"
+                for i, candidate in enumerate(sell_candidates, 1):
+                    stock_code = candidate.get('종목코드', 'N/A')
+                    stock_name = candidate.get('종목명', 'N/A')
+                    quantity = candidate.get('수량', 'N/A')
+                    price = candidate.get('가격', 'N/A')
+                    reason = candidate.get('매도사유', 'N/A')
+                    log_entry += f"  {i}. {stock_name}({stock_code}) - 수량:{quantity}, 가격:{price}원, 사유:{reason}\n"
+            
+            # 에러 상세 정보
+            if error_details:
+                log_entry += f"\n❌ 에러 상세 정보:\n"
+                if isinstance(error_details, dict):
+                    for key, value in error_details.items():
+                        log_entry += f"  - {key}: {value}\n"
+                else:
+                    log_entry += f"  {error_details}\n"
+            
+            log_entry += f"{'='*100}\n"
+            
+            # 날짜별 로테이션을 위한 로그 파일 관리
+            self._write_with_rotation(log_entry)
         except Exception as e:
             print(f"실행 이력 기록 실패: {e}")
     
-    def get_execution_history(self, days=7):
-        """실행 이력 조회"""
+    def _write_with_rotation(self, log_entry):
+        """날짜별 로테이션을 적용한 로그 파일 쓰기"""
         try:
-            if not self.execution_log_file.exists():
+            from datetime import datetime
+            import os
+            import glob
+            
+            # 현재 날짜
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            # 오늘 날짜의 로그 파일 경로
+            today_log_file = self.trading_result_file.parent / f"trading_result_{today}.log"
+            
+            # 기존 trading_result.log가 있고 오늘 날짜가 아니면 백업
+            if self.trading_result_file.exists():
+                # 기존 파일의 수정 시간 확인
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(self.trading_result_file))
+                file_date = file_mtime.strftime('%Y-%m-%d')
+                
+                # 오늘 날짜가 아니면 날짜별 파일로 이동
+                if file_date != today:
+                    backup_file = self.trading_result_file.parent / f"trading_result_{file_date}.log"
+                    if not backup_file.exists():
+                        os.rename(self.trading_result_file, backup_file)
+                    else:
+                        # 이미 같은 날짜 파일이 있으면 기존 파일에 추가
+                        with open(backup_file, 'a', encoding='utf-8') as f:
+                            with open(self.trading_result_file, 'r', encoding='utf-8') as old_f:
+                                f.write(old_f.read())
+                        os.remove(self.trading_result_file)
+            
+            # 오늘 날짜의 로그 파일에 쓰기
+            with open(today_log_file, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+            
+            # 심볼릭 링크 또는 현재 파일 업데이트 (하위 호환성)
+            if self.trading_result_file.exists() and not os.path.islink(self.trading_result_file):
+                # 기존 파일이 심볼릭 링크가 아니면 삭제하고 심볼릭 링크 생성
+                os.remove(self.trading_result_file)
+                os.symlink(today_log_file.name, self.trading_result_file)
+            elif not self.trading_result_file.exists():
+                # 파일이 없으면 심볼릭 링크 생성
+                os.symlink(today_log_file.name, self.trading_result_file)
+            
+            # 30일 이상 된 로그 파일 정리
+            self._cleanup_old_logs()
+            
+        except Exception as e:
+            # 폴백: 기존 방식으로 쓰기
+            with open(self.trading_result_file, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+            print(f"로그 파일 로테이션 실패, 기본 방식으로 기록: {e}")
+    
+    def _cleanup_old_logs(self):
+        """30일 이상 된 로그 파일 정리"""
+        try:
+            from datetime import datetime, timedelta
+            import os
+            import glob
+            
+            # 30일 전 날짜
+            cutoff_date = datetime.now() - timedelta(days=30)
+            
+            # trading_result_*.log 패턴의 파일들 찾기
+            log_pattern = str(self.trading_result_file.parent / "trading_result_*.log")
+            log_files = glob.glob(log_pattern)
+            
+            for log_file in log_files:
+                try:
+                    # 파일명에서 날짜 추출
+                    filename = os.path.basename(log_file)
+                    if filename.startswith('trading_result_') and filename.endswith('.log'):
+                        date_str = filename.replace('trading_result_', '').replace('.log', '')
+                        file_date = datetime.strptime(date_str, '%Y-%m-%d')
+                        
+                        # 30일 이상 된 파일 삭제
+                        if file_date < cutoff_date:
+                            os.remove(log_file)
+                            print(f"오래된 로그 파일 삭제: {log_file}")
+                except Exception as e:
+                    print(f"로그 파일 정리 중 오류 ({log_file}): {e}")
+                    
+        except Exception as e:
+            print(f"로그 파일 정리 실패: {e}")
+    
+    def get_execution_history(self, days=7):
+        """실행 이력 조회 (간단한 요약 정보만)"""
+        try:
+            if not self.trading_result_file.exists():
                 return []
             
             history = []
             cutoff_date = datetime.now() - timedelta(days=days)
             
-            with open(self.execution_log_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
+            with open(self.trading_result_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # 구분자로 분리하여 각 실행 결과 파싱
+            sections = content.split('='*80)
+            
+            for section in sections:
+                if not section.strip():
+                    continue
+                    
+                try:
+                    lines = section.strip().split('\n')
+                    if len(lines) < 5:
                         continue
                     
-                    try:
-                        parts = line.split(' | ')
-                        if len(parts) >= 4:
-                            timestamp_str = parts[0]
-                            timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
-                            
-                            if timestamp >= cutoff_date:
-                                status = parts[1]
-                                buy_info = parts[2].split(':')[1] if ':' in parts[2] else '0'
-                                sell_info = parts[3].split(':')[1] if ':' in parts[3] else '0'
-                                message = parts[4] if len(parts) > 4 else ''
-                                
-                                history.append({
-                                    'execution_time': timestamp_str,
-                                    'status': status,
-                                    'buy_count': int(buy_info),
-                                    'sell_count': int(sell_info),
-                                    'message': message
-                                })
-                    except Exception as e:
-                        print(f"이력 파싱 오류: {e}")
-                        continue
+                    # 기본 정보 추출
+                    execution_time = None
+                    status = None
+                    buy_count = 0
+                    sell_count = 0
+                    message = ""
+                    execution_type = "자동"
+                    
+                    for line in lines:
+                        if line.startswith('실행 시간:'):
+                            time_str = line.replace('실행 시간:', '').strip()
+                            execution_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+                        elif line.startswith('실행 상태:'):
+                            status = line.replace('실행 상태:', '').strip()
+                        elif line.startswith('매수 건수:'):
+                            buy_str = line.replace('매수 건수:', '').replace('건', '').strip()
+                            buy_count = int(buy_str)
+                        elif line.startswith('매도 건수:'):
+                            sell_str = line.replace('매도 건수:', '').replace('건', '').strip()
+                            sell_count = int(sell_str)
+                        elif line.startswith('메시지:'):
+                            message = line.replace('메시지:', '').strip()
+                        elif line.startswith('실행 유형:'):
+                            execution_type = line.replace('실행 유형:', '').strip()
+                    
+                    if execution_time and execution_time >= cutoff_date:
+                        history.append({
+                            'execution_time': execution_time.strftime('%Y-%m-%d %H:%M:%S'),
+                            'status': status,
+                            'buy_count': buy_count,
+                            'sell_count': sell_count,
+                            'message': message,
+                            'execution_type': execution_type
+                        })
+                        
+                except Exception as e:
+                    print(f"이력 파싱 오류: {e}")
+                    continue
             
             return sorted(history, key=lambda x: x['execution_time'], reverse=True)
         except Exception as e:
