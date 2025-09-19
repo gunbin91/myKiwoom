@@ -90,20 +90,11 @@
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-3">
-            <label for="date-from" class="form-label">시작일</label>
+            <label for="order-date" class="form-label">조회일자</label>
             <input
               type="date"
               class="form-control"
-              id="date-from"
-              onchange="filterOrders()"
-            />
-          </div>
-          <div class="col-md-3">
-            <label for="date-to" class="form-label">종료일</label>
-            <input
-              type="date"
-              class="form-control"
-              id="date-to"
+              id="order-date"
               onchange="filterOrders()"
             />
           </div>
@@ -126,20 +117,6 @@
               class="form-control"
               id="stock-search"
               placeholder="종목명 또는 코드"
-              onkeyup="filterOrders()"
-            />
-          </div>
-        </div>
-        <div class="row g-3 mt-2">
-          <div class="col-md-3">
-            <label for="order-no-search" class="form-label"
-              >주문번호 검색</label
-            >
-            <input
-              type="text"
-              class="form-control"
-              id="order-no-search"
-              placeholder="주문번호"
               onkeyup="filterOrders()"
             />
           </div>
@@ -353,10 +330,8 @@
 
       // 기본 날짜 설정 (최근 7일)
       const today = new Date();
-      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-      document.getElementById('date-to').value = today.toISOString().split('T')[0];
-      document.getElementById('date-from').value = weekAgo.toISOString().split('T')[0];
+      // 기본값을 오늘 날짜로 설정
+      document.getElementById('order-date').value = today.toISOString().split('T')[0];
 
       loadOrders();
 
@@ -389,19 +364,17 @@
   }
 
   function loadExecutedOrders() {
-      const startDate = document.getElementById('date-from').value.replace(/-/g, '');
-      const endDate = document.getElementById('date-to').value.replace(/-/g, '');
+      const orderDate = document.getElementById('order-date').value.replace(/-/g, '');
       const orderType = document.getElementById('order-type-filter').value;
       const stockSearch = document.getElementById('stock-search').value;
-      const orderNoSearch = document.getElementById('order-no-search').value;
 
-      // 날짜 범위가 설정된 경우 과거 이력 API 사용, 그렇지 않으면 당일 체결 API 사용
-      const useHistoryAPI = startDate && endDate && (startDate !== endDate || startDate !== new Date().toISOString().slice(0, 10).replace(/-/g, ''));
-      const apiEndpoint = useHistoryAPI ? '/api/account/orders/executed/history' : '/api/account/orders/executed';
+      // 특정일 조회이므로 항상 이력 API 사용
+      const apiEndpoint = '/api/account/orders/executed/history';
+
 
       const params = new URLSearchParams({
-          start_date: startDate,
-          end_date: endDate
+          start_date: orderDate,
+          end_date: orderDate
       });
 
       // 서버사이드에서 지원하는 필터링만 전송
@@ -411,10 +384,6 @@
 
       if (stockSearch) {
           params.append('stock_code', stockSearch);
-      }
-
-      if (orderNoSearch) {
-          params.append('order_no', orderNoSearch);
       }
 
       fetch(`${apiEndpoint}?${params.toString()}`)
@@ -450,6 +419,16 @@
 
 
   function loadUnexecutedOrders() {
+      const orderDate = document.getElementById('order-date').value.replace(/-/g, '');
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+      // 미체결내역은 실시간 데이터이므로 오늘 날짜가 아닌 경우 빈 데이터 표시
+      if (orderDate && orderDate !== today) {
+          document.getElementById('unexecuted-orders-tbody').innerHTML =
+              '<tr><td colspan="8" class="text-center text-muted">미체결 주문은 실시간 데이터입니다.<br><small class="text-muted">과거 날짜의 미체결 주문은 조회할 수 없습니다.</small></td></tr>';
+          return;
+      }
+
       fetch('/api/account/orders/unexecuted')
           .then(response => response.json())
           .then(data => {
@@ -511,7 +490,6 @@
   function getFilteredOrders(orders) {
       const orderType = document.getElementById('order-type-filter').value;
       const searchTerm = document.getElementById('stock-search').value.toLowerCase();
-      const orderNoSearch = document.getElementById('order-no-search').value;
 
       let filteredData = orders;
 
@@ -532,13 +510,6 @@
           );
       }
 
-      // 주문번호 검색 필터링
-      if (orderNoSearch) {
-          filteredData = filteredData.filter(order =>
-              (order.ord_no || '').includes(orderNoSearch) ||
-              (order.orig_ord_no || '').includes(orderNoSearch)
-          );
-      }
 
       return filteredData;
   }
@@ -554,12 +525,13 @@
           const orderTypeClass = order.sell_tp === '1' ? 'text-danger' : 'text-success';
 
           // 체결율 계산 (서버에서 계산된 값 사용, 없으면 클라이언트에서 계산)
+          const orderQty = parseFloat(order.ord_qty || '0');
+          const cntrQty = parseFloat(order.cntr_qty || '0');
+
           let executionRate = '0.0';
           if (order.cntr_rate !== undefined) {
               executionRate = parseFloat(order.cntr_rate).toFixed(1);
           } else {
-              const orderQty = parseFloat(order.ord_qty || '0');
-              const cntrQty = parseFloat(order.cntr_qty || '0');
               executionRate = orderQty > 0 ? ((cntrQty / orderQty) * 100).toFixed(1) : '0.0';
           }
 
@@ -755,12 +727,12 @@
   }
 
   function filterOrders() {
-      const startDate = document.getElementById('date-from').value;
-      const endDate = document.getElementById('date-to').value;
+      const orderDate = document.getElementById('order-date').value;
 
       // 날짜가 변경된 경우 서버에서 새로 로드
-      if (startDate && endDate) {
+      if (orderDate) {
           loadExecutedOrders();
+          loadUnexecutedOrders(); // 미체결내역도 함께 로드
       } else {
           // 클라이언트 사이드 필터링 (날짜 변경이 아닌 경우)
           const filteredData = getFilteredOrders(executedOrdersData);

@@ -539,12 +539,70 @@ def get_unexecuted_orders():
         return error_response
     
     try:
-        result = get_current_account().get_unexecuted_orders()
-        if result:
-            return jsonify({
-                'success': True,
-                'data': result
-            })
+        # ka10075 API 사용 (미체결요청) - 키움 개발가이드에 맞게 수정
+        result = get_current_account().get_unexecuted_orders(
+            all_stock_type="0",  # 0: 전체, 1: 종목
+            trade_type="0",      # 0: 전체, 1: 매도, 2: 매수
+            stock_code="",       # 공백시 전체종목
+            exchange="KRX"       # KRX: 한국거래소
+        )
+        
+        if result and result.get('success') is not False:
+            # ka10075 API 응답 데이터 구조에 맞게 매핑 (키움 개발가이드 기준)
+            if 'oso' in result:
+                mapped_data = {
+                    'oso': []  # 미체결 주문
+                }
+                
+                for order in result['oso']:
+                    # 매도수구분 판단
+                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
+                    
+                    # 주문시간 처리 (tm이 "HHMMSS" 형태) - ka10075 API 기준
+                    tm = order.get('tm', '')
+                    if len(tm) >= 6:
+                        # "154113" 형식인 경우 (HHMMSS)
+                        ord_time = tm[:2] + ':' + tm[2:4] + ':' + tm[4:6]
+                        ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
+                    elif ':' in tm:
+                        # "15:41:13" 형식인 경우
+                        ord_time = tm
+                        ord_date = datetime.now().strftime('%Y%m%d')
+                    else:
+                        # 시간만 있는 경우 오늘 날짜 사용
+                        ord_date = datetime.now().strftime('%Y%m%d')
+                        ord_time = tm
+                    
+                    mapped_order = {
+                        'ord_no': order.get('ord_no', ''),
+                        'stk_cd': order.get('stk_cd', ''),
+                        'stk_nm': order.get('stk_nm', ''),
+                        'sell_tp': sell_tp,
+                        'ord_qty': order.get('ord_qty', '0'),
+                        'ord_pric': order.get('ord_pric', '0'),  # ka10075 API: ord_pric
+                        'oso_qty': order.get('oso_qty', '0'),   # ka10075 API: oso_qty (미체결수량)
+                        'ord_stt': order.get('ord_stt', ''),    # ka10075 API: ord_stt (주문상태)
+                        'ord_dt': ord_date,
+                        'ord_tm': ord_time,
+                        'orig_ord_no': order.get('orig_ord_no', ''),  # ka10075 API: orig_ord_no
+                        'trde_tp': order.get('trde_tp', ''),    # ka10075 API: trde_tp (매매구분)
+                        'io_tp_nm': order.get('io_tp_nm', ''),  # ka10075 API: io_tp_nm (주문구분)
+                        'stex_tp': order.get('stex_tp', ''),    # ka10075 API: stex_tp (거래소구분)
+                        'stex_tp_txt': order.get('stex_tp_txt', ''),  # ka10075 API: stex_tp_txt
+                        'sor_yn': order.get('sor_yn', ''),      # ka10075 API: sor_yn (SOR 여부)
+                        'stop_pric': order.get('stop_pric', '') # ka10075 API: stop_pric (스톱가)
+                    }
+                    mapped_data['oso'].append(mapped_order)
+                
+                return jsonify({
+                    'success': True,
+                    'data': mapped_data
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'data': {'oso': []}
+                })
         else:
             return jsonify({
                 'success': False,
@@ -580,76 +638,92 @@ def get_executed_orders():
         elif order_type == "sell":
             sell_type = "1"  # 매도
         
+        # ka10076 API 사용 (체결요청) - 키움 개발가이드에 맞게 수정
         result = get_current_account().get_executed_orders(
-            query_type="0",  # 전체
+            query_type="0",  # 0: 전체, 1: 종목
             sell_type=sell_type,
             start_date=start_date,  # ka10076은 날짜 필터링 미지원이지만 파라미터는 유지
             end_date=end_date,
-            exchange="1",  # 1: KRX
+            exchange="1",  # 1: KRX (키움 개발가이드: 0: 통합, 1: KRX, 2: NXT)
             stock_code=stock_code,
             from_order_no=order_no
         )
         
         if result and result.get('success') is not False:
-            # ka10076 API 응답 데이터 구조에 맞게 매핑
+            # ka10076 API 응답 데이터 구조에 맞게 매핑 (키움 개발가이드 기준)
             if 'cntr' in result:
-                # ka10076 API 응답을 프론트엔드가 기대하는 구조로 매핑
                 mapped_data = {
                     'cntr': []
                 }
                 
                 for order in result['cntr']:
-                    # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
-                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
+                    # ka10076 API는 체결된 주문만 반환하므로 체결수량 확인
+                    cntr_qty = int(order.get('cntr_qty', '0') or '0')
+                    if cntr_qty > 0:
+                        # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
+                        sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
+                        
+                        # 체결금액 계산 (체결수량 * 체결가) - 안전한 정수 변환
+                        try:
+                            cntr_pric = int(order.get('cntr_pric', '0') or '0')
+                            cntr_amt = str(cntr_qty * cntr_pric)
+                        except (ValueError, TypeError):
+                            cntr_qty = 0
+                            cntr_pric = 0
+                            cntr_amt = '0'
                     
-                    # 체결금액 계산 (체결수량 * 체결가) - 안전한 정수 변환
-                    try:
-                        cntr_qty = int(order.get('cntr_qty', '0') or '0')
-                        cntr_pric = int(order.get('cntr_pric', '0') or '0')
-                        cntr_amt = str(cntr_qty * cntr_pric)
-                    except (ValueError, TypeError):
-                        cntr_qty = 0
-                        cntr_pric = 0
-                        cntr_amt = '0'
-                    
-                    # 오늘 날짜와 주문시간을 결합하여 완전한 날짜시간 생성
-                    today = datetime.now().strftime('%Y%m%d')
-                    ord_tm = order.get('ord_tm', '')
-                    
-                    # 체결율 계산
-                    try:
-                        ord_qty = int(order.get('ord_qty', '0') or '0')
-                        cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
-                    except (ValueError, TypeError, ZeroDivisionError):
-                        cntr_rate = 0
-                    
-                    mapped_order = {
-                        'ord_no': order.get('ord_no', ''),
-                        'stk_cd': order.get('stk_cd', ''),
-                        'stk_nm': order.get('stk_nm', ''),
-                        'sell_tp': sell_tp,
-                        'ord_qty': order.get('ord_qty', '0'),
-                        'cntr_qty': order.get('cntr_qty', '0'),
-                        'cntr_rate': cntr_rate,  # 체결율 추가
-                        'cntr_pric': order.get('cntr_pric', '0'),
-                        'cntr_amt': cntr_amt,
-                        'cmsn': order.get('tdy_trde_cmsn', '0'),  # 수수료
-                        'tax': order.get('tdy_trde_tax', '0'),   # 세금
-                        'cntr_dt': today,  # 오늘 날짜
-                        'cntr_tm': ord_tm,  # 주문시간
-                        'ord_dt': today,    # 주문날짜 (오늘)
-                        'ord_tm': ord_tm,   # 주문시간
-                        'ord_pric': order.get('ord_pric', '0'),
-                        'orig_ord_no': order.get('orig_ord_no', ''),
-                        'ord_stt': order.get('ord_stt', ''),
-                        'trde_tp': order.get('trde_tp', ''),
-                        'io_tp_nm': order.get('io_tp_nm', ''),
-                        'stex_tp': order.get('stex_tp', ''),  # 거래소구분 추가
-                        'stex_tp_txt': order.get('stex_tp_txt', ''),  # 거래소구분텍스트 추가
-                        'sor_yn': order.get('sor_yn', ''),  # SOR 여부 추가
-                        'stop_pric': order.get('stop_pric', '')  # 스톱가 추가
-                    }
-                    mapped_data['cntr'].append(mapped_order)
+                        # 주문시간 처리 (ord_tm이 "HHMMSS" 형태) - ka10076 API 기준
+                        ord_tm = order.get('ord_tm', '')
+                        if len(ord_tm) >= 6:
+                            # "153815" 형식인 경우 (HHMMSS)
+                            ord_time = ord_tm[:2] + ':' + ord_tm[2:4] + ':' + ord_tm[4:6]
+                            ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
+                        elif ':' in ord_tm:
+                            # "15:38:15" 형식인 경우
+                            ord_time = ord_tm
+                            ord_date = datetime.now().strftime('%Y%m%d')
+                        else:
+                            # 시간만 있는 경우 오늘 날짜 사용
+                            ord_date = datetime.now().strftime('%Y%m%d')
+                            ord_time = ord_tm
+                        
+                        # 체결율 계산
+                        try:
+                            ord_qty = int(order.get('ord_qty', '0') or '0')
+                            cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
+                        except (ValueError, TypeError, ZeroDivisionError):
+                            cntr_rate = 0
+                        
+                        mapped_order = {
+                            'ord_no': order.get('ord_no', ''),
+                            'stk_cd': order.get('stk_cd', ''),
+                            'stk_nm': order.get('stk_nm', ''),
+                            'sell_tp': sell_tp,
+                            'ord_qty': order.get('ord_qty', '0'),
+                            'cntr_qty': order.get('cntr_qty', '0'),
+                            'cntr_rate': cntr_rate,  # 체결율 추가
+                            'cntr_pric': order.get('cntr_uv', '0'),  # 키움 개발가이드: cntr_uv
+                            'cntr_amt': cntr_amt,
+                            'cmsn': '0',  # kt00009에서는 수수료 정보 없음
+                            'tax': '0',   # kt00009에서는 세금 정보 없음
+                            'cntr_dt': ord_date,
+                            'cntr_tm': ord_time,
+                            'ord_dt': ord_date,
+                            'ord_tm': ord_time,
+                            'ord_pric': order.get('ord_uv', '0'),  # 키움 개발가이드: ord_uv
+                            'orig_ord_no': order.get('orig_ord_no', ''),  # 키움 개발가이드: orig_ord_no
+                            'ord_stt': order.get('acpt_tp', ''),  # 키움 개발가이드: acpt_tp (접수구분)
+                            'trde_tp': order.get('trde_tp', ''),  # 키움 개발가이드: trde_tp (매매구분)
+                            'io_tp_nm': order.get('io_tp_nm', ''),  # 키움 개발가이드: io_tp_nm (주문유형구분)
+                            'stk_bond_tp': order.get('stk_bond_tp', ''),  # 주식채권구분 추가
+                            'setl_tp': order.get('setl_tp', ''),  # 결제구분 추가
+                            'crd_deal_tp': order.get('crd_deal_tp', ''),  # 신용거래구분 추가
+                            'comm_ord_tp': order.get('comm_ord_tp', ''),  # 통신구분 추가
+                            'mdfy_cncl_tp': order.get('mdfy_cncl_tp', ''),  # 정정/취소구분 추가
+                            'dmst_stex_tp': order.get('dmst_stex_tp', ''),  # 거래소구분 추가
+                            'cond_uv': order.get('cond_uv', '')  # 스톱가 추가
+                        }
+                        mapped_data['cntr'].append(mapped_order)
                 
                 return jsonify({
                     'success': True,
@@ -684,17 +758,15 @@ def get_executed_orders():
 
 @app.route('/api/account/orders/executed/history')
 def get_executed_orders_history():
-    """체결 주문 이력 조회 - kt00007 API 사용 (과거 이력 포함)"""
+    """체결 주문 이력 조회 - kt00007 API 사용 (특정일 조회)"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
     
-    # 쿼리 파라미터에서 필터링 조건 가져오기
-    start_date = request.args.get('start_date', (datetime.now() - timedelta(days=7)).strftime('%Y%m%d'))
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+    # 쿼리 파라미터에서 필터링 조건 가져오기 (특정일 조회)
+    order_date = request.args.get('start_date', datetime.now().strftime('%Y%m%d'))
     order_type = request.args.get('order_type', '0')
     stock_code = request.args.get('stock_code', '')
-    order_no = request.args.get('order_no', '')
     
     try:
         # 매도수구분 매핑 (프론트엔드: buy/sell -> API: 2/1)
@@ -704,86 +776,98 @@ def get_executed_orders_history():
         elif order_type == "sell":
             sell_type = "1"  # 매도
         
-        # kt00007 API 사용 (과거 이력 조회 가능)
+        # kt00007 API 사용 (계좌별주문체결내역상세요청) - 키움 개발가이드에 맞게 수정
+        # 모의서버에서는 날짜 범위를 지정하면 빈 배열이 반환되므로 날짜 파라미터 제거
+        from src.utils.server_manager import get_current_server
+        current_server = get_current_server()
+        
+        # 모의서버와 실전서버 모두 특정일 조회 사용
         result = get_current_account().get_executed_orders_history(
-            query_type="1",  # 주문순 (더 일반적인 기본값)
+            query_type="1",  # 1: 주문순, 2: 역순, 3: 미체결, 4: 체결내역만
             sell_type=sell_type,
-            start_date=start_date,
-            exchange="%",    # 전체 거래소
+            start_date=order_date,
+            exchange="%",    # %: 전체 거래소
             stock_code=stock_code,
-            from_order_no=order_no
+            from_order_no=""
         )
         
         if result and result.get('success') is not False:
-            # kt00007 API 응답 데이터 구조에 맞게 매핑
+            # kt00007 API 응답 데이터 구조에 맞게 매핑 (키움 개발가이드 기준)
             if 'acnt_ord_cntr_prps_dtl' in result:
                 mapped_data = {
                     'cntr': []
                 }
                 
                 for order in result['acnt_ord_cntr_prps_dtl']:
-                    # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
-                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
-                    
-                    # 체결금액 계산 (안전한 정수 변환)
-                    try:
-                        cntr_qty = int(order.get('cntr_qty', '0') or '0')
-                        cntr_uv = int(order.get('cntr_uv', '0') or '0')
-                        cntr_amt = str(cntr_qty * cntr_uv)
-                    except (ValueError, TypeError):
-                        cntr_qty = 0
-                        cntr_uv = 0
-                        cntr_amt = '0'
-                    
-                    # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태)
-                    ord_tm = order.get('ord_tm', '')
-                    if ':' in ord_tm:
-                        # "13:05:43" 형식인 경우
-                        ord_time = ord_tm
-                        ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
-                    elif len(ord_tm) >= 8:
-                        # "YYYYMMDDHHMMSS" 형식인 경우 (기존 로직 유지)
-                        ord_date = ord_tm[:8]  # YYYYMMDD
-                        ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''  # HHMMSS
-                    else:
-                        # 시간만 있는 경우 오늘 날짜 사용
-                        ord_date = datetime.now().strftime('%Y%m%d')
-                        ord_time = ord_tm
-                    
-                    # 체결율 계산
-                    try:
-                        ord_qty = int(order.get('ord_qty', '0') or '0')
-                        cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
-                    except (ValueError, TypeError, ZeroDivisionError):
-                        cntr_rate = 0
-                    
-                    mapped_order = {
-                        'ord_no': order.get('ord_no', ''),
-                        'stk_cd': order.get('stk_cd', ''),
-                        'stk_nm': order.get('stk_nm', ''),
-                        'sell_tp': sell_tp,
-                        'ord_qty': order.get('ord_qty', '0'),
-                        'cntr_qty': order.get('cntr_qty', '0'),
-                        'cntr_rate': cntr_rate,  # 체결율 추가
-                        'cntr_pric': order.get('cntr_uv', '0'),  # 체결단가
-                        'cntr_amt': cntr_amt,
-                        'cmsn': '0',  # kt00007에서는 수수료 정보 없음
-                        'tax': '0',   # kt00007에서는 세금 정보 없음
-                        'cntr_dt': ord_date,
-                        'cntr_tm': ord_time,
-                        'ord_dt': ord_date,
-                        'ord_tm': ord_time,
-                        'ord_pric': order.get('ord_uv', '0'),
-                        'orig_ord_no': order.get('ori_ord', ''),
-                        'ord_stt': order.get('acpt_tp', ''),
-                        'trde_tp': order.get('trde_tp', ''),
-                        'io_tp_nm': order.get('io_tp_nm', ''),
-                        'crd_tp': order.get('crd_tp', ''),  # 신용구분 추가
-                        'comm_ord_tp': order.get('comm_ord_tp', ''),  # 통신구분 추가
-                        'mdfy_cncl': order.get('mdfy_cncl', ''),  # 정정취소 추가
-                        'dmst_stex_tp': order.get('dmst_stex_tp', '')  # 거래소구분 추가
-                    }
-                    mapped_data['cntr'].append(mapped_order)
+                    # 체결수량이 있는 주문만 처리 (체결된 주문)
+                    cntr_qty = int(order.get('cntr_qty', '0') or '0')
+                    if cntr_qty > 0:
+                        # 모의서버에서는 날짜 필터링 없이 모든 데이터 반환
+                        # (모의서버 API가 이미 날짜별로 데이터를 제공하므로)
+                        # 매도수구분 판단 (io_tp_nm에서 "매도" 포함 여부로 판단)
+                        sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
+                        
+                        # 체결금액 계산 (안전한 정수 변환)
+                        try:
+                            cntr_uv = int(order.get('cntr_uv', '0') or '0')
+                            cntr_amt = str(cntr_qty * cntr_uv)
+                        except (ValueError, TypeError):
+                            cntr_qty = 0
+                            cntr_uv = 0
+                            cntr_amt = '0'
+                        
+                        # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태) - kt00007 API 기준
+                        ord_tm = order.get('ord_tm', '')
+                        if ':' in ord_tm:
+                            # "13:05:43" 형식인 경우
+                            ord_time = ord_tm
+                            ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
+                        elif len(ord_tm) >= 8:
+                            # "YYYYMMDDHHMMSS" 형식인 경우
+                            ord_date = ord_tm[:8]  # YYYYMMDD
+                            ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''  # HHMMSS
+                        else:
+                            # 시간만 있는 경우 오늘 날짜 사용
+                            ord_date = datetime.now().strftime('%Y%m%d')
+                            ord_time = ord_tm
+                        
+                        # 체결율 계산
+                        try:
+                            ord_qty = int(order.get('ord_qty', '0') or '0')
+                            cntr_rate = round((cntr_qty / ord_qty * 100), 2) if ord_qty > 0 else 0
+                        except (ValueError, TypeError, ZeroDivisionError):
+                            cntr_rate = 0
+                        
+                        mapped_order = {
+                            'ord_no': order.get('ord_no', ''),
+                            'stk_cd': order.get('stk_cd', ''),
+                            'stk_nm': order.get('stk_nm', ''),
+                            'sell_tp': sell_tp,
+                            'ord_qty': order.get('ord_qty', '0'),
+                            'cntr_qty': order.get('cntr_qty', '0'),
+                            'cntr_rate': cntr_rate,  # 체결율 추가
+                            'cntr_pric': order.get('cntr_uv', '0'),  # 키움 개발가이드: cntr_uv
+                            'cntr_amt': cntr_amt,
+                            'cmsn': '0',  # kt00009에서는 수수료 정보 없음
+                            'tax': '0',   # kt00009에서는 세금 정보 없음
+                            'cntr_dt': ord_date,
+                            'cntr_tm': ord_time,
+                            'ord_dt': ord_date,
+                            'ord_tm': ord_time,
+                            'ord_pric': order.get('ord_uv', '0'),  # 키움 개발가이드: ord_uv
+                            'orig_ord_no': order.get('orig_ord_no', ''),  # 키움 개발가이드: orig_ord_no
+                            'ord_stt': order.get('acpt_tp', ''),  # 키움 개발가이드: acpt_tp (접수구분)
+                            'trde_tp': order.get('trde_tp', ''),  # 키움 개발가이드: trde_tp (매매구분)
+                            'io_tp_nm': order.get('io_tp_nm', ''),  # 키움 개발가이드: io_tp_nm (주문유형구분)
+                            'stk_bond_tp': order.get('stk_bond_tp', ''),  # 주식채권구분 추가
+                            'setl_tp': order.get('setl_tp', ''),  # 결제구분 추가
+                            'crd_deal_tp': order.get('crd_deal_tp', ''),  # 신용거래구분 추가
+                            'comm_ord_tp': order.get('comm_ord_tp', ''),  # 통신구분 추가
+                            'mdfy_cncl_tp': order.get('mdfy_cncl_tp', ''),  # 정정/취소구분 추가
+                            'dmst_stex_tp': order.get('dmst_stex_tp', ''),  # 거래소구분 추가
+                            'cond_uv': order.get('cond_uv', '')  # 스톱가 추가
+                        }
+                        mapped_data['cntr'].append(mapped_order)
                 
                 return jsonify({
                     'success': True,
@@ -841,20 +925,20 @@ def get_unified_orders():
         elif order_type == "sell":
             sell_type = "1"  # 매도
         
-        # kt00009 API 사용 (통합 주문내역 조회)
+        # kt00009 API 사용 (통합 주문내역 조회) - 키움 개발가이드에 맞게 수정
         result = get_current_account().get_order_status(
             start_date=start_date,
             end_date=end_date,
-            query_type="0",  # 전체 (체결/미체결 모두)
+            query_type="0",  # 0: 전체, 1: 체결
             sell_type=sell_type,
             stock_code=stock_code,
             from_order_no=order_no,
-            market_type="0",  # 전체 시장
-            exchange="KRX"
+            market_type="0",  # 0: 전체, 1: 코스피, 2: 코스닥
+            exchange="KRX"  # KRX: 한국거래소, NXT: 넥스트트레이드, %: 전체
         )
         
         if result and result.get('success') is not False:
-            # kt00009 API 응답 데이터 구조에 맞게 매핑
+            # kt00009 API 응답 데이터 구조에 맞게 매핑 (키움 개발가이드 기준)
             if 'acnt_ord_cntr_prst_array' in result:
                 mapped_data = {
                     'cntr': [],  # 체결내역
@@ -862,8 +946,9 @@ def get_unified_orders():
                 }
                 
                 for order in result['acnt_ord_cntr_prst_array']:
-                    # 매도수구분 판단
-                    sell_tp = '1' if '매도' in order.get('io_tp_nm', '') else '0'
+                    # 매도수구분 판단 (io_tp_nm에서 판단)
+                    io_tp_nm = order.get('io_tp_nm', '')
+                    sell_tp = '1' if '매도' in io_tp_nm else '0'
                     
                     # 체결수량과 주문수량 비교하여 체결/미체결 구분 - 안전한 정수 변환
                     try:
@@ -873,7 +958,8 @@ def get_unified_orders():
                         cntr_qty = 0
                         ord_qty = 0
                     
-                    if cntr_qty > 0:  # 체결된 주문
+                    # 체결수량이 있고 주문수량보다 작거나 같으면 체결, 아니면 미체결
+                    if cntr_qty > 0 and cntr_qty <= ord_qty:  # 체결된 주문
                         # 체결금액 계산 - 안전한 정수 변환
                         try:
                             cntr_uv = int(order.get('cntr_uv', '0') or '0')
@@ -881,20 +967,20 @@ def get_unified_orders():
                         except (ValueError, TypeError):
                             cntr_amt = '0'
                         
-                        # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태)
-                        ord_tm = order.get('ord_tm', '')
-                        if ':' in ord_tm:
+                        # 체결시간 처리 (cntr_tm이 "HH:MM:SS" 형태) - 키움 개발가이드 기준
+                        cntr_tm = order.get('cntr_tm', '')
+                        if ':' in cntr_tm:
                             # "13:05:43" 형식인 경우
-                            ord_time = ord_tm
+                            ord_time = cntr_tm
                             ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
-                        elif len(ord_tm) >= 8:
-                            # "YYYYMMDDHHMMSS" 형식인 경우 (기존 로직 유지)
-                            ord_date = ord_tm[:8]
-                            ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''
+                        elif len(cntr_tm) >= 8:
+                            # "YYYYMMDDHHMMSS" 형식인 경우
+                            ord_date = cntr_tm[:8]
+                            ord_time = cntr_tm[8:] if len(cntr_tm) > 8 else ''
                         else:
                             # 시간만 있는 경우 오늘 날짜 사용
                             ord_date = datetime.now().strftime('%Y%m%d')
-                            ord_time = ord_tm
+                            ord_time = cntr_tm
                         
                         # 체결율 계산
                         try:
@@ -919,10 +1005,10 @@ def get_unified_orders():
                             'ord_dt': ord_date,
                             'ord_tm': ord_time,
                             'ord_pric': order.get('ord_uv', '0'),
-                            'orig_ord_no': order.get('orig_ord_no', ''),  # 개발가이드에 맞게 수정
-                            'ord_stt': order.get('acpt_tp', ''),
-                            'trde_tp': order.get('trde_tp', ''),
-                            'io_tp_nm': order.get('io_tp_nm', ''),
+                            'orig_ord_no': order.get('orig_ord_no', ''),  # 키움 개발가이드: orig_ord_no
+                            'ord_stt': order.get('acpt_tp', ''),  # 키움 개발가이드: acpt_tp (접수구분)
+                            'trde_tp': order.get('trde_tp', ''),  # 키움 개발가이드: trde_tp (매매구분)
+                            'io_tp_nm': order.get('io_tp_nm', ''),  # 키움 개발가이드: io_tp_nm (주문유형구분)
                             'stk_bond_tp': order.get('stk_bond_tp', ''),  # 주식채권구분 추가
                             'setl_tp': order.get('setl_tp', ''),  # 결제구분 추가
                             'crd_deal_tp': order.get('crd_deal_tp', ''),  # 신용거래구분 추가
@@ -934,21 +1020,21 @@ def get_unified_orders():
                         }
                         mapped_data['cntr'].append(mapped_order)
                     
-                    if cntr_qty < ord_qty:  # 미체결 주문
+                    elif cntr_qty < ord_qty or cntr_qty == 0:  # 미체결 주문 (체결수량이 주문수량보다 작거나 0인 경우)
                         # 미체결수량 계산 - 안전한 계산
                         try:
                             oso_qty = str(ord_qty - cntr_qty)
                         except (ValueError, TypeError):
                             oso_qty = '0'
                         
-                        # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태)
+                        # 주문시간 처리 (ord_tm이 "HH:MM:SS" 형태) - 키움 개발가이드 기준
                         ord_tm = order.get('ord_tm', '')
                         if ':' in ord_tm:
                             # "13:05:43" 형식인 경우
                             ord_time = ord_tm
                             ord_date = datetime.now().strftime('%Y%m%d')  # 오늘 날짜 사용
                         elif len(ord_tm) >= 8:
-                            # "YYYYMMDDHHMMSS" 형식인 경우 (기존 로직 유지)
+                            # "YYYYMMDDHHMMSS" 형식인 경우
                             ord_date = ord_tm[:8]
                             ord_time = ord_tm[8:] if len(ord_tm) > 8 else ''
                         else:
@@ -960,15 +1046,16 @@ def get_unified_orders():
                             'ord_no': order.get('ord_no', ''),
                             'stk_cd': order.get('stk_cd', ''),
                             'stk_nm': order.get('stk_nm', ''),
+                            'sell_tp': sell_tp,  # 매도수구분 추가
                             'ord_qty': order.get('ord_qty', '0'),
                             'ord_pric': order.get('ord_uv', '0'),
                             'oso_qty': oso_qty,
-                            'ord_stt': order.get('acpt_tp', ''),
+                            'ord_stt': order.get('acpt_tp', ''),  # 키움 개발가이드: acpt_tp (접수구분)
                             'ord_dt': ord_date,
                             'ord_tm': ord_time,
-                            'orig_ord_no': order.get('orig_ord_no', ''),  # 개발가이드에 맞게 수정
-                            'trde_tp': order.get('trde_tp', ''),
-                            'io_tp_nm': order.get('io_tp_nm', ''),
+                            'orig_ord_no': order.get('orig_ord_no', ''),  # 키움 개발가이드: orig_ord_no
+                            'trde_tp': order.get('trde_tp', ''),  # 키움 개발가이드: trde_tp (매매구분)
+                            'io_tp_nm': order.get('io_tp_nm', ''),  # 키움 개발가이드: io_tp_nm (주문유형구분)
                             'stk_bond_tp': order.get('stk_bond_tp', ''),  # 주식채권구분 추가
                             'setl_tp': order.get('setl_tp', ''),  # 결제구분 추가
                             'crd_deal_tp': order.get('crd_deal_tp', ''),  # 신용거래구분 추가

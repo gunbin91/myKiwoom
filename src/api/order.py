@@ -294,10 +294,10 @@ class KiwoomOrder:
         trading_logger.info(f"취소주문 (주문번호: {order_no}, 종목: {stock_code} -> {order_stock_code}, 수량: {quantity})")
         
         data = {
-            'ord_no': order_no,
+            'orig_ord_no': order_no,  # 원주문번호 (kt10003 API 기준)
             'stk_cd': order_stock_code,  # 변환된 종목코드 사용
-            'ord_qty': str(quantity),
-            'acnt_tp': account_type
+            'cncl_qty': str(quantity),  # 취소수량 (kt10003 API 기준)
+            'dmst_stex_tp': 'KRX'  # 국내거래소구분 (필수 파라미터)
         }
         
         result = self._make_request('kt10003', data)
