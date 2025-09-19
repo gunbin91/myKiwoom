@@ -492,8 +492,12 @@
           showAlert("세션이 만료되었습니다. 다시 로그인해주세요.", "warning");
           return;
         } else {
+          let message = '매매 내역이 없습니다.';
+          if (data.message) {
+            message = data.message;
+          }
           document.getElementById("daily-trades-tbody").innerHTML =
-            '<tr><td colspan="9" class="text-center text-muted">매매 내역이 없습니다.</td></tr>';
+            `<tr><td colspan="9" class="text-center text-muted">${message}</td></tr>`;
         }
       })
       .catch((error) => {
@@ -525,8 +529,12 @@
           showAlert("세션이 만료되었습니다. 다시 로그인해주세요.", "warning");
           return;
         } else {
+          let message = '월별 매매 내역이 없습니다.';
+          if (data.message) {
+            message = data.message;
+          }
           document.getElementById("monthly-trades-tbody").innerHTML =
-            '<tr><td colspan="9" class="text-center text-muted">월별 매매 내역이 없습니다.</td></tr>';
+            `<tr><td colspan="9" class="text-center text-muted">${message}</td></tr>`;
         }
       })
       .catch((error) => {
@@ -559,8 +567,12 @@
           showAlert("세션이 만료되었습니다. 다시 로그인해주세요.", "warning");
           return;
         } else {
+          let message = '분석 데이터가 없습니다.';
+          if (data.message) {
+            message = data.message;
+          }
           document.getElementById("stock-analysis-tbody").innerHTML =
-            '<tr><td colspan="8" class="text-center text-muted">분석 데이터가 없습니다.</td></tr>';
+            `<tr><td colspan="8" class="text-center text-muted">${message}</td></tr>`;
         }
       })
       .catch((error) => {
@@ -888,25 +900,37 @@
                 `;
 
           trades.forEach((trade) => {
-            const orderType = trade.sell_tp === "1" ? "매도" : "매수";
-            const orderTypeClass =
-              trade.sell_tp === "1" ? "text-danger" : "text-success";
+            // ka10170 API 응답 구조에 맞게 수정
+            const hasSell = parseFloat(trade.sell_qty || "0") > 0;
+            const hasBuy = parseFloat(trade.buy_qty || "0") > 0;
 
-            tableHTML += `
+            // 매수 정보 표시
+            if (hasBuy) {
+              tableHTML += `
                         <tr>
-                            <td>${
-                              trade.cntr_tm
-                                ? trade.cntr_tm.substring(0, 2) +
-                                  ":" +
-                                  trade.cntr_tm.substring(2, 4)
-                                : "-"
-                            }</td>
+                            <td>-</td>
                             <td>${trade.stk_nm || "-"}</td>
-                            <td><span class="${orderTypeClass}">${orderType}</span></td>
-                            <td>${formatNumber(trade.cntr_qty || "0")}</td>
-                            <td>${formatNumber(trade.cntr_pric || "0")}원</td>
-                            <td>${formatNumber(trade.cntr_amt || "0")}원</td>
-                            <td>${formatNumber(trade.cmsn || "0")}원</td>
+                            <td><span class="text-success">매수</span></td>
+                            <td>${formatNumber(trade.buy_qty || "0")}</td>
+                            <td>${formatNumber(trade.buy_avg_pric || "0")}원</td>
+                            <td>${formatNumber(trade.buy_amt || "0")}원</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                    `;
+            }
+
+            // 매도 정보 표시
+            if (hasSell) {
+              tableHTML += `
+                        <tr>
+                            <td>-</td>
+                            <td>${trade.stk_nm || "-"}</td>
+                            <td><span class="text-danger">매도</span></td>
+                            <td>${formatNumber(trade.sell_qty || "0")}</td>
+                            <td>${formatNumber(trade.sel_avg_pric || "0")}원</td>
+                            <td>${formatNumber(trade.sell_amt || "0")}원</td>
+                            <td>${formatNumber(trade.cmsn_alm_tax || "0")}원</td>
                             <td class="${
                               parseFloat(trade.pl_amt || "0") >= 0
                                 ? "text-up"
@@ -916,6 +940,7 @@
                             </td>
                         </tr>
                     `;
+            }
           });
 
           tableHTML += "</tbody></table></div>";

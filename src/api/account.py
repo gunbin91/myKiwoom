@@ -436,6 +436,78 @@ class KiwoomAccount:
         
         return self._make_request('ka10170', data)
     
+    def get_account_profit_rate(self, stex_tp: str = "0") -> Optional[Dict[str, Any]]:
+        """
+        계좌수익률요청 (ka10085)
+        
+        Args:
+            stex_tp: 거래소구분 (0: 통합, 1: KRX, 2: NXT)
+            
+        Returns:
+            계좌 수익률 정보
+        """
+        api_logger.info(f"계좌수익률 조회 (거래소구분: {stex_tp})")
+        
+        data = {
+            'stex_tp': stex_tp
+        }
+        
+        return self._make_request('ka10085', data)
+    
+    def get_realized_profit_by_period(self, stock_code: str, start_date: str, end_date: str) -> Optional[Dict[str, Any]]:
+        """
+        일자별종목별실현손익요청_기간 (ka10073)
+        
+        Args:
+            stock_code: 종목코드
+            start_date: 시작일자 (YYYYMMDD)
+            end_date: 종료일자 (YYYYMMDD)
+            
+        Returns:
+            일자별 종목별 실현손익 정보
+        """
+        api_logger.info(f"일자별종목별실현손익 조회 (종목: {stock_code}, 기간: {start_date}~{end_date})")
+        
+        data = {
+            'stk_cd': stock_code,
+            'strt_dt': start_date,
+            'end_dt': end_date
+        }
+        
+        return self._make_request('ka10073', data)
+    
+    def get_trust_overall_trade_history(self, start_date: str, end_date: str, trade_type: str = "3",
+                                       stock_code: str = "", goods_type: str = "1", 
+                                       domestic_exchange_type: str = "%") -> Optional[Dict[str, Any]]:
+        """
+        위탁종합거래내역요청 (kt00015)
+        
+        Args:
+            start_date: 시작일자 (YYYYMMDD)
+            end_date: 종료일자 (YYYYMMDD)
+            trade_type: 구분 (3:매매, 4:매수, 5:매도)
+            stock_code: 종목코드 (공백:전체)
+            goods_type: 상품구분 (1:국내주식)
+            domestic_exchange_type: 국내거래소구분 (%:전체)
+            
+        Returns:
+            위탁종합거래내역 정보
+        """
+        api_logger.info(f"위탁종합거래내역 조회 (기간: {start_date}~{end_date}, 구분: {trade_type}, 종목: {stock_code or '전체'})")
+        
+        data = {
+            'strt_dt': start_date,
+            'end_dt': end_date,
+            'tp': trade_type,
+            'gds_tp': goods_type,
+            'dmst_stex_tp': domestic_exchange_type
+        }
+        
+        if stock_code:
+            data['stk_cd'] = stock_code
+        
+        return self._make_request('kt00015', data)
+    
     def get_order_possible_amount(self, stock_code: str, price: str, quantity: str) -> Optional[Dict[str, Any]]:
         """
         주문인출가능금액요청 (kt00010)
