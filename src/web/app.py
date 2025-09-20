@@ -192,6 +192,12 @@ def index():
     return render_template('dashboard.html', server_info=server_info)
 
 
+@app.route('/api-test')
+def api_test():
+    """API 테스트 페이지"""
+    return render_template('api_test.html')
+
+
 @app.route('/server-selection')
 def server_selection():
     """서버 선택 페이지"""
@@ -1111,24 +1117,14 @@ def get_unified_orders():
 
 @app.route('/api/account/trading-diary')
 def get_trading_diary():
-    """당일 매매일지 조회 - kt00015 API 사용 (최적화된 매매일지 API)"""
+    """당일 매매일지 조회"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
     
     try:
-        # 오늘 날짜로 kt00015 API 호출
-        today = datetime.now().strftime('%Y%m%d')
-        result = get_current_account().get_trust_overall_trade_history(
-            start_date=today,
-            end_date=today,
-            trade_type="3",  # 매매
-            stock_code="",   # 전체 종목
-            goods_type="1",  # 국내주식
-            domestic_exchange_type="%"  # 전체 거래소
-        )
-        
-        if result and result.get('success') is not False:
+        result = get_current_account().get_today_trading_diary()
+        if result:
             return jsonify({
                 'success': True,
                 'data': result
@@ -1136,7 +1132,7 @@ def get_trading_diary():
         else:
             return jsonify({
                 'success': False,
-                'message': '위탁종합거래내역 조회 실패'
+                'message': '매매일지 조회 실패'
             })
     except Exception as e:
         get_web_logger().error(f"매매일지 조회 실패: {e}")
@@ -2398,6 +2394,169 @@ def start_schedulers():
             
     except Exception as e:
         get_web_logger().error(f"스케줄러 시작 실패: {e}")
+
+@app.route('/api/server/current')
+def get_current_server_info():
+    """현재 서버 타입 조회"""
+    try:
+        server_config = get_current_server_config()
+        return jsonify({
+            'success': True,
+            'server_type': server_config.server_type,
+            'server_name': server_config.server_name
+        })
+    except Exception as e:
+        get_web_logger().error(f"서버 정보 조회 실패: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'서버 정보 조회 실패: {str(e)}'
+        })
+
+
+@app.route('/api/test/execute', methods=['POST'])
+def execute_api_test():
+    """API 테스트 실행"""
+    auth_ok, error_response = check_auth()
+    if not auth_ok:
+        return error_response
+    
+    try:
+        data = request.get_json()
+        api_id = data.get('api_id')
+        params = data.get('params', {})
+        
+        if not api_id:
+            return jsonify({
+                'success': False,
+                'message': 'API ID가 필요합니다.'
+            })
+        
+        # 현재 계좌 인스턴스 가져오기
+        account = get_current_account()
+        
+        # API ID에 따라 적절한 메서드 호출
+        result = None
+        
+        if api_id == 'kt00001':
+            result = account.get_deposit_detail(params.get('qry_tp', '2'))
+        elif api_id == 'kt00002':
+            result = account.get_daily_estimated_deposit_assets(
+                params.get('start_dt', ''),
+                params.get('end_dt', '')
+            )
+        elif api_id == 'kt00003':
+            result = account.get_estimated_assets(params.get('qry_tp', '0'))
+        elif api_id == 'kt00004':
+            result = account.get_account_evaluation(
+                params.get('qry_tp', '0'),
+                params.get('dmst_stex_tp', 'KRX')
+            )
+        elif api_id == 'kt00017':
+            result = account.get_daily_account_status()
+        elif api_id == 'kt00018':
+            result = account.get_account_balance_detail(
+                params.get('qry_tp', '0'),
+                params.get('dmst_stex_tp', 'KRX')
+            )
+        elif api_id == 'ka10085':
+            result = account.get_account_profit_rate(params.get('stex_tp', '0'))
+        elif api_id == 'ka10075':
+            result = account.get_unexecuted_orders(
+                params.get('all_stk_tp', '0'),
+                params.get('trde_tp', '0'),
+                params.get('stk_cd', ''),
+                params.get('stex_tp', 'KRX')
+            )
+        elif api_id == 'ka10076':
+            result = account.get_executed_orders(
+                params.get('qry_tp', '0'),
+                params.get('sell_tp', '0'),
+                params.get('start_dt', ''),
+                params.get('end_dt', ''),
+                params.get('stex_tp', 'KRX'),
+                params.get('stk_cd', ''),
+                params.get('fr_ord_no', '')
+            )
+        elif api_id == 'ka01690':
+            result = account.get_daily_balance_profit_rate(params.get('qry_dt', ''))
+        elif api_id == 'ka10073':
+            result = account.get_realized_profit_by_period(
+                params.get('stk_cd', ''),
+                params.get('strt_dt', ''),
+                params.get('end_dt', '')
+            )
+        elif api_id == 'ka10170':
+            result = account.get_today_trading_diary(
+                params.get('base_dt', ''),
+                params.get('ottks_tp', '0'),
+                params.get('ch_crd_tp', '0')
+            )
+        elif api_id == 'kt00015':
+            result = account.get_trust_overall_trade_history(
+                params.get('strt_dt', ''),
+                params.get('end_dt', ''),
+                params.get('tp', '3'),
+                params.get('stk_cd', ''),
+                params.get('gds_tp', '1'),
+                params.get('dmst_stex_tp', '%')
+            )
+        elif api_id == 'kt00007':
+            result = account.get_executed_orders_history(
+                params.get('qry_tp', '4'),
+                params.get('sell_tp', '0'),
+                params.get('ord_dt', ''),
+                params.get('ord_dt', ''),  # end_date는 start_date와 동일하게
+                params.get('dmst_stex_tp', '%'),
+                params.get('stk_cd', ''),
+                params.get('fr_ord_no', '')
+            )
+        elif api_id == 'kt00009':
+            result = account.get_order_status(
+                params.get('strt_dt', ''),
+                params.get('end_dt', ''),
+                params.get('qry_tp', '0'),
+                params.get('sell_tp', '0'),
+                params.get('stk_cd', ''),
+                params.get('fr_ord_no', ''),
+                params.get('mrkt_tp', '0'),
+                params.get('dmst_stex_tp', 'KRX')
+            )
+        elif api_id == 'kt00010':
+            result = account.get_order_possible_amount(
+                params.get('stk_cd', ''),
+                params.get('uv', ''),
+                params.get('trde_qty', '')
+            )
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'지원하지 않는 API ID: {api_id}'
+            })
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'data': result,
+                'api_id': api_id,
+                'params': params
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'API 호출 결과가 없습니다.',
+                'api_id': api_id,
+                'params': params
+            })
+            
+    except Exception as e:
+        get_web_logger().error(f"API 테스트 실행 실패: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'API 테스트 실행 실패: {str(e)}',
+            'api_id': data.get('api_id') if 'data' in locals() else None,
+            'params': data.get('params') if 'data' in locals() else {}
+        })
+
 
 if __name__ == '__main__':
     # 실시간 업데이트 스레드 시작

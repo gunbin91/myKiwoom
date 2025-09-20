@@ -40,6 +40,7 @@ class KiwoomAuth:
         self.oauth_url = auth_config['oauth_url']
         self.revoke_url = auth_config['revoke_url']
         self.token_cache_file = auth_config['token_cache_file']
+        self.domain = self.server_config.domain  # 서버 도메인 설정 추가
         self._access_token = None
         self._token_expires_at = None
         
@@ -112,6 +113,12 @@ class KiwoomAuth:
         try:
             api_logger.info(f"새로운 접근 토큰을 발급받습니다. (서버: {self.server_type})")
             
+            # 서버 상태 먼저 확인
+            if not self._check_server_status():
+                api_logger.error("키움 API 서버가 점검 중이거나 접근할 수 없습니다.")
+                api_logger.error("키움증권 고객센터(1544-5000) 또는 홈페이지를 확인해주세요.")
+                return None
+            
             headers = {
                 'Content-Type': 'application/json;charset=UTF-8'
             }
@@ -130,7 +137,23 @@ class KiwoomAuth:
             )
             
             response.raise_for_status()
-            result = response.json()
+            
+            # 응답 내용 디버깅
+            response_text = response.text
+            api_logger.info(f"토큰 발급 응답 상태코드: {response.status_code}")
+            api_logger.info(f"토큰 발급 응답 내용: {response_text}")
+            
+            # 빈 응답 체크
+            if not response_text.strip():
+                api_logger.error("토큰 발급 응답이 비어있습니다.")
+                return None
+            
+            try:
+                result = response.json()
+            except json.JSONDecodeError as e:
+                api_logger.error(f"토큰 발급 응답 JSON 파싱 실패: {e}")
+                api_logger.error(f"응답 내용: {response_text}")
+                return None
             
             if result.get('return_code') == 0:
                 token = result.get('token')
@@ -163,6 +186,20 @@ class KiwoomAuth:
         except Exception as e:
             api_logger.error(f"토큰 발급 중 오류 발생: {e}")
             return None
+    
+    def _check_server_status(self) -> bool:
+        """키움 API 서버 상태 확인"""
+        try:
+            response = requests.get(f"{self.domain}/start.html", timeout=10)
+            if response.status_code == 200:
+                api_logger.info("키움 API 서버 정상")
+                return True
+            else:
+                api_logger.warning(f"키움 API 서버 상태 이상: {response.status_code}")
+                return False
+        except Exception as e:
+            api_logger.error(f"키움 API 서버 연결 실패: {e}")
+            return False
     
     def revoke_token(self) -> bool:
         """
