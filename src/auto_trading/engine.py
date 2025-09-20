@@ -23,6 +23,7 @@ from src.api.account import KiwoomAccount
 from src.api.quote import KiwoomQuote
 from src.api.order import KiwoomOrder
 from src.utils import get_current_auto_trading_logger
+from src.utils.order_history_manager import OrderHistoryManager
 
 
 class AutoTradingEngine:
@@ -44,6 +45,9 @@ class AutoTradingEngine:
         self.account = KiwoomAccount(server_type)
         self.quote = KiwoomQuote(server_type)
         self.order = KiwoomOrder(server_type)
+        
+        # 체결내역 관리자 초기화
+        self.order_history_manager = OrderHistoryManager(server_type)
     
     def _get_logger(self):
         """로거 초기화 (지연 로딩)"""
@@ -52,6 +56,237 @@ class AutoTradingEngine:
             from src.utils import get_server_logger
             self.auto_trading_logger = get_server_logger(server_type=self.server_type, log_type="auto_trading").bind(server=self.server_type)
         return self.auto_trading_logger
+
+    def _prepare_trading_data(self):
+        """체결내역 수집 + 추천종목 분석 (공통)"""
+        # 1. 체결내역 수집
+        self.current_status = "체결내역 수집 중"
+        self.progress_percentage = 10
+        self._get_logger().info("🔍 매수 체결내역 수집 시작")
+        
+        try:
+            collection_success = self.order_history_manager.collect_order_history(max_days=30)
+            if collection_success:
+                summary = self.order_history_manager.get_data_summary()
+                self._get_logger().info(f"✅ 매수 체결내역 수집 완료: {summary['total_orders']}개 주문, {summary['stock_count']}개 종목")
+            else:
+                self._get_logger().warning("⚠️ 매수 체결내역 수집 실패 (자동매매는 계속 진행)")
+        except Exception as collection_error:
+            self._get_logger().error(f"🚨 체결내역 수집 중 오류: {collection_error}")
+        
+        # 2. 계좌 정보 조회
+        self.current_status = "계좌 정보 조회 중"
+        self.progress_percentage = 15
+        account_info = self._get_account_info()
+        
+        # 3. 추천종목 분석
+        self.current_status = "추천종목 분석 중"
+        self.progress_percentage = 25
+        analysis_result = self.analyzer.get_stock_analysis(force_realtime=True)
+        
+        # 4. 설정 로드
+        config = self.config_manager.load_config()
+        strategy_params = config.get('strategy_params', {})
+        
+        return {
+            'analysis_result': analysis_result,
+            'account_info': account_info,
+            'strategy_params': strategy_params
+        }
+
+    def _execute_trading_orders(self, analysis_result, account_info, strategy_params):
+        """공통 매매 로직 (순차적 실행)"""
+        
+        # 1. 매도 대상 선별 (보유종목 기준)
+        self.current_status = "매도 대상 선별 중"
+        self.progress_percentage = 60
+        sell_candidates = self._get_sell_candidates(account_info, strategy_params)
+        
+        # 2. 매도 실행
+        self.current_status = "매도 주문 실행 중"
+        self.progress_percentage = 65
+        self._get_logger().info("📉 매도 주문을 실행하는 중...")
+        sell_results = self._execute_sell_orders(sell_candidates, account_info, strategy_params)
+        sell_count = sell_results['success_count']
+        sell_orders = sell_results.get('sell_orders', [])
+        
+        # 3. 매도 체결 확인 및 대기
+        if sell_count > 0 and sell_orders:
+            self.current_status = "매도 체결 확인 중"
+            self.progress_percentage = 70
+            self._get_logger().info("⏳ 매도 주문 체결을 확인하는 중...")
+            
+            execution_confirmed = self._wait_for_sell_execution(sell_orders, max_wait_time=30)
+            
+            if execution_confirmed:
+                self._get_logger().info("✅ 매도 체결 확인 완료")
+            else:
+                self._get_logger().warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
+        
+        # 4. 예수금 재조회 (매도로 확보된 현금 반영)
+        if sell_count > 0:
+            self.current_status = "매도 후 계좌 정보 조회 중"
+            self.progress_percentage = 75
+            self._get_logger().info("💰 매도 후 계좌 정보를 재조회하는 중...")
+            
+            updated_account_info = self._get_account_info()
+            if updated_account_info:
+                account_info = updated_account_info
+                self._get_logger().info("✅ 매도 후 계좌 정보 업데이트 완료")
+            else:
+                self._get_logger().warning("⚠️ 매도 후 계좌 정보 조회 실패, 기존 정보 사용")
+        
+        # 5. 매수 대상 선별 (매도 후 확보된 현금 + 매도된 종목 재매수 가능)
+        self.current_status = "매수 대상 선별 중"
+        self.progress_percentage = 80
+        self._get_logger().info("📊 매수 대상을 선정하는 중...")
+        
+        buy_candidates = self._get_buy_candidates(
+            analysis_result, 
+            account_info, 
+            strategy_params,
+            sell_candidates  # 매도된 종목들을 매수 대상에 포함
+        )
+        
+        # 6. 매수 실행
+        self.current_status = "매수 주문 실행 중"
+        self.progress_percentage = 85
+        self._get_logger().info("📈 매수 주문을 실행하는 중...")
+        buy_results = self._execute_buy_orders(buy_candidates, account_info, strategy_params)
+        buy_count = buy_results['success_count']
+        buy_orders = buy_results.get('buy_orders', [])
+        
+        # 7. 매수 체결 확인 및 대기
+        if buy_count > 0 and buy_orders:
+            self.current_status = "매수 체결 확인 중"
+            self.progress_percentage = 90
+            self._get_logger().info("⏳ 매수 주문 체결을 확인하는 중...")
+            
+            execution_confirmed = self._wait_for_buy_execution(buy_orders, max_wait_time=30)
+            
+            if execution_confirmed:
+                self._get_logger().info("✅ 매수 체결 확인 완료")
+            else:
+                self._get_logger().warning("⚠️ 매수 체결 확인 시간 초과, 계속 진행합니다.")
+        
+        return {
+            'sell_results': sell_results,
+            'buy_results': buy_results,
+            'sell_count': sell_count,
+            'buy_count': buy_count
+        }
+
+    def _get_sell_candidates(self, account_info, strategy_params):
+        """매도 대상 선별 (보유종목 기준)"""
+        sell_candidates = []
+        
+        try:
+            # 보유 종목 조회 - 올바른 구조로 수정
+            balance_info = account_info.get('balance', {})
+            balance_result = balance_info.get('acnt_evlt_remn_indv_tot', [])
+            self._get_logger().debug(f"보유종목 조회: {len(balance_result)}개 종목")
+            
+            if balance_result:
+                take_profit_pct = strategy_params.get('take_profit_pct', 5.0)
+                stop_loss_pct = strategy_params.get('stop_loss_pct', 3.0)
+                max_hold_period = strategy_params.get('max_hold_period', 15)
+                
+                for stock in balance_result:
+                    stock_code = stock.get('stk_cd', '')
+                    stock_name = stock.get('stk_nm', '')
+                    quantity = int(stock.get('rmnd_qty', 0))
+                    avg_price = float(stock.get('pur_pric', 0))
+                    current_price = float(stock.get('cur_prc', 0))
+                    
+                    # 종목코드에서 A 프리픽스 제거 (6자리 숫자만 사용)
+                    clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                    
+                    self._get_logger().debug(f"보유종목 확인: {stock_name}({stock_code} → {clean_stock_code}) - 수량:{quantity}, 평균단가:{avg_price}, 현재가:{current_price}")
+                    
+                    if quantity <= 0 or avg_price <= 0 or current_price <= 0:
+                        self._get_logger().debug(f"보유종목 스킵: {stock_name}({clean_stock_code}) - 유효하지 않은 데이터")
+                        continue
+                    
+                    # 매도 조건 확인
+                    should_sell = False
+                    sell_reason = ""
+                    
+                    # 익절/손절 조건
+                    profit_rate = ((current_price - avg_price) / avg_price) * 100
+                    self._get_logger().debug(f"수익률 계산: {stock_name}({clean_stock_code}) - {profit_rate:.1f}% (익절:{take_profit_pct}%, 손절:{stop_loss_pct}%)")
+                    
+                    if profit_rate >= take_profit_pct:
+                        should_sell = True
+                        sell_reason = f"익절 ({profit_rate:.1f}%)"
+                        self._get_logger().info(f"📈 익절 조건 만족: {stock_name}({clean_stock_code}) - {profit_rate:.1f}%")
+                    elif profit_rate <= -stop_loss_pct:
+                        should_sell = True
+                        sell_reason = f"손절 ({profit_rate:.1f}%)"
+                        self._get_logger().info(f"📉 손절 조건 만족: {stock_name}({clean_stock_code}) - {profit_rate:.1f}%")
+                    
+                    # 보유기간 만료 조건 추가
+                    if not should_sell:
+                        try:
+                            holding_days = self.order_history_manager.get_holding_period(clean_stock_code, quantity)
+                            self._get_logger().debug(f"보유기간 확인: {stock_name}({clean_stock_code}) - {holding_days}일 (최대:{max_hold_period}일)")
+                            if holding_days >= max_hold_period:
+                                should_sell = True
+                                sell_reason = f"보유기간 만료 ({holding_days}일)"
+                                self._get_logger().info(f"⏰ 보유기간 만료: {stock_name}({clean_stock_code}) - {holding_days}일")
+                        except Exception as holding_error:
+                            self._get_logger().warning(f"보유기간 계산 실패 ({clean_stock_code}): {holding_error}")
+                    
+                    if should_sell:
+                        # 보유기간 계산
+                        holding_days = -1  # 기본값
+                        try:
+                            holding_days = self.order_history_manager.get_holding_period(clean_stock_code, quantity)
+                        except Exception as holding_error:
+                            self._get_logger().warning(f"보유기간 계산 실패 ({clean_stock_code}): {holding_error}")
+                        
+                        sell_candidates.append({
+                            '종목코드': clean_stock_code,  # A 프리픽스 제거된 종목코드 사용
+                            '종목명': stock_name,
+                            '보유수량': quantity,
+                            '평균단가': avg_price,
+                            '현재가': current_price,
+                            '수익률': profit_rate,
+                            '보유기간': holding_days,
+                            '매도사유': sell_reason,
+                            '매도예상금액': quantity * current_price
+                        })
+                        self._get_logger().info(f"✅ 매도 대상 추가: {stock_name}({clean_stock_code}) - {sell_reason}")
+                
+                self._get_logger().info(f"📉 매도 대상 {len(sell_candidates)}개 종목이 선정되었습니다.")
+            
+        except Exception as e:
+            self._get_logger().error(f"매도 대상 선별 중 오류 발생: {e}")
+            sell_candidates = []
+        
+        return sell_candidates
+
+    def _get_buy_candidates(self, analysis_result, account_info, strategy_params, sell_candidates=None):
+        """매수 대상 선별 (analysis_result에서 가져오기)"""
+        try:
+            # 매도된 종목들을 매수 대상에 포함 (재매수 가능)
+            include_sell_candidates = None
+            if sell_candidates:
+                include_sell_candidates = [candidate['종목코드'] for candidate in sell_candidates]
+                self._get_logger().info(f"📋 매도된 종목 {len(include_sell_candidates)}개를 매수 대상에 포함합니다.")
+            
+            buy_candidates = self.analyzer.get_top_stocks(
+                analysis_result,
+                top_n=strategy_params.get('top_n', 5),
+                buy_universe_rank=strategy_params.get('buy_universe_rank', 20),
+                include_sell_candidates=include_sell_candidates
+            )
+            
+            self._get_logger().info(f"📋 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
+            return buy_candidates
+            
+        except Exception as e:
+            self._get_logger().error(f"매수 대상 선별 중 오류 발생: {e}")
+            return []
     
     def can_execute(self, manual_execution=False):
         """실행 가능 여부 확인"""
@@ -75,7 +310,7 @@ class AutoTradingEngine:
         
         return True, "실행 가능합니다."
     
-    def execute_strategy(self, manual_execution=False):
+    def execute_strategy(self, manual_execution=False, test_mode=False):
         """자동매매 전략 실행"""
         if self.is_running:
             return {
@@ -83,19 +318,18 @@ class AutoTradingEngine:
                 'message': '이미 실행 중입니다.'
             }
         
-        # 실행 가능 여부 확인
-        can_execute, message = self.can_execute(manual_execution)
-        if not can_execute:
-            return {
-                'success': False,
-                'message': message
-            }
+        # test_mode가 아닐 때만 실행 가능 여부 확인 (분석결과확인은 자동매매 활성화 체크 안함)
+        if not test_mode:
+            can_execute, message = self.can_execute(manual_execution)
+            if not can_execute:
+                return {
+                    'success': False,
+                    'message': message
+                }
         
         self.is_running = True
         self.current_status = "시작 중"
         self.progress_percentage = 0
-        buy_count = 0
-        sell_count = 0
         
         try:
             self._get_logger().info(f"🤖 자동매매 전략 실행을 시작합니다... (서버: {self.server_type})")
@@ -103,209 +337,53 @@ class AutoTradingEngine:
             # 0. 토큰 유효성 확인 및 자동 발급
             self.current_status = "토큰 확인 중"
             self.progress_percentage = 5
-            try:
-                token = self.auth.get_access_token()
-                if not token:
-                    self._get_logger().info(f"토큰이 없습니다. 새로 발급받습니다... (서버: {self.server_type})")
-                    token = self.auth.get_access_token(force_refresh=True)
-                    if not token:
-                        return {
-                            'success': False,
-                            'message': '토큰 발급에 실패했습니다. 로그인을 다시 시도해주세요.'
-                        }
-                self._get_logger().info(f"토큰 확인 완료 (서버: {self.server_type})")
-            except Exception as e:
-                self._get_logger().error(f"🚨 토큰 확인 실패: {e}")
-                self._get_logger().error(f"   📍 서버 타입: {self.server_type}")
-                import traceback
-                self._get_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
+            token = self.auth.get_access_token()
+            
+            if not token:
                 return {
                     'success': False,
-                    'message': f'토큰 확인 실패: {str(e)}'
+                    'message': '토큰 발급 실패'
                 }
             
-            # 1. 설정 로드
-            self.current_status = "설정 로드 중"
-            self.progress_percentage = 10
-            config = self.config_manager.load_config()
-            strategy_params = config.get('strategy_params', {})
+            # 1. 공통 준비 단계
+            trading_data = self._prepare_trading_data()
             
-            self._get_logger().info(f"📋 전략 파라미터: {strategy_params}")
-            
-            # 변수 초기화
-            buy_candidates = []
-            sell_candidates = []
-            
-            # 2. 계좌 정보 확인
-            self.current_status = "계좌 정보 확인 중"
-            self.progress_percentage = 20
-            self._get_logger().info("💰 계좌 정보를 확인하는 중...")
-            account_info = self._get_account_info()
-            if not account_info['success']:
-                return {
-                    'success': False,
-                    'message': f"계좌 정보 확인 실패: {account_info['message']}"
-                }
-            
-            # 3. 종목 분석
-            self.current_status = "종목 분석 중"
-            self.progress_percentage = 40
-            self._get_logger().info("🔍 종목 분석을 실행하는 중...")
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔍 종목 분석을 실행하는 중...")
-            analysis_result = self.analyzer.get_stock_analysis()
-            
-            # 🔥 핵심 수정: 분석 결과 검증 강화
-            validation_result = self._validate_analysis_result(analysis_result)
-            if not validation_result['success']:
-                error_message = f"분석 결과 검증 실패: {validation_result['message']}"
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ {error_message}")
-                return {
-                    'success': False,
-                    'message': error_message
-                }
-            
-            # 4. 매도 주문 실행 (기존 보유 종목) - 백테스팅과 동일하게 매도 먼저
-            self.current_status = "매도 주문 실행 중"
-            self.progress_percentage = 60
-            self._get_logger().info("📉 매도 주문을 실행하는 중...")
-            sell_results = self._execute_sell_orders(account_info, strategy_params)
-            sell_count = sell_results['success_count']
-            sell_orders = sell_results.get('sell_orders', [])
-            
-            # 5. 매도 체결 확인 및 대기
-            if sell_count > 0 and sell_orders:
-                self.current_status = "매도 체결 확인 중"
-                self.progress_percentage = 65
-                self._get_logger().info("⏳ 매도 주문 체결을 확인하는 중...")
-                
-                # 매도 체결 확인 (최대 30초 대기)
-                execution_confirmed = self._wait_for_sell_execution(sell_orders, max_wait_time=30)
-                
-                if execution_confirmed:
-                    self._get_logger().info("✅ 매도 체결 확인 완료")
-                else:
-                    self._get_logger().warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
-            
-            # 6. 매도 후 계좌 정보 재조회 (매도로 확보된 현금 반영)
-            if sell_count > 0:
-                self.current_status = "매도 후 계좌 정보 조회 중"
-                self.progress_percentage = 70
-                self._get_logger().info("💰 매도 후 계좌 정보를 재조회하는 중...")
-                
-                # 계좌 정보 재조회
-                updated_account_info = self._get_account_info()
-                if updated_account_info:
-                    account_info = updated_account_info
-                    self._get_logger().info("✅ 매도 후 계좌 정보 업데이트 완료")
-                else:
-                    self._get_logger().warning("⚠️ 매도 후 계좌 정보 조회 실패, 기존 정보 사용")
-            
-            # 7. 매수 대상 선정
-            self.current_status = "매수 대상 선정 중"
-            self.progress_percentage = 75
-            self._get_logger().info("📊 매수 대상을 선정하는 중...")
-            buy_candidates = self.analyzer.get_top_stocks(
-                analysis_result,
-                top_n=strategy_params.get('top_n', 5),
-                buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
-            )
-            
-            # 🔥 핵심 수정: 매수 대상 검증
-            buy_validation = self._validate_buy_candidates(buy_candidates)
-            if not buy_validation['success']:
-                self._get_logger().warning(f"매수 대상 검증 실패: {buy_validation['message']}")
-                self.current_status = "완료"
-                self.progress_percentage = 100
+            if test_mode:
+                # 분석결과확인: 결과만 반환 (팝업용)
                 return {
                     'success': True,
-                    'message': f'매수 대상 검증 실패로 실행을 건너뜁니다: {buy_validation["message"]}',
-                    'buy_count': 0,
-                    'sell_count': sell_count
+                    'test_mode': True,
+                    'analysis_result': trading_data['analysis_result'],
+                    'account_info': trading_data['account_info'],
+                    'strategy_params': trading_data['strategy_params']
                 }
-            
-            # 검증된 매수 대상 사용
-            buy_candidates = buy_validation['valid_candidates']
-            self._get_logger().info(f"✅ {len(buy_candidates)}개 매수 대상 선정 및 검증 완료")
-            
-            # 8. 매수 주문 실행 (매도 후 업데이트된 계좌 정보 사용)
-            self.current_status = "매수 주문 실행 중"
-            self.progress_percentage = 85
-            self._get_logger().info("📈 매수 주문을 실행하는 중...")
-            buy_results = self._execute_buy_orders(buy_candidates, account_info, strategy_params)
-            buy_count = buy_results['success_count']
-            
-            # 9. 실행 결과 판단 및 이력 기록
-            self.current_status = "이력 기록 중"
-            self.progress_percentage = 95
-            execution_type = "수동" if manual_execution else "자동"
-            
-            # 매수 대상이 있었는데 실제 매수가 0건이면 실패로 간주
-            if len(buy_candidates) > 0 and buy_count == 0:
-                status = 'failed'
-                message = f"[{execution_type}] 매수 실패: {len(buy_candidates)}개 종목 중 0건 성공 (현재가 정보 부족)"
-                self._get_logger().error(f"❌ 자동매매 실행 실패: {message}")
-                print(f"❌ 자동매매 실행 실패: {message}")
             else:
-                status = 'success'
-                message = f"[{execution_type}] 매수 {buy_count}건, 매도 {sell_count}건 실행"
-                self._get_logger().info(f"✅ 자동매매 전략 실행 완료 (매수: {buy_count}건, 매도: {sell_count}건)")
-            
-            self.config_manager.log_execution(
-                status=status,
-                buy_count=buy_count,
-                sell_count=sell_count,
-                message=message,
-                strategy_params=strategy_params,
-                buy_candidates=buy_candidates,
-                sell_candidates=sell_candidates,
-                execution_type=execution_type,
-                buy_results=buy_results,
-                sell_results=sell_results,
-                account_info=account_info
-            )
-            
-            # 8. 완료
-            self.current_status = "완료"
-            self.progress_percentage = 100
-            
-            return {
-                'success': status == 'success',
-                'message': message,
-                'buy_count': buy_count,
-                'sell_count': sell_count,
-                'buy_candidates': buy_candidates
-            }
-            
-        except Exception as e:
-            self._get_logger().error(f"🚨 자동매매 실행 중 오류 발생: {e}")
-            self._get_logger().error(f"   📍 서버 타입: {self.server_type}")
-            self._get_logger().error(f"   📍 실행 타입: {'수동' if manual_execution else '자동'}")
-            import traceback
-            self._get_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
-            execution_type = "수동" if manual_execution else "자동"
-            self.config_manager.log_execution(
-                status='error',
-                buy_count=buy_count,
-                sell_count=sell_count,
-                message=f"[{execution_type}] 오류: {str(e)}",
-                execution_type=execution_type,
-                error_details={
-                    'error_type': type(e).__name__,
-                    'error_message': str(e),
-                    'server_type': self.server_type
+                # 실제 매매 실행
+                trading_results = self._execute_trading_orders(
+                    trading_data['analysis_result'],
+                    trading_data['account_info'],
+                    trading_data['strategy_params']
+                )
+                
+                return {
+                    'success': True,
+                    'test_mode': False,
+                    'sell_count': trading_results['sell_count'],
+                    'buy_count': trading_results['buy_count'],
+                    'sell_results': trading_results['sell_results'],
+                    'buy_results': trading_results['buy_results']
                 }
-            )
+        
+        except Exception as e:
+            self._get_logger().error(f"자동매매 실행 중 오류: {e}")
             return {
                 'success': False,
-                'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}',
-                'buy_count': buy_count,
-                'sell_count': sell_count
+                'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}'
             }
         finally:
             self.is_running = False
-            if self.current_status != "완료":
-                self.current_status = "오류 발생"
-                self.progress_percentage = 0
+            self.current_status = "완료"
+            self.progress_percentage = 100
     
     def get_execution_status(self):
         """실행 상태 조회"""
@@ -591,7 +669,7 @@ class AutoTradingEngine:
         self._get_logger().warning(f"⚠️ 매도 체결 확인 시간 초과 ({max_wait_time}초), 계속 진행합니다.")
         return False
 
-    def _execute_sell_orders(self, account_info, strategy_params):
+    def _execute_sell_orders(self, sell_candidates, account_info, strategy_params):
         """매도 주문 실행 (백테스팅 로직과 일치)"""
         success_count = 0
         failed_count = 0
@@ -600,10 +678,12 @@ class AutoTradingEngine:
         sell_details = []
         sell_orders = []  # 매도 주문 정보 저장
         
+        if sell_candidates is None:
+            sell_candidates = []
+        
         try:
-            # 보유 종목 조회
-            balance_data = account_info['balance']
-            if not balance_data or not balance_data.get('acnt_evlt_remn_indv_tot'):
+            # sell_candidates가 없으면 매도하지 않음
+            if not sell_candidates:
                 return {
                     'success_count': 0,
                     'failed_count': 0,
@@ -614,116 +694,88 @@ class AutoTradingEngine:
                     'sell_orders': []
                 }
             
-            take_profit_pct = strategy_params.get('take_profit_pct', 5.0)
-            stop_loss_pct = strategy_params.get('stop_loss_pct', 3.0)
-            max_hold_period = strategy_params.get('max_hold_period', 15)
-            
-            # 백테스팅과 동일한 매도 조건 계산
-            take_profit_multiplier = 1 + (take_profit_pct / 100)
-            stop_loss_multiplier = 1 - (stop_loss_pct / 100)
-            
-            for stock in balance_data['acnt_evlt_remn_indv_tot']:
+            # sell_candidates를 기반으로 매도 주문 실행
+            for sell_candidate in sell_candidates:
                 try:
-                    stock_code = stock.get('stk_cd', '')
-                    stock_name = stock.get('stk_nm', '')
-                    quantity = int(stock.get('rmnd_qty', 0))
-                    avg_price = float(stock.get('pur_pric', 0))
-                    current_price = float(stock.get('cur_prc', 0))
+                    stock_code = sell_candidate.get('종목코드', '')
+                    stock_name = sell_candidate.get('종목명', '')
+                    quantity = int(sell_candidate.get('보유수량', 0))
+                    avg_price = float(sell_candidate.get('평균단가', 0))
+                    current_price = float(sell_candidate.get('현재가', 0))
                     
                     if quantity <= 0 or avg_price <= 0 or current_price <= 0:
                         continue
                     
-                    # 실전 매도 조건 확인
-                    # 1. 익절 조건: 현재가 >= 매수가 * (1 + 익절률)
-                    # 2. 손절 조건: 현재가 <= 매수가 * (1 - 손절률)
-                    # 3. 보유기간 만료: 매수일로부터 max_hold_period일 경과
+                    # sell_candidate에서 이미 계산된 정보 사용
+                    sell_reason = sell_candidate.get('매도사유', '')
+                    return_rate = sell_candidate.get('수익률', 0)
                     
-                    should_sell = False
-                    sell_reason = ""
+                    self._get_logger().info(f"📉 {stock_name}({stock_code}) 매도 주문: {quantity}주 @ {current_price}원 ({sell_reason})")
                     
-                    # 익절/손절 조건
-                    if current_price >= avg_price * take_profit_multiplier:
-                        should_sell = True
-                        return_rate = ((current_price - avg_price) / avg_price) * 100
-                        sell_reason = f"익절 ({return_rate:.2f}%)"
-                    elif current_price <= avg_price * stop_loss_multiplier:
-                        should_sell = True
-                        return_rate = ((current_price - avg_price) / avg_price) * 100
-                        sell_reason = f"손절 ({return_rate:.2f}%)"
+                    # 주문 API용 종목코드로 변환 (A 제거)
+                    from src.api.order import convert_stock_code_for_order
+                    order_stock_code = convert_stock_code_for_order(stock_code)
                     
-                    # 보유기간 만료 조건
-                    holding_days = self._get_holding_period(stock_code, quantity)
-                    if holding_days >= max_hold_period:
-                        should_sell = True
-                        sell_reason = f"보유기간 만료 ({holding_days}일)"
+                    order_result = self.order.sell_stock(
+                        stock_code=order_stock_code,  # 변환된 종목코드 사용
+                        quantity=quantity,
+                        price=0,  # 시장가는 가격을 0으로 설정
+                        order_type='3'  # 시장가
+                    )
                     
-                    if should_sell:
-                        self._get_logger().info(f"📉 {stock_name}({stock_code}) 매도 주문: {quantity}주 @ {current_price}원 ({sell_reason})")
+                    if order_result and order_result.get('success') is not False:
+                        success_count += 1
+                        total_sell_amount += quantity * current_price
+                        total_sell_quantity += quantity
                         
-                        # 주문 API용 종목코드로 변환 (A 제거)
-                        from src.api.order import convert_stock_code_for_order
-                        order_stock_code = convert_stock_code_for_order(stock_code)
+                        # 매도 성공 상세 정보 기록
+                        sell_details.append({
+                            'stock_name': stock_name,
+                            'stock_code': stock_code,
+                            'quantity': quantity,
+                            'price': current_price,
+                            'amount': quantity * current_price,
+                            'status': '성공',
+                            'error_message': '',
+                            'reason': sell_reason
+                        })
                         
-                        order_result = self.order.sell_stock(
-                            stock_code=order_stock_code,  # 변환된 종목코드 사용
-                            quantity=quantity,
-                            price=0,  # 시장가는 가격을 0으로 설정
-                            order_type='3'  # 시장가
-                        )
-                        
-                        if order_result and order_result.get('success') is not False:
-                            success_count += 1
-                            total_sell_amount += quantity * current_price
-                            total_sell_quantity += quantity
-                            
-                            # 매도 성공 상세 정보 기록
-                            sell_details.append({
-                                'stock_name': stock_name,
-                                'stock_code': stock_code,
-                                'quantity': quantity,
-                                'price': current_price,
-                                'amount': quantity * current_price,
-                                'status': '성공',
-                                'error_message': '',
-                                'reason': sell_reason
-                            })
-                            
-                            # 매도 주문 정보 저장 (체결 확인용)
-                            sell_orders.append({
-                                'stock_code': stock_code,
-                                'stock_name': stock_name,
-                                'quantity': quantity,
-                                'price': current_price,
-                                'reason': sell_reason
-                            })
-                            self._get_logger().info(f"✅ {stock_name} 매도 주문 성공")
-                        else:
-                            failed_count += 1
-                            # API 에러 메시지를 더 명확하게 표시
-                            if order_result:
-                                error_code = order_result.get('error_code', '')
-                                error_message = order_result.get('error_message', '')
-                                if error_code and error_message:
-                                    error_msg = f"[{error_code}] {error_message}"
-                                else:
-                                    error_msg = order_result.get('message', '알 수 없는 오류')
+                        # 매도 주문 정보 저장 (체결 확인용)
+                        sell_orders.append({
+                            'stock_code': stock_code,
+                            'stock_name': stock_name,
+                            'quantity': quantity,
+                            'price': current_price,
+                            'reason': sell_reason
+                        })
+                        self._get_logger().info(f"✅ {stock_name} 매도 주문 성공")
+                    else:
+                        failed_count += 1
+                        # API 에러 메시지를 더 명확하게 표시
+                        if order_result:
+                            error_code = order_result.get('error_code', '')
+                            error_message = order_result.get('error_message', '')
+                            if error_code and error_message:
+                                error_msg = f"[{error_code}] {error_message}"
                             else:
-                                error_msg = 'API 응답 없음'
-                            
-                            # 매도 실패 상세 정보 기록
-                            sell_details.append({
-                                'stock_name': stock_name,
-                                'stock_code': stock_code,
-                                'quantity': quantity,
-                                'price': current_price,
-                                'amount': quantity * current_price,
-                                'status': '실패',
-                                'error_message': error_msg,
-                                'reason': sell_reason
-                            })
-                            
-                            self._get_logger().warning(f"❌ {stock_name} 매도 주문 실패: {error_msg}")
-                            
+                                error_msg = order_result.get('message', '알 수 없는 오류')
+                        else:
+                            error_msg = 'API 응답 없음'
+                        
+                        # 매도 실패 상세 정보 기록
+                        sell_details.append({
+                            'stock_name': stock_name,
+                            'stock_code': stock_code,
+                            'quantity': quantity,
+                            'price': current_price,
+                            'amount': quantity * current_price,
+                            'status': '실패',
+                            'error_message': error_msg,
+                            'reason': sell_reason
+                        })
+                        
+                        self._get_logger().warning(f"❌ {stock_name} 매도 주문 실패: {error_msg}")
+                        
                 except Exception as e:
                     self._get_logger().error(f"매도 주문 실행 중 오류: {e}")
                     continue
@@ -731,7 +783,7 @@ class AutoTradingEngine:
             return {
                 'success_count': success_count,
                 'failed_count': failed_count,
-                'total_attempts': success_count + failed_count,
+                'total_attempts': len(sell_candidates),
                 'total_sell_amount': total_sell_amount,
                 'total_sell_quantity': total_sell_quantity,
                 'details': sell_details,
@@ -743,7 +795,7 @@ class AutoTradingEngine:
             return {
                 'success_count': success_count,
                 'failed_count': failed_count,
-                'total_attempts': success_count + failed_count,
+                'total_attempts': len(sell_candidates) if sell_candidates else 0,
                 'total_sell_amount': total_sell_amount,
                 'total_sell_quantity': total_sell_quantity,
                 'details': sell_details,
@@ -924,68 +976,25 @@ class AutoTradingEngine:
             }
     
     def _get_holding_period(self, stock_code, current_quantity):
-        """보유기간 계산 (체결내역에서 매수일 정보 가져오기)"""
+        """보유기간 계산 (OrderHistoryManager 사용)"""
         try:
-            # 체결내역에서 매수 정보 가져오기
-            # 서버 타입에 맞는 order 인스턴스 사용
+            # OrderHistoryManager를 사용하여 보유기간 계산
+            holding_days = self.order_history_manager.get_holding_period(stock_code, current_quantity)
             
-            # 최근 30일간의 체결내역 조회
-            end_date = datetime.now().strftime('%Y%m%d')
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+            # -1이면 체결일 수집 안됨, 0 이상이면 실제 보유일수
+            if holding_days == -1:
+                self._get_logger().warning(f"⚠️ {stock_code} 종목의 체결일이 수집되지 않았습니다.")
+                return 0  # 자동매매에서는 0으로 처리 (매도 조건에서 제외)
             
-            # 체결내역 조회 (매수만) - 계좌 API용 종목코드로 변환
-            from src.api.order import convert_stock_code_for_account
-            account_stock_code = convert_stock_code_for_account(stock_code)
-            
-            order_history = self.order.get_order_history(
-                start_date=start_date,
-                end_date=end_date,
-                stock_code=account_stock_code,  # 변환된 종목코드 사용
-                order_type='2'  # 매수만
-            )
-            
-            if not order_history or not order_history.get('acnt_ord_cntr_prps_dtl'):
-                return 0
-            
-            # 현재 보유 수량에 맞는 매수일 계산
-            remaining_quantity = current_quantity
-            oldest_purchase_date = None
-            
-            # 체결내역을 날짜순으로 정렬 (오래된 것부터)
-            order_list = order_history['acnt_ord_cntr_prps_dtl']
-            order_list.sort(key=lambda x: x.get('ord_dt', ''))
-            
-            for order in order_list:
-                if remaining_quantity <= 0:
-                    break
-                
-                cntr_qty = int(order.get('cntr_qty', 0))
-                if cntr_qty <= 0:
-                    continue
-                
-                if remaining_quantity >= cntr_qty:
-                    remaining_quantity -= cntr_qty
-                    oldest_purchase_date = order.get('ord_dt', '')
-                else:
-                    oldest_purchase_date = order.get('ord_dt', '')
-                    break
-            
-            if oldest_purchase_date:
-                # YYYYMMDD 형식을 YYYY-MM-DD로 변환
-                purchase_date = datetime.strptime(oldest_purchase_date, '%Y%m%d')
-                current_date = datetime.now()
-                holding_days = (current_date - purchase_date).days
-                return holding_days
-            
-            return 0
+            return holding_days
             
         except Exception as e:
             self._get_logger().error(f"보유기간 계산 중 오류: {e}")
             return 0
     
 
-    def execute_strategy_with_candidates(self, buy_candidates, manual_execution=True):
-        """미리 선정된 매수 대상으로 자동매매 실행 (테스트용)"""
+    def execute_strategy_with_candidates(self, analysis_result, manual_execution=True):
+        """팝업에서 매매실행 버튼 클릭 시 호출"""
         if self.is_running:
             return {
                 'success': False,
@@ -1003,156 +1012,55 @@ class AutoTradingEngine:
         self.is_running = True
         self.current_status = "시작 중"
         self.progress_percentage = 0
-        buy_count = 0
-        sell_count = 0
-        
-        # 변수 초기화
-        sell_candidates = []
         
         try:
-            self._get_logger().info("🤖 자동매매 전략 실행을 시작합니다 (미리 선정된 매수 대상)...")
+            self._get_logger().info("🤖 자동매매 전략 실행을 시작합니다 (팝업에서 실행)...")
             
-            # 1. 설정 로드
-            self.current_status = "설정 로드 중"
-            self.progress_percentage = 20
+            # 0. 토큰 유효성 확인 및 자동 발급
+            self.current_status = "토큰 확인 중"
+            self.progress_percentage = 5
+            token = self.auth.get_access_token()
+            
+            if not token:
+                return {
+                    'success': False,
+                    'message': '토큰 발급 실패'
+                }
+            
+            # 1. 계좌 정보 조회
+            self.current_status = "계좌 정보 조회 중"
+            self.progress_percentage = 15
+            account_info = self._get_account_info()
+            
+            # 2. 설정 로드
             config = self.config_manager.load_config()
             strategy_params = config.get('strategy_params', {})
             
-            self._get_logger().info(f"📋 전략 파라미터: {strategy_params}")
-            
-            # 2. 계좌 정보 확인
-            self.current_status = "계좌 정보 확인 중"
-            self.progress_percentage = 40
-            self._get_logger().info("💰 계좌 정보를 확인하는 중...")
-            account_info = self._get_account_info()
-            if not account_info['success']:
-                return {
-                    'success': False,
-                    'message': f"계좌 정보 확인 실패: {account_info['message']}"
-                }
-            
-            # 3. 매수 대상 검증
-            self.current_status = "매수 대상 검증 중"
-            self.progress_percentage = 60
-            buy_validation = self._validate_buy_candidates(buy_candidates)
-            if not buy_validation['success']:
-                return {
-                    'success': False,
-                    'message': f"매수 대상 검증 실패: {buy_validation['message']}"
-                }
-            
-            validated_candidates = buy_validation['valid_candidates']
-            self._get_logger().info(f"✅ {len(validated_candidates)}개 매수 대상 검증 완료")
-            
-            # 4. 매도 주문 실행 (기존 보유 종목)
-            self.current_status = "매도 주문 실행 중"
-            self.progress_percentage = 70
-            self._get_logger().info("📉 매도 주문을 실행하는 중...")
-            sell_results = self._execute_sell_orders(account_info, strategy_params)
-            sell_count = sell_results['success_count']
-            sell_orders = sell_results.get('sell_orders', [])
-            
-            # 5. 매도 체결 확인 및 대기
-            if sell_count > 0 and sell_orders:
-                self.current_status = "매도 체결 확인 중"
-                self.progress_percentage = 75
-                self._get_logger().info("⏳ 매도 주문 체결을 확인하는 중...")
-                
-                # 매도 체결 확인 (최대 30초 대기)
-                execution_confirmed = self._wait_for_sell_execution(sell_orders, max_wait_time=30)
-                
-                if execution_confirmed:
-                    self._get_logger().info("✅ 매도 체결 확인 완료")
-                else:
-                    self._get_logger().warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
-            
-            # 6. 매도 후 계좌 정보 재조회 (매도로 확보된 현금 반영)
-            if sell_count > 0:
-                self.current_status = "매도 후 계좌 정보 조회 중"
-                self.progress_percentage = 80
-                self._get_logger().info("💰 매도 후 계좌 정보를 재조회하는 중...")
-                
-                # 계좌 정보 재조회
-                updated_account_info = self._get_account_info()
-                if updated_account_info:
-                    account_info = updated_account_info
-                    self._get_logger().info("✅ 매도 후 계좌 정보 업데이트 완료")
-                else:
-                    self._get_logger().warning("⚠️ 매도 후 계좌 정보 조회 실패, 기존 정보 사용")
-            
-            # 7. 매수 주문 실행 (매도 후 업데이트된 계좌 정보 사용)
-            self.current_status = "매수 주문 실행 중"
-            self.progress_percentage = 85
-            self._get_logger().info("📈 매수 주문을 실행하는 중...")
-            buy_results = self._execute_buy_orders(validated_candidates, account_info, strategy_params)
-            buy_count = buy_results['success_count']
-            
-            # 7. 실행 결과 판단 및 이력 기록
-            self.current_status = "이력 기록 중"
-            self.progress_percentage = 95
-            execution_type = "수동" if manual_execution else "자동"
-            
-            if len(validated_candidates) > 0 and buy_count == 0:
-                status = 'failed'
-                message = f"[{execution_type}] 매수 실패: {len(validated_candidates)}개 종목 중 0건 성공"
-                self._get_logger().error(f"❌ 자동매매 실행 실패: {message}")
-            else:
-                status = 'success'
-                message = f"[{execution_type}] 매수 {buy_count}건, 매도 {sell_count}건 실행"
-                self._get_logger().info(f"✅ 자동매매 전략 실행 완료 (매수: {buy_count}건, 매도: {sell_count}건)")
-            
-            self.config_manager.log_execution(
-                status=status,
-                buy_count=buy_count,
-                sell_count=sell_count,
-                message=message,
-                strategy_params=strategy_params,
-                buy_candidates=validated_candidates,
-                sell_candidates=sell_candidates,
-                execution_type=execution_type,
-                buy_results=buy_results,
-                sell_results=sell_results,
-                account_info=account_info
+            # 3. 공통 매매 로직 실행
+            trading_results = self._execute_trading_orders(
+                analysis_result,
+                account_info,
+                strategy_params
             )
-            
-            # 8. 완료
-            self.current_status = "완료"
-            self.progress_percentage = 100
             
             return {
-                'success': status == 'success',
-                'message': message,
-                'buy_count': buy_count,
-                'sell_count': sell_count,
-                'buy_candidates': validated_candidates
+                'success': True,
+                'sell_count': trading_results['sell_count'],
+                'buy_count': trading_results['buy_count'],
+                'sell_results': trading_results['sell_results'],
+                'buy_results': trading_results['buy_results']
             }
-            
+        
         except Exception as e:
-            self._get_logger().error(f"자동매매 실행 중 오류 발생: {e}")
-            execution_type = "수동" if manual_execution else "자동"
-            self.config_manager.log_execution(
-                status='error',
-                buy_count=buy_count,
-                sell_count=sell_count,
-                message=f"[{execution_type}] 오류: {str(e)}",
-                execution_type=execution_type,
-                error_details={
-                    'error_type': type(e).__name__,
-                    'error_message': str(e),
-                    'server_type': self.server_type
-                }
-            )
+            self._get_logger().error(f"자동매매 실행 중 오류: {e}")
             return {
                 'success': False,
-                'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}',
-                'buy_count': buy_count,
-                'sell_count': sell_count
+                'message': f'자동매매 실행 중 오류가 발생했습니다: {str(e)}'
             }
         finally:
             self.is_running = False
-            if self.current_status != "완료":
-                self.current_status = "오류 발생"
-                self.progress_percentage = 0
+            self.current_status = "완료"
+            self.progress_percentage = 100
 
     def stop_trading(self):
         """자동매매 중지"""

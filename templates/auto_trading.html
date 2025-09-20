@@ -304,7 +304,7 @@
       <div class="card-body">
         <div class="d-grid gap-2">
           <button type="button" class="btn btn-info" id="test-analysis-btn">
-            <i class="fas fa-search me-1"></i>분석 결과 확인 (테스트)
+            <i class="fas fa-search me-1"></i>분석 결과 확인
           </button>
           <button type="button" class="btn btn-success" id="manual-execute-btn">
             <i class="fas fa-play me-1"></i>수동 실행
@@ -398,7 +398,7 @@
   </div>
 </div>
 
-<!-- 분석 결과 확인 모달 (테스트용) -->
+<!-- 분석 결과 확인 모달 -->
 <div class="modal fade" id="analysisResultModal" tabindex="-1">
   <div class="modal-dialog modal-xl">
     <div class="modal-content border-0 shadow-lg">
@@ -502,13 +502,14 @@
                   <th>평균단가</th>
                   <th>현재가</th>
                   <th>수익률</th>
+                  <th>보유기간</th>
                   <th>매도예상금액</th>
                   <th>매도사유</th>
                 </tr>
               </thead>
               <tbody id="sell-candidates-tbody">
                 <tr>
-                  <td colspan="8" class="text-center text-muted">
+                  <td colspan="9" class="text-center text-muted">
                     매도 대상을 불러오는 중...
                   </td>
                 </tr>
@@ -970,7 +971,7 @@
       });
   }
 
-  // 분석 결과 확인 (테스트용)
+  // 분석 결과 확인
   document
     .getElementById("test-analysis-btn")
     .addEventListener("click", function () {
@@ -1061,6 +1062,13 @@
 
   // 분석 결과 표시
   function displayAnalysisResult(data) {
+    // 분석 결과를 전역 변수에 저장 (매매 실행 시 사용)
+    window.currentAnalysisResult = data;
+    
+    // 디버깅: analysis_result 객체 확인
+    console.log("분석 결과 저장:", data);
+    console.log("analysis_result 객체:", data.analysis_result);
+    
     // 분석 정보 업데이트
     document.getElementById("analysis-date").textContent =
       data.analysis_date || "-";
@@ -1130,6 +1138,15 @@
         const profitRate = stock.수익률 || 0;
         const profitClass = profitRate > 0 ? "text-up" : profitRate < 0 ? "text-down" : "text-neutral";
         
+        // 매도사유에 따른 배지 색상 결정
+        let badgeClass = "bg-danger"; // 기본값: 빨간색 (익절)
+        const sellReason = stock.매도사유 || "";
+        if (sellReason.includes("손절")) {
+            badgeClass = "bg-primary"; // 파란색 (손절)
+        } else if (sellReason.includes("보유기간")) {
+            badgeClass = "bg-hotpink"; // 핫핑크 (보유기간 초과)
+        }
+        
         row.innerHTML = `
                 <td>${stock.종목명 || "-"}</td>
                 <td>${stock.종목코드 || "-"}</td>
@@ -1137,14 +1154,20 @@
                 <td>${stock.평균단가 ? stock.평균단가.toLocaleString() + "원" : "-"}</td>
                 <td>${stock.현재가 ? stock.현재가.toLocaleString() + "원" : "-"}</td>
                 <td class="${profitClass}">${profitRate.toFixed(2)}%</td>
+                <td class="text-center">
+                    ${(stock.보유기간 === -1 || stock.보유기간 === '-1' || stock.보유기간 === null || stock.보유기간 === undefined)
+                        ? '<span class="badge bg-secondary text-white">알 수 없음</span>'
+                        : `<span class="badge bg-primary text-white">${stock.보유기간 || 0}일</span>`
+                    }
+                </td>
                 <td>${stock.매도예상금액 ? stock.매도예상금액.toLocaleString() + "원" : "-"}</td>
-                <td><span class="badge bg-danger">${stock.매도사유 || "-"}</span></td>
+                <td><span class="badge ${badgeClass} text-white">${stock.매도사유 || "-"}</span></td>
             `;
         sellCandidatesTbody.appendChild(row);
       });
     } else {
       sellCandidatesTbody.innerHTML =
-        '<tr><td colspan="8" class="text-center text-muted">매도 대상이 없습니다.</td></tr>';
+        '<tr><td colspan="9" class="text-center text-muted">매도 대상이 없습니다.</td></tr>';
     }
 
     // 매수 대상 종목 업데이트
@@ -1177,9 +1200,6 @@
         '<tr><td colspan="6" class="text-center text-muted">매수 대상이 없습니다.</td></tr>';
     }
 
-    // 매도/매수 대상 데이터를 전역 변수에 저장 (매매 실행 시 사용)
-    window.currentSellCandidates = data.sell_candidates || [];
-    window.currentBuyCandidates = data.buy_candidates || [];
   }
 
   // 매수 대상으로 매매 실행
@@ -1187,10 +1207,11 @@
     .getElementById("execute-with-candidates")
     .addEventListener("click", function () {
       if (
-        !window.currentBuyCandidates ||
-        window.currentBuyCandidates.length === 0
+        !window.currentAnalysisResult ||
+        !window.currentAnalysisResult.analysis_result
       ) {
-        showAlert("매수 대상이 없습니다.", "warning");
+        console.error("분석 결과 없음:", window.currentAnalysisResult);
+        showAlert("분석 결과가 없습니다.", "warning");
         return;
       }
 
@@ -1207,7 +1228,7 @@
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          buy_candidates: window.currentBuyCandidates,
+          analysis_result: window.currentAnalysisResult.analysis_result,
           manual_execution: true,
         }),
       })
@@ -1323,4 +1344,11 @@
       modal.hide();
     });
 </script>
+
+<style>
+/* 핫핑크 배지 색상 */
+.bg-hotpink {
+    background-color: #ff69b4 !important;
+}
+</style>
 {% endblock %}

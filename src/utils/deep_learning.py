@@ -310,14 +310,15 @@ class DeepLearningAnalyzer:
             }
     
     
-    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20):
+    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20, include_sell_candidates=None):
         """
-        매수 대상 종목 선정 (보유 종목 제외)
+        매수 대상 종목 선정 (보유 종목 제외, 매도 예정 종목은 상위 매수고려대상에 추가)
         
         Args:
             analysis_result: 분석 결과
             top_n: 매수할 종목 수
             buy_universe_rank: 매수 대상 범위
+            include_sell_candidates: 매도 예정 종목 코드 리스트 (팝업에서 상위 매수고려대상에 추가)
             
         Returns:
             list: 매수 대상 종목 리스트
@@ -328,19 +329,38 @@ class DeepLearningAnalyzer:
         try:
             result_df = pd.DataFrame(analysis_result['data']['analysis_result'])
             
-            # 보유 종목 조회 (실패해도 계속 진행)
+            # 제외할 종목 목록 준비 (보유 종목만 제외)
+            exclude_stocks = set()
+            
+            # 1. 보유 종목 조회 (실패해도 계속 진행)
             try:
                 held_stocks = self._get_held_stocks()
                 if held_stocks:
+                    exclude_stocks.update(held_stocks)
                     log_info(f"📋 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
-                    # 보유 종목 제외
-                    result_df = result_df[~result_df['종목코드'].isin(held_stocks)]
-                    log_info(f"✅ 보유 종목 제외 후 {len(result_df)}개 종목이 남았습니다.")
                 else:
-                    log_info("📋 보유 종목이 없거나 조회에 실패했습니다. 모든 종목을 매수 대상으로 고려합니다.")
+                    log_info("📋 보유 종목이 없거나 조회에 실패했습니다.")
             except Exception as e:
                 log_warning(f"보유 종목 조회 중 오류 발생 (계속 진행): {e}")
-                log_info("📋 보유 종목 조회 실패로 모든 종목을 매수 대상으로 고려합니다.")
+            
+            # 2. 매도 후 보유종목 계산 (팝업에서 사용)
+            final_exclude_stocks = exclude_stocks.copy() if exclude_stocks else set()
+            
+            if include_sell_candidates:
+                # 매도 예정 종목을 보유종목에서 제거 (매도 후 보유종목)
+                for stock_code in include_sell_candidates:
+                    # A 프리픽스 제거
+                    clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                    if clean_stock_code in final_exclude_stocks:
+                        final_exclude_stocks.remove(clean_stock_code)
+                        log_info(f"📉 매도 예정 종목 {clean_stock_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
+            
+            # 3. 매도 후 보유종목을 DataFrame에서 필터링
+            if final_exclude_stocks:
+                result_df = result_df[~result_df['종목코드'].isin(final_exclude_stocks)]
+                log_info(f"✅ 매도 후 보유 종목 {len(final_exclude_stocks)}개 제외 후 {len(result_df)}개 종목이 남았습니다.")
+            else:
+                log_info("📋 제외할 보유 종목이 없습니다.")
             
             # 매수 대상 범위 내에서 상위 N개 선택
             buy_candidates = result_df[result_df['최종순위'] <= buy_universe_rank]

@@ -2099,9 +2099,25 @@ def get_analysis_result():
                 }
             }), 500
         
-        # 분석 실행
+        
+        # 분석 실행 (test_mode=True로 호출)
         try:
-            analysis_result = get_current_engine().analyzer.get_stock_analysis(force_realtime=force_realtime)
+            trading_data = get_current_engine().execute_strategy(test_mode=True)
+            if not trading_data.get('success'):
+                return jsonify({
+                    'success': False,
+                    'message': f"분석 실행 실패: {trading_data.get('message', '알 수 없는 오류')}",
+                    'error_details': {
+                        'error_type': 'analysis_failed',
+                        'timestamp': datetime.now().isoformat(),
+                        'force_realtime': force_realtime
+                    }
+                }), 500
+            
+            analysis_result = trading_data.get('analysis_result')
+            account_info = trading_data.get('account_info')
+            strategy_params = trading_data.get('strategy_params')
+            
         except Exception as e:
             get_web_logger().error(f"분석 실행 중 예외 발생: {e}")
             return jsonify({
@@ -2127,35 +2143,40 @@ def get_analysis_result():
                 }
             }), 400
         
-        # 매도 대상 선정
+        # 매도/매수 대상 선별 (analysis_result에서 가져오기)
         sell_candidates = []
+        buy_candidates = []
+        sell_proceeds = 0
+        
         try:
-            from src.api.account import KiwoomAccount
+            # 매도 대상 선별 (보유종목 기준)
+            from src.utils.order_history_manager import OrderHistoryManager
             from src.utils.server_manager import get_current_server
             
-            # 현재 서버 타입에 맞는 API 인스턴스 사용
             server_type = get_current_server()
-            account = KiwoomAccount(server_type)
+            order_history_manager = OrderHistoryManager(server_type)
             
-            # 보유 종목 조회
-            balance_result = account.get_account_balance_detail()
+            # 보유 종목 조회 - 올바른 구조로 수정
+            balance_info = account_info.get('balance', {})
+            balance_result = balance_info.get('acnt_evlt_remn_indv_tot', [])
+            get_web_logger().debug(f"보유종목 조회: {len(balance_result)}개 종목")
             
-            if balance_result and balance_result.get('success') and balance_result.get('acnt_evlt_remn_indv_tot'):
-                config = get_current_config_manager().load_config()
-                strategy_params = config.get('strategy_params', {})
-                
+            if balance_result:
                 take_profit_pct = strategy_params.get('take_profit_pct', 5.0)
                 stop_loss_pct = strategy_params.get('stop_loss_pct', 3.0)
                 max_hold_period = strategy_params.get('max_hold_period', 15)
                 
-                for stock in balance_result['acnt_evlt_remn_indv_tot']:
+                for stock in balance_result:
                     stock_code = stock.get('stk_cd', '')
                     stock_name = stock.get('stk_nm', '')
                     quantity = int(stock.get('rmnd_qty', 0))
                     avg_price = float(stock.get('pur_pric', 0))
                     current_price = float(stock.get('cur_prc', 0))
                     
+                    get_web_logger().debug(f"보유종목 확인: {stock_name}({stock_code}) - 수량:{quantity}, 평균단가:{avg_price}, 현재가:{current_price}")
+                    
                     if quantity <= 0 or avg_price <= 0 or current_price <= 0:
+                        get_web_logger().debug(f"보유종목 스킵: {stock_name}({stock_code}) - 유효하지 않은 데이터")
                         continue
                     
                     # 매도 조건 확인
@@ -2164,17 +2185,40 @@ def get_analysis_result():
                     
                     # 익절/손절 조건
                     profit_rate = ((current_price - avg_price) / avg_price) * 100
+                    get_web_logger().debug(f"수익률 계산: {stock_name}({stock_code}) - {profit_rate:.1f}% (익절:{take_profit_pct}%, 손절:{stop_loss_pct}%)")
+                    
                     if profit_rate >= take_profit_pct:
                         should_sell = True
                         sell_reason = f"익절 ({profit_rate:.1f}%)"
+                        get_web_logger().info(f"📈 익절 조건 만족: {stock_name}({stock_code}) - {profit_rate:.1f}%")
                     elif profit_rate <= -stop_loss_pct:
                         should_sell = True
                         sell_reason = f"손절 ({profit_rate:.1f}%)"
+                        get_web_logger().info(f"📉 손절 조건 만족: {stock_name}({stock_code}) - {profit_rate:.1f}%")
+                    
+                    # 보유기간 만료 조건 추가
+                    if not should_sell:
+                        try:
+                            holding_days = order_history_manager.get_holding_period(stock_code, quantity)
+                            get_web_logger().debug(f"보유기간 확인: {stock_name}({stock_code}) - {holding_days}일 (최대:{max_hold_period}일)")
+                            if holding_days >= max_hold_period:
+                                should_sell = True
+                                sell_reason = f"보유기간 만료 ({holding_days}일)"
+                                get_web_logger().info(f"⏰ 보유기간 만료: {stock_name}({stock_code}) - {holding_days}일")
+                        except Exception as holding_error:
+                            get_web_logger().warning(f"보유기간 계산 실패 ({stock_code}): {holding_error}")
                     
                     if should_sell:
                         # 매도 예상금액 계산 (수수료 제외)
                         sell_amount = quantity * current_price
                         sell_proceeds += sell_amount
+                        
+                        # 보유기간 계산
+                        holding_days = -1  # 기본값
+                        try:
+                            holding_days = order_history_manager.get_holding_period(stock_code, quantity)
+                        except Exception as holding_error:
+                            get_web_logger().warning(f"보유기간 계산 실패 ({stock_code}): {holding_error}")
                         
                         sell_candidates.append({
                             '종목코드': stock_code,
@@ -2183,107 +2227,75 @@ def get_analysis_result():
                             '평균단가': avg_price,
                             '현재가': current_price,
                             '수익률': profit_rate,
+                            '보유기간': holding_days,
                             '매도사유': sell_reason,
                             '매도예상금액': sell_amount
                         })
+                        get_web_logger().info(f"✅ 매도 대상 추가: {stock_name}({stock_code}) - {sell_reason}")
+                
+                get_web_logger().info(f"📉 분석결과확인 테스트: 매도 대상 {len(sell_candidates)}개 종목이 선정되었습니다.")
             
-            get_web_logger().info(f"📉 분석결과확인 테스트: 매도 대상 {len(sell_candidates)}개 종목이 선정되었습니다.")
-            
-        except Exception as e:
-            get_web_logger().error(f"매도 대상 선정 중 오류 발생: {e}")
-            sell_candidates = []
-        
-        # 매수 대상 선정 (매도 후 확보된 현금 고려)
-        try:
-            config = get_current_config_manager().load_config()
-            strategy_params = config.get('strategy_params', {})
+            # 매수 대상 선별 (analysis_result에서 가져오기) - 매도 예정 종목을 상위 매수고려대상에 추가
+            # 매도 예정 종목코드에서 A 프리픽스 제거
+            clean_sell_candidates = []
+            for candidate in sell_candidates:
+                stock_code = candidate['종목코드']
+                clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                clean_sell_candidates.append(clean_stock_code)
+                get_web_logger().debug(f"매도 예정 종목코드 정리: {stock_code} → {clean_stock_code}")
             
             buy_candidates = get_current_engine().analyzer.get_top_stocks(
                 analysis_result,
                 top_n=strategy_params.get('top_n', 5),
-                buy_universe_rank=strategy_params.get('buy_universe_rank', 20)
+                buy_universe_rank=strategy_params.get('buy_universe_rank', 20),
+                include_sell_candidates=clean_sell_candidates  # A 프리픽스 제거된 매도 예정 종목을 매수 대상에 포함
             )
             
-            # get_top_stocks() 함수에서 이미 보유종목이 제외되어 반환됨
             get_web_logger().info(f"📋 분석결과확인 테스트: 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
             
         except Exception as e:
-            get_web_logger().error(f"매수 대상 선정 중 오류 발생: {e}")
-            buy_candidates = []  # 빈 리스트로 설정하여 계속 진행
+            get_web_logger().error(f"매도/매수 대상 선별 중 오류 발생: {e}")
+            get_web_logger().debug(f"account_info 구조: {list(account_info.keys()) if account_info else 'None'}")
+            get_web_logger().debug(f"strategy_params: {strategy_params}")
+            import traceback
+            get_web_logger().error(f"스택 트레이스: {traceback.format_exc()}")
+            sell_candidates = []
+            buy_candidates = []
         
         # 💰 사용가능금액 계산 (분석결과확인 테스트용)
-        # 매도 후 예수금을 고려한 계산
         available_cash = 0
         total_deposit = 0
         reserve_cash = 0
-        sell_proceeds = 0  # 매도로 확보될 예상 현금
         
         try:
-            from src.api.account import KiwoomAccount
-            from src.utils.server_manager import get_current_server
-            
-            # 현재 서버 타입에 맞는 API 인스턴스 사용
-            server_type = get_current_server()
-            account = KiwoomAccount(server_type)
-            
-            # 예수금 정보 조회 (대시보드와 동일한 로직 사용)
-            deposit_result = account.get_deposit_detail()
-            
-            if deposit_result and deposit_result.get('success') is not False:
-                # 서버별 분기처리 (대시보드와 동일)
-                server_config = get_current_server_config_instance()
-                
-                if server_config.is_real_server():
-                    # 운영서버: kt00002로 최신 예수금 정보 확인
-                    today = datetime.now().strftime('%Y%m%d')
-                    
-                    try:
-                        daily_result = account.get_daily_estimated_deposit_assets(today, today)
-                        if daily_result and daily_result.get('daly_prsm_dpst_aset_amt_prst'):
-                            # 오늘 날짜의 예수금 정보가 있으면 사용
-                            today_data = daily_result['daly_prsm_dpst_aset_amt_prst'][0]
-                            if 'entr' in today_data:
-                                deposit_result['entr'] = today_data['entr']
-                                get_web_logger().info(f"운영서버 kt00002에서 최신 예수금 정보 사용: {today_data['entr']}")
-                    except Exception as e:
-                        get_web_logger().warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
-                        get_web_logger().info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
-                
-                # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
-                if 'd2_entra' in deposit_result and deposit_result['d2_entra'] and deposit_result['d2_entra'] != '000000000000000':
-                    deposit_result['entr'] = deposit_result['d2_entra']
-                    get_web_logger().info(f"D+2 추정예수금 사용: {deposit_result['d2_entra']}")
+            # 예수금 정보 조회 (account_info에서 가져오기) - 기존 로직 복원
+            deposit_info = account_info.get('deposit', {})
+            if deposit_info:
+                # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (대시보드와 동일한 로직)
+                if 'd2_entra' in deposit_info and deposit_info['d2_entra'] and deposit_info['d2_entra'] != '000000000000000':
+                    total_deposit = int(deposit_info['d2_entra'])
+                    get_web_logger().info(f"D+2 추정예수금 사용: {deposit_info['d2_entra']}")
                 # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
-                elif 'd1_entra' in deposit_result and deposit_result['d1_entra'] and deposit_result['d1_entra'] != '000000000000000':
-                    deposit_result['entr'] = deposit_result['d1_entra']
-                    get_web_logger().info(f"D+1 추정예수금 사용: {deposit_result['d1_entra']}")
-                
-                # 예수금 계산 (매도 후 예상금액 반영) - d2_entra 또는 d1_entra 사용
-                total_deposit = int(deposit_result.get('entr', 0))
-                reserve_cash = strategy_params.get('reserve_cash', 1000000)
-                
-                # 매도 후 예상 예수금 = 현재 예수금 + 매도 예상금액
-                expected_deposit_after_sell = total_deposit + sell_proceeds
-                available_cash = expected_deposit_after_sell - reserve_cash
-                
-                get_web_logger().info(f"💰 분석결과확인 테스트 - 현재 예수금: {total_deposit:,}원")
-                get_web_logger().info(f"💰 매도 예상금액: {sell_proceeds:,}원")
-                get_web_logger().info(f"💰 매도 후 예상 예수금: {expected_deposit_after_sell:,}원")
-                get_web_logger().info(f"💰 매매제외예수금: {reserve_cash:,}원")
-                get_web_logger().info(f"💰 매도 후 사용가능금액: {available_cash:,}원")
-            else:
-                # 상세한 오류 정보 로그
-                if deposit_result:
-                    error_msg = deposit_result.get('message', '알 수 없는 오류')
-                    error_code = deposit_result.get('error_code', 'UNKNOWN')
-                    full_response = deposit_result.get('full_response', {})
-                    get_web_logger().warning(f"예수금 정보 조회 실패: [{error_code}] {error_msg}")
-                    get_web_logger().warning(f"전체 API 응답: {full_response}")
+                elif 'd1_entra' in deposit_info and deposit_info['d1_entra'] and deposit_info['d1_entra'] != '000000000000000':
+                    total_deposit = int(deposit_info['d1_entra'])
+                    get_web_logger().info(f"D+1 추정예수금 사용: {deposit_info['d1_entra']}")
+                # 기본 예수금 사용
+                elif 'entr' in deposit_info:
+                    total_deposit = int(deposit_info['entr'])
+                    get_web_logger().info(f"기본 예수금 사용: {deposit_info['entr']}")
                 else:
-                    get_web_logger().warning("예수금 정보 조회 결과가 None입니다.")
+                    total_deposit = 0
+                    get_web_logger().warning("⚠️ 분석결과확인 테스트: 예수금 정보 없음")
                 
-        except Exception as cash_error:
-            get_web_logger().warning(f"사용가능금액 계산 중 오류 발생: {cash_error}")
+                reserve_cash = strategy_params.get('reserve_cash', 1000000)
+                available_cash = total_deposit + sell_proceeds - reserve_cash
+                get_web_logger().info(f"💰 분석결과확인 테스트: 총 예수금: {total_deposit:,}원, 매도 예상금액: {sell_proceeds:,}원, 매매제외예수금: {reserve_cash:,}원, 사용가능현금: {available_cash:,}원")
+            else:
+                get_web_logger().warning("⚠️ 분석결과확인 테스트: 예수금 정보 조회 실패 - deposit 정보 없음")
+                get_web_logger().debug(f"account_info 구조: {list(account_info.keys()) if account_info else 'None'}")
+        except Exception as e:
+            get_web_logger().error(f"예수금 정보 계산 중 오류 발생: {e}")
+            get_web_logger().debug(f"account_info: {account_info}")
         
         # 결과 정리
         result = {
@@ -2294,6 +2306,7 @@ def get_analysis_result():
             'sell_candidates': sell_candidates,  # 매도 대상 추가
             'buy_candidates': buy_candidates,
             'strategy_params': strategy_params,
+            'analysis_result': analysis_result,  # 팝업에서 매매실행 시 사용할 analysis_result 객체 추가
             'cash_info': {
                 'current_deposit': total_deposit,
                 'sell_proceeds': sell_proceeds,
@@ -2307,6 +2320,8 @@ def get_analysis_result():
         
     except Exception as e:
         get_web_logger().error(f"분석 결과 조회 중 오류: {e}")
+        import traceback
+        get_web_logger().error(f"스택 트레이스: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'분석 결과 조회 중 오류가 발생했습니다: {str(e)}'
@@ -2314,21 +2329,21 @@ def get_analysis_result():
 
 @app.route('/api/auto-trading/execute-with-candidates', methods=['POST'])
 def execute_auto_trading_with_candidates():
-    """선정된 매수 대상으로 자동매매 실행 (테스트용)"""
+    """팝업에서 매매실행 버튼 클릭 시 호출"""
     try:
         data = request.get_json()
-        buy_candidates = data.get('buy_candidates', [])
+        analysis_result = data.get('analysis_result')
         manual_execution = data.get('manual_execution', True)
         
-        if not buy_candidates:
+        if not analysis_result:
             return jsonify({
                 'success': False,
-                'message': '매수 대상이 지정되지 않았습니다.'
+                'message': '분석 결과가 지정되지 않았습니다.'
             }), 400
         
-        # 자동매매 실행 (매수 대상 미리 선정된 상태)
+        # 자동매매 실행 (analysis_result를 파라미터로 전달)
         result = get_current_engine().execute_strategy_with_candidates(
-            buy_candidates=buy_candidates,
+            analysis_result=analysis_result,
             manual_execution=manual_execution
         )
         
