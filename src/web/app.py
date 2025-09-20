@@ -319,6 +319,31 @@ def login():
         get_web_logger().info(f"로그인 시도 - {server_type} 서버용 인증 인스턴스 생성")
         token = current_auth.get_access_token(force_refresh=True)
         if token:
+            # 토큰 발급 성공 후 체결내역 수집 시작
+            get_web_logger().info("🔍 매수 체결내역 수집 시작")
+            
+            try:
+                from src.utils.order_history_manager import OrderHistoryManager
+                order_manager = OrderHistoryManager(server_type)
+                
+                # 체결내역 수집 (최대 30일)
+                get_web_logger().info(f"🔍 {server_type} 서버 매수 체결내역 수집 시작")
+                collection_success = order_manager.collect_order_history(max_days=30)
+                
+                if collection_success:
+                    # 수집된 데이터 요약 정보 로그
+                    summary = order_manager.get_data_summary()
+                    get_web_logger().info(f"✅ 매수 체결내역 수집 완료: {summary['total_orders']}개 주문, {summary['stock_count']}개 종목")
+                else:
+                    get_web_logger().warning("⚠️ 매수 체결내역 수집 실패 (로그인은 계속 진행)")
+                
+            except Exception as collection_error:
+                get_web_logger().error(f"🚨 체결내역 수집 중 오류: {collection_error}")
+                import traceback
+                get_web_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
+                # 수집 실패해도 로그인은 계속 진행
+            
+            # 로그인 완료
             session['authenticated'] = True
             session['login_time'] = datetime.now().isoformat()
             get_web_logger().info("사용자 로그인 성공")
@@ -500,7 +525,34 @@ def get_evaluation():
             
             # kt00004에서 개별 종목 데이터 가져오기
             if 'stk_acnt_evlt_prst' in evaluation_result:
-                combined_data['stk_acnt_evlt_prst'] = evaluation_result['stk_acnt_evlt_prst']
+                stocks = evaluation_result['stk_acnt_evlt_prst']
+                
+                # 보유기간 계산 추가
+                try:
+                    from src.utils.order_history_manager import OrderHistoryManager
+                    server_type = get_current_server()
+                    order_manager = OrderHistoryManager(server_type)
+                    
+                    # 각 종목에 보유기간 추가
+                    for stock in stocks:
+                        stock_code = stock.get('stk_cd', '')
+                        current_quantity = int(stock.get('rmnd_qty', '0'))
+                        
+                        if stock_code and current_quantity > 0:
+                            holding_days = order_manager.get_holding_period(stock_code, current_quantity)
+                            stock['holding_days'] = holding_days
+                        else:
+                            stock['holding_days'] = 0
+                    
+                    get_web_logger().info(f"📊 보유기간 계산 완료: {len(stocks)}개 종목")
+                    
+                except Exception as holding_error:
+                    get_web_logger().error(f"🚨 보유기간 계산 중 오류: {holding_error}")
+                    # 보유기간 계산 실패해도 기본 데이터는 반환
+                    for stock in stocks:
+                        stock['holding_days'] = 0
+                
+                combined_data['stk_acnt_evlt_prst'] = stocks
             
             return jsonify({
                 'success': True,

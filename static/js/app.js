@@ -158,6 +158,9 @@ async function login() {
         showLoading(true);
         console.log('로그인 시도 시작');
         
+        // 로그인 진행 모달 표시
+        showLoginProgressModal();
+        
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: {
@@ -170,22 +173,153 @@ async function login() {
         if (data.success) {
             isAuthenticated = true;
             updateAuthUI(true);
-            showAlert(data.message, 'success');
             
-            // 로그인 성공 후 데이터 새로고침
+            // 로그인 성공 메시지
+            updateLoginProgress('✅ 로그인 성공! 매수 체결내역 수집이 완료되었습니다.', 'success');
+            
+            // 2초 후 모달 닫기
             setTimeout(() => {
+                hideLoginProgressModal();
+                showAlert('✅ 로그인 성공!', 'success');
+                
+                // 로그인 성공 후 데이터 새로고침
                 if (typeof refreshDashboard === 'function') {
                     refreshDashboard();
                 }
-            }, 1000);
+            }, 2000);
         } else {
+            hideLoginProgressModal();
             showAlert(data.message, 'danger');
         }
     } catch (error) {
         console.error('로그인 실패:', error);
+        hideLoginProgressModal();
         showAlert('로그인 중 오류가 발생했습니다.', 'danger');
     } finally {
         showLoading(false);
+    }
+}
+
+/**
+ * 로그인 진행 모달 표시
+ */
+function showLoginProgressModal() {
+    // 기존 모달이 있으면 제거
+    const existingModal = document.getElementById('loginProgressModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // 모달 HTML 생성
+    const modalHTML = `
+        <div class="modal fade" id="loginProgressModal" tabindex="-1" aria-labelledby="loginProgressModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title" id="loginProgressModalLabel">
+                            <i class="fas fa-sign-in-alt me-2"></i>로그인 진행 중
+                        </h5>
+                    </div>
+                    <div class="modal-body text-center">
+                        <div class="mb-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">로딩 중...</span>
+                            </div>
+                        </div>
+                        <h6 id="loginProgressMessage">🔐 로그인 중...</h6>
+                        <p class="text-muted mb-3">매수 체결내역을 수집하고 있습니다.</p>
+                        <div class="progress mb-3" style="height: 8px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                                 role="progressbar" style="width: 0%" id="loginProgressBar"></div>
+                        </div>
+                        <small class="text-muted" id="loginProgressDetail">토큰 발급 중...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 모달을 body에 추가
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // 모달 표시
+    const modal = new bootstrap.Modal(document.getElementById('loginProgressModal'));
+    modal.show();
+    
+    // 진행률 애니메이션 시작
+    startLoginProgressAnimation();
+}
+
+/**
+ * 로그인 진행률 애니메이션
+ */
+function startLoginProgressAnimation() {
+    const progressBar = document.getElementById('loginProgressBar');
+    const progressDetail = document.getElementById('loginProgressDetail');
+    
+    let progress = 0;
+    const steps = [
+        { progress: 15, message: '토큰 발급 중...' },
+        { progress: 25, message: '보유종목 조회 중...' },
+        { progress: 35, message: '체결내역 수집 시작...' },
+        { progress: 50, message: '최근 30일 데이터 수집 중...' },
+        { progress: 70, message: '매수 주문 필터링 중...' },
+        { progress: 85, message: '데이터 저장 중...' },
+        { progress: 95, message: '완료 처리 중...' }
+    ];
+    
+    let currentStep = 0;
+    
+    const interval = setInterval(() => {
+        if (currentStep < steps.length) {
+            const step = steps[currentStep];
+            progress = step.progress;
+            progressBar.style.width = progress + '%';
+            progressDetail.textContent = step.message;
+            currentStep++;
+        } else {
+            // 95%에서 멈춤 (실제 완료까지 대기)
+            clearInterval(interval);
+        }
+    }, 3000); // 3초마다 단계 진행 (더 여유있게)
+}
+
+/**
+ * 로그인 진행 메시지 업데이트
+ */
+function updateLoginProgress(message, type = 'info') {
+    const progressMessage = document.getElementById('loginProgressMessage');
+    const progressBar = document.getElementById('loginProgressBar');
+    
+    if (progressMessage) {
+        progressMessage.textContent = message;
+        
+        // 타입에 따른 색상 변경
+        if (type === 'success') {
+            progressMessage.className = 'text-success';
+            progressBar.className = 'progress-bar bg-success';
+            progressBar.style.width = '100%';
+        } else if (type === 'danger') {
+            progressMessage.className = 'text-danger';
+            progressBar.className = 'progress-bar bg-danger';
+        }
+    }
+}
+
+/**
+ * 로그인 진행 모달 숨기기
+ */
+function hideLoginProgressModal() {
+    const modal = document.getElementById('loginProgressModal');
+    if (modal) {
+        const bootstrapModal = bootstrap.Modal.getInstance(modal);
+        if (bootstrapModal) {
+            bootstrapModal.hide();
+        }
+        // 모달이 완전히 숨겨진 후 DOM에서 제거
+        modal.addEventListener('hidden.bs.modal', function() {
+            modal.remove();
+        }, { once: true });
     }
 }
 
