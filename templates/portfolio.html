@@ -102,7 +102,7 @@
           >
             <option value="name">종목명</option>
             <option value="value">평가금액</option>
-            <option value="profit">손익금액</option>
+            <option value="profit" selected>손익금액</option>
             <option value="return">수익률</option>
           </select>
           <input
@@ -171,7 +171,7 @@
         <div>
           <button
             class="btn btn-sm btn-outline-primary"
-            onclick="toggleChartView()"
+            id="toggleChartBtn"
           >
             <i class="fas fa-chart-bar"></i> 막대 차트
           </button>
@@ -188,8 +188,8 @@
 <div class="modal fade" id="stockDetailModal" tabindex="-1">
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="stockDetailTitle">종목 상세 정보</h5>
+      <div class="modal-header" style="background-color: #f8f9fa; border-bottom: 1px solid #dee2e6;">
+        <h5 class="modal-title" id="stockDetailTitle" style="color: #000000 !important; font-weight: bold;">종목 상세 정보</h5>
         <button
           type="button"
           class="btn-close"
@@ -219,8 +219,8 @@
 <div class="modal fade" id="chartModal" tabindex="-1">
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="chartModalTitle">종목 차트</h5>
+      <div class="modal-header" style="background-color: #f8f9fa; border-bottom: 1px solid #dee2e6;">
+        <h5 class="modal-title" id="chartModalTitle" style="color: #000000 !important; font-weight: bold;">종목 차트</h5>
         <button
           type="button"
           class="btn-close"
@@ -233,7 +233,7 @@
           <div class="col-md-3">
             <label for="chartType" class="form-label">차트 타입</label>
             <select class="form-select" id="chartType" onchange="changeChartType()">
-              <option value="daily">일봉</option>
+              <option value="daily" selected>일봉</option>
               <option value="weekly">주봉</option>
               <option value="monthly">월봉</option>
               <option value="yearly">년봉</option>
@@ -268,7 +268,7 @@
             <label for="chartPeriod" class="form-label">기간</label>
             <select class="form-select" id="chartPeriod" onchange="loadChart()">
               <option value="30">최근 30일</option>
-              <option value="90">최근 3개월</option>
+              <option value="90" selected>최근 3개월</option>
               <option value="180">최근 6개월</option>
               <option value="365">최근 1년</option>
               <option value="all">전체</option>
@@ -380,6 +380,17 @@
 
     // 60초마다 자동 새로고침
     setInterval(loadPortfolio, 60000);
+    
+    // 막대차트 버튼 이벤트 리스너 추가
+    const toggleChartBtn = document.getElementById('toggleChartBtn');
+    if (toggleChartBtn) {
+      toggleChartBtn.addEventListener('click', function() {
+        console.log('버튼 클릭됨!');
+        toggleReturnChartView();
+      });
+    } else {
+      console.log('toggleChartBtn을 찾을 수 없습니다.');
+    }
   });
 
   function updateServerInfoFromTemplate() {
@@ -408,6 +419,12 @@
         if (data.success && data.data.stk_acnt_evlt_prst) {
           portfolioData = data.data.stk_acnt_evlt_prst;
           updatePortfolioSummary(data.data);
+          
+          // 디폴트로 손익금액 순으로 정렬
+          portfolioData.sort((a, b) => {
+            return parseFloat(b.pl_amt || "0") - parseFloat(a.pl_amt || "0");
+          });
+          
           updatePortfolioTable(portfolioData);
           updatePortfolioChart(portfolioData);
           updateReturnChart(portfolioData);
@@ -528,15 +545,22 @@
       portfolioChart.remove();
     }
 
-    const labels = stocks.map((stock) => stock.stk_nm || "Unknown");
-    const data = stocks.map((stock) => parseFloat(stock.evlt_amt || "0"));
-    const colors = generateColors(stocks.length);
+    // 포트폴리오 구성 차트는 항상 비중순으로 정렬 (내림차순)
+    const sortedStocks = stocks.sort((a, b) => {
+      const valueA = parseFloat(a.evlt_amt || "0");
+      const valueB = parseFloat(b.evlt_amt || "0");
+      return valueB - valueA; // 큰 값부터 정렬
+    });
+
+    const labels = sortedStocks.map((stock) => stock.stk_nm || "Unknown");
+    const data = sortedStocks.map((stock) => parseFloat(stock.evlt_amt || "0"));
+    const colors = generateColors(sortedStocks.length);
 
     // 간단한 HTML 기반 차트로 대체
     const total = data.reduce((a, b) => a + b, 0);
     
     let chartHTML = '<div class="portfolio-chart-container">';
-    stocks.forEach((stock, index) => {
+    sortedStocks.forEach((stock, index) => {
       const value = parseFloat(stock.evlt_amt || "0");
       const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
       
@@ -564,40 +588,82 @@
   }
 
   function updateReturnChart(stocks) {
+    console.log('updateReturnChart 호출됨, stocks:', stocks);
+    console.log('isBarChart:', isBarChart);
+    
     const chartContainer = document.getElementById("return-chart");
+    console.log('chartContainer:', chartContainer);
 
     if (returnChart) {
       returnChart.remove();
     }
 
-    const labels = stocks.map((stock) => stock.stk_nm || "Unknown");
-    const data = stocks.map((stock) => parseFloat(stock.pl_rt || "0"));
+    // 수익률 순으로 정렬 (내림차순)
+    const sortedStocks = stocks.sort((a, b) => {
+      const returnA = parseFloat(a.pl_rt || "0");
+      const returnB = parseFloat(b.pl_rt || "0");
+      return returnB - returnA; // 큰 값부터 정렬
+    });
+    console.log('sortedStocks:', sortedStocks);
+
+    const labels = sortedStocks.map((stock) => stock.stk_nm || "Unknown");
+    const data = sortedStocks.map((stock) => parseFloat(stock.pl_rt || "0"));
     const colors = data.map((value) => (value >= 0 ? "#28a745" : "#dc3545"));
 
-    // 간단한 HTML 기반 차트로 대체
+    // 막대차트 또는 선차트로 표시
     let chartHTML = '<div class="return-chart-container">';
-    stocks.forEach((stock, index) => {
-      const returnRate = parseFloat(stock.pl_rt || "0");
-      const color = returnRate >= 0 ? "#28a745" : "#dc3545";
-      const icon = returnRate >= 0 ? "fa-arrow-up" : "fa-arrow-down";
-      
-      chartHTML += `
-        <div class="return-chart-item" style="margin-bottom: 8px;">
-          <div class="d-flex justify-content-between align-items-center">
-            <span class="stock-name">${stock.stk_nm || "Unknown"}</span>
-            <div class="d-flex align-items-center">
-              <i class="fas ${icon} me-1" style="color: ${color};"></i>
-              <span class="return-rate" style="color: ${color}; font-weight: bold;">
-                ${returnRate >= 0 ? '+' : ''}${returnRate.toFixed(2)}%
-              </span>
+    
+    if (isBarChart) {
+      // 막대차트 형태
+      sortedStocks.forEach((stock, index) => {
+        const returnRate = parseFloat(stock.pl_rt || "0");
+        const color = returnRate >= 0 ? "#28a745" : "#dc3545";
+        const icon = returnRate >= 0 ? "fa-arrow-up" : "fa-arrow-down";
+        const barWidth = Math.min(Math.abs(returnRate) * 3, 100); // 막대차트는 더 넓게
+        
+        chartHTML += `
+          <div class="return-chart-item" style="margin-bottom: 12px;">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <span class="stock-name" style="font-size: 14px;">${stock.stk_nm || "Unknown"}</span>
+              <div class="d-flex align-items-center">
+                <i class="fas ${icon} me-1" style="color: ${color};"></i>
+                <span class="return-rate" style="color: ${color}; font-weight: bold; font-size: 14px;">
+                  ${returnRate >= 0 ? '+' : ''}${returnRate.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+            <div class="progress" style="height: 8px; background-color: #f8f9fa;">
+              <div class="progress-bar" style="width: ${barWidth}%; background-color: ${color}; border-radius: 4px;"></div>
             </div>
           </div>
-          <div class="progress mt-1" style="height: 3px;">
-            <div class="progress-bar" style="width: ${Math.min(Math.abs(returnRate) * 2, 100)}%; background-color: ${color};"></div>
+        `;
+      });
+    } else {
+      // 선차트 형태 (기존)
+      sortedStocks.forEach((stock, index) => {
+        const returnRate = parseFloat(stock.pl_rt || "0");
+        const color = returnRate >= 0 ? "#28a745" : "#dc3545";
+        const icon = returnRate >= 0 ? "fa-arrow-up" : "fa-arrow-down";
+        
+        chartHTML += `
+          <div class="return-chart-item" style="margin-bottom: 8px;">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="stock-name">${stock.stk_nm || "Unknown"}</span>
+              <div class="d-flex align-items-center">
+                <i class="fas ${icon} me-1" style="color: ${color};"></i>
+                <span class="return-rate" style="color: ${color}; font-weight: bold;">
+                  ${returnRate >= 0 ? '+' : ''}${returnRate.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+            <div class="progress mt-1" style="height: 3px;">
+              <div class="progress-bar" style="width: ${Math.min(Math.abs(returnRate) * 2, 100)}%; background-color: ${color};"></div>
+            </div>
           </div>
-        </div>
-      `;
-    });
+        `;
+      });
+    }
+    
     chartHTML += '</div>';
     
     chartContainer.innerHTML = chartHTML;
@@ -651,7 +717,7 @@
 
   function showStockDetail(stockCode, stockName) {
     document.getElementById("stockDetailTitle").innerHTML =
-      '<span class="text-black fw-bold">' + stockName + " (" + stockCode + ")" + '</span>';
+      '<span style="color: #000000 !important; font-weight: bold;">' + stockName + " (" + stockCode + ")" + '</span>';
 
     // 로딩 표시
     document.getElementById("stockDetailBody").innerHTML = `
@@ -799,14 +865,32 @@
     new bootstrap.Modal(document.getElementById("stockDetailModal")).show();
   }
 
-  function toggleChartView() {
-    isBarChart = !isBarChart;
-    updateReturnChart(portfolioData);
+  function toggleReturnChartView() {
+    try {
+      console.log('toggleReturnChartView 호출됨, 현재 isBarChart:', isBarChart);
+      console.log('portfolioData:', portfolioData);
+      
+      isBarChart = !isBarChart;
+      console.log('변경된 isBarChart:', isBarChart);
+      
+      console.log('updateReturnChart 호출 전');
+      updateReturnChart(portfolioData);
+      console.log('updateReturnChart 호출 후');
 
-    const button = event.target.closest("button");
-    button.innerHTML = isBarChart
-      ? '<i class="fas fa-chart-line"></i> 선 차트'
-      : '<i class="fas fa-chart-bar"></i> 막대 차트';
+      // 버튼 텍스트 업데이트
+      const button = document.getElementById('toggleChartBtn');
+      console.log('찾은 버튼:', button);
+      if (button) {
+        button.innerHTML = isBarChart
+          ? '<i class="fas fa-chart-line"></i> 선 차트'
+          : '<i class="fas fa-chart-bar"></i> 막대 차트';
+        console.log('버튼 텍스트 업데이트됨');
+      } else {
+        console.log('버튼을 찾을 수 없습니다!');
+      }
+    } catch (error) {
+      console.error('toggleReturnChartView 오류:', error);
+    }
   }
 
   function refreshPortfolio() {
@@ -877,7 +961,7 @@
       currentStockCode = match[2].trim();
       
       // 차트 모달 제목 설정
-      document.getElementById('chartModalTitle').textContent = `${currentStockName} (${currentStockCode}) 차트`;
+      document.getElementById('chartModalTitle').innerHTML = `<span style="color: #000000 !important; font-weight: bold;">${currentStockName} (${currentStockCode}) 차트</span>`;
       
       // 차트 모달 표시
       new bootstrap.Modal(document.getElementById('chartModal')).show();
@@ -979,9 +1063,8 @@
     .then(response => response.json())
     .then(data => {
       if (data.success) {
-        // 기간에 따른 데이터 필터링
-        const filteredData = filterChartDataByPeriod(data.data, chartType);
-        renderChart(filteredData, chartType);
+        // 전체 데이터를 로드하고 선택한 기간만 확대해서 표시
+        renderChart(data.data, chartType);
         
         // 일봉일 때만 투자자별 차트도 로드
         if (chartType === 'daily') {
@@ -1201,6 +1284,25 @@
         rightOffset: 0,
         barSpacing: 0,
         lockVisibleTimeRangeOnResize: true,
+        tickMarkFormatter: (time, tickMarkType, locale) => {
+          const date = new Date(time * 1000);
+          const year = date.getFullYear();
+          const month = (date.getMonth() + 1).toString().padStart(2, '0');
+          const day = date.getDate().toString().padStart(2, '0');
+          
+          if (tickMarkType === LightweightCharts.TickMarkType.Year) {
+            return year.toString();
+          } else if (tickMarkType === LightweightCharts.TickMarkType.Month) {
+            return `${month}/${day}`;
+          } else if (tickMarkType === LightweightCharts.TickMarkType.DayOfMonth) {
+            return day;
+          } else if (tickMarkType === LightweightCharts.TickMarkType.Time) {
+            const hour = date.getHours().toString().padStart(2, '0');
+            const minute = date.getMinutes().toString().padStart(2, '0');
+            return `${hour}:${minute}`;
+          }
+          return `${year}.${month}.${day}`;
+        },
       },
     });
     
@@ -1246,6 +1348,116 @@
     });
     
     // 동기화 불필요 - 하나의 차트에 모든 데이터 표시
+    
+    // 커스텀 툴팁 생성
+    const tooltip = document.createElement('div');
+    tooltip.id = 'chart-tooltip';
+    tooltip.style.cssText = `
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: Arial, sans-serif;
+      pointer-events: none;
+      z-index: 1000;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    `;
+    chartContainer.appendChild(tooltip);
+    
+    // 크로스헤어 이벤트 처리 (간단하고 확실한 툴팁)
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || !param.time) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      
+      // seriesData 대신 seriesPrices 사용
+      const candlestickPrice = param.seriesPrices.get(candlestickSeries);
+      
+      if (!candlestickPrice) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      
+      // 날짜 포맷팅 (네이버 차트 스타일)
+      const date = new Date(param.time * 1000);
+      const dateStr = `${date.getFullYear()}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getDate().toString().padStart(2, '0')} (${['일', '월', '화', '수', '목', '금', '토'][date.getDay()]})`;
+      
+      // 가격 포맷팅 (천 단위 구분, 소수점 제거)
+      const formatPrice = (price) => {
+        if (price === null || price === undefined || isNaN(price) || price === 0) return '0';
+        return new Intl.NumberFormat('ko-KR').format(Math.round(price));
+      };
+      
+      // 해당 시간의 원본 데이터 찾기
+      const currentData = candlestickData.find(item => item.time === param.time);
+      
+      if (!currentData) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      
+      // 등락률 계산 (시가 대비 종가)
+      const change = currentData.close - currentData.open;
+      const changePercent = currentData.open > 0 ? ((change / currentData.open) * 100).toFixed(2) : '0.00';
+      const changeColor = change >= 0 ? '#ff6b6b' : '#4ecdc4';
+      const changeSign = change >= 0 ? '+' : '';
+      
+      // 데이터 유효성 검사
+      if (isNaN(currentData.open) || isNaN(currentData.high) || isNaN(currentData.low) || isNaN(currentData.close)) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      
+      // 툴팁 내용 생성 (네이버 차트 스타일)
+      let tooltipContent = `
+        <div style="font-weight: bold; margin-bottom: 6px; color: #fff; font-size: 13px;">${dateStr}</div>
+        <div style="color: #ff6b6b;">시가: ${formatPrice(currentData.open)}원</div>
+        <div style="color: #4ecdc4;">고가: ${formatPrice(currentData.high)}원</div>
+        <div style="color: #45b7d1;">저가: ${formatPrice(currentData.low)}원</div>
+        <div style="color: #26a69a;">종가: ${formatPrice(currentData.close)}원</div>
+        <div style="margin-top: 6px; padding-top: 4px; border-top: 1px solid #555;">
+          <div style="color: ${changeColor}; font-size: 12px; font-weight: bold;">
+            등락: ${changeSign}${formatPrice(change)}원 (${changeSign}${changePercent}%)
+          </div>
+        </div>
+      `;
+      
+      // 거래량 정보 추가
+      try {
+        const volumePrice = param.seriesPrices.get(volumeSeries);
+        if (volumePrice) {
+          tooltipContent += `<div style="margin-top: 4px; color: #ff9800; font-size: 12px;">거래량: ${formatPrice(volumePrice)}주</div>`;
+        }
+      } catch (error) {
+        console.warn('거래량 데이터 가져오기 실패:', error);
+      }
+      
+      tooltip.innerHTML = tooltipContent;
+      tooltip.style.display = 'block';
+      
+      // 툴팁 위치 설정 (차트 컨테이너 기준)
+      const rect = chartContainer.getBoundingClientRect();
+      const tooltipWidth = 250; // 고정 너비
+      const tooltipHeight = 80; // 고정 높이
+      
+      let left = param.point.x + 10;
+      let top = param.point.y - tooltipHeight - 10;
+      
+      // 화면 경계 체크
+      if (left + tooltipWidth > chartContainer.clientWidth) {
+        left = param.point.x - tooltipWidth - 10;
+      }
+      if (top < 0) {
+        top = param.point.y + 10;
+      }
+      
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = top + 'px';
+    });
     
     // 차트 뷰에 따라 데이터 설정 (안전한 처리)
     try {
@@ -1371,10 +1583,77 @@
           });
           ma240Series.setData(ma240Data);
         }
+        
+        // 볼린저 밴드 추가 (20일 기준, 표준편차 2)
+        const bollingerData = calculateBollingerBands(candlestickData, 20, 2);
+        if (bollingerData.upper.length > 0) {
+          // 상단 밴드
+          const upperBand = chart.addLineSeries({
+            color: '#FF9800',
+            lineWidth: 1,
+            title: 'BB Upper',
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+          });
+          upperBand.setData(bollingerData.upper);
+          
+          // 중간 밴드 (20일 이동평균)
+          const middleBand = chart.addLineSeries({
+            color: '#FF9800',
+            lineWidth: 1,
+            title: 'BB Middle',
+          });
+          middleBand.setData(bollingerData.middle);
+          
+          // 하단 밴드
+          const lowerBand = chart.addLineSeries({
+            color: '#FF9800',
+            lineWidth: 1,
+            title: 'BB Lower',
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+          });
+          lowerBand.setData(bollingerData.lower);
+        }
       } catch (error) {
-        console.error('이동평균선 추가 실패:', error);
+        console.error('이동평균선 및 볼린저 밴드 추가 실패:', error);
       }
     }
+    
+    // 선택한 기간만 확대해서 표시 (차트가 완전히 로드된 후)
+    const applyZoom = () => {
+      const period = document.getElementById('chartPeriod').value;
+      if (period !== 'all' && candlestickData.length > 0) {
+        const days = parseInt(period);
+        
+        // 최신 데이터부터 역순으로 정렬된 상태에서 마지막 N개만 선택
+        const visibleDataCount = Math.min(days, candlestickData.length);
+        const startIndex = candlestickData.length - visibleDataCount;
+        
+        if (startIndex >= 0 && startIndex < candlestickData.length) {
+          // 선택한 기간만 확대해서 표시
+          const visibleRange = {
+            from: candlestickData[startIndex].time,
+            to: candlestickData[candlestickData.length - 1].time
+          };
+          
+          console.log(`기간 선택: ${days}일, 표시할 데이터: ${visibleDataCount}개`);
+          console.log(`시작 시간: ${new Date(visibleRange.from * 1000).toLocaleDateString()}`);
+          console.log(`종료 시간: ${new Date(visibleRange.to * 1000).toLocaleDateString()}`);
+          
+          // 차트가 완전히 로드된 후 확대 적용
+          try {
+            chart.timeScale().setVisibleRange(visibleRange);
+            console.log('차트 확대 적용 완료');
+          } catch (error) {
+            console.error('차트 확대 실패:', error);
+          }
+        }
+      }
+    };
+    
+    // 여러 번 시도해서 확대 적용
+    setTimeout(applyZoom, 500);
+    setTimeout(applyZoom, 1000);
+    setTimeout(applyZoom, 1500);
     
     // 전역 변수에 저장
     stockChart = chart;
@@ -1398,6 +1677,50 @@
     }
     
     return result;
+  }
+  
+  // 볼린저 밴드 계산 함수
+  function calculateBollingerBands(data, period, stdDev) {
+    const upper = [];
+    const middle = [];
+    const lower = [];
+    
+    for (let i = period - 1; i < data.length; i++) {
+      // 이동평균 계산
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += data[i - j].close;
+      }
+      const average = sum / period;
+      
+      // 표준편차 계산
+      let variance = 0;
+      for (let j = 0; j < period; j++) {
+        variance += Math.pow(data[i - j].close - average, 2);
+      }
+      const standardDeviation = Math.sqrt(variance / period);
+      
+      // 볼린저 밴드 계산
+      const upperBand = average + (stdDev * standardDeviation);
+      const lowerBand = average - (stdDev * standardDeviation);
+      
+      upper.push({
+        time: data[i].time,
+        value: upperBand
+      });
+      
+      middle.push({
+        time: data[i].time,
+        value: average
+      });
+      
+      lower.push({
+        time: data[i].time,
+        value: lowerBand
+      });
+    }
+    
+    return { upper, middle, lower };
   }
 
   function renderInvestorChart(investorData) {
