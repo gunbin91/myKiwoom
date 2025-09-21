@@ -27,7 +27,7 @@ def safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
-from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order, mock_account, real_account, mock_quote, real_quote, mock_order, real_order
+from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order, kiwoom_chart, mock_account, real_account, mock_quote, real_quote, mock_order, real_order, mock_chart, real_chart
 from src.auto_trading.config_manager import mock_config_manager, real_config_manager
 from src.auto_trading.engine import mock_engine, real_engine
 from src.auto_trading.scheduler import mock_scheduler, real_scheduler
@@ -103,6 +103,12 @@ def get_current_order():
     from src.api.order import KiwoomOrder
     server_type = get_current_server()
     return KiwoomOrder(server_type)
+
+def get_current_chart():
+    """현재 서버에 맞는 chart 반환"""
+    from src.api.chart import KiwoomChart
+    server_type = get_current_server()
+    return KiwoomChart(server_type)
 
 # CORS 및 SocketIO 설정
 CORS(app)
@@ -1911,9 +1917,37 @@ def cancel_order():
             error_response = create_error_response("1501", "주문 취소 정보가 올바르지 않습니다.", "cancel_order")
             return jsonify(error_response)
         
+        # 주문번호 유효성 검증 (7자리 숫자여야 함)
+        if not order_no.isdigit() or len(order_no) != 7:
+            error_response = create_error_response("1502", f"주문번호 형식이 올바르지 않습니다. (입력: {order_no}, 요구: 7자리 숫자)", "cancel_order")
+            return jsonify(error_response)
+        
+        # 주문 상태 확인 (선택적 - 주문이 존재하는지 확인)
+        try:
+            # 미체결 주문 조회로 해당 주문이 존재하는지 확인
+            from src.api.account import get_current_account
+            account = get_current_account()
+            if account:
+                # 미체결 주문 조회 (최근 1일)
+                from datetime import datetime, timedelta
+                today = datetime.now().strftime('%Y%m%d')
+                yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+                
+                pending_orders = account.get_pending_orders(yesterday, today, stock_code)
+                if pending_orders and pending_orders.get('success', False):
+                    orders = pending_orders.get('data', {}).get('acnt_ord_cntr_prps_dtl', [])
+                    order_exists = any(order.get('orig_ord_no') == order_no for order in orders)
+                    
+                    if not order_exists:
+                        error_response = create_error_response("1503", f"주문번호 {order_no}에 해당하는 미체결 주문을 찾을 수 없습니다.", "cancel_order")
+                        return jsonify(error_response)
+        except Exception as e:
+            # 주문 상태 확인 실패해도 취소 시도는 계속 진행
+            get_web_logger().warning(f"주문 상태 확인 실패 (취소 시도 계속): {e}")
+        
         result = get_current_order().cancel_order(order_no, stock_code, quantity)
         
-        if result:
+        if result and result.get('success', False):
             success_message = f"✅ 주문이 취소되었습니다!\n" \
                             f"• 주문번호: {order_no}\n" \
                             f"• 종목: {stock_code}\n" \
@@ -1925,12 +1959,248 @@ def cancel_order():
                 'message': success_message
             })
         else:
-            error_response = create_error_response("2000", "주문 취소 처리 중 오류가 발생했습니다.", "cancel_order")
+            # 실제 API 에러 메시지 표시
+            error_msg = result.get('error_message', '주문 취소 처리 중 오류가 발생했습니다.') if result else '주문 취소 처리 중 오류가 발생했습니다.'
+            error_response = create_error_response("2000", f"주문 취소 실패: {error_msg}", "cancel_order")
             return jsonify(error_response)
             
     except Exception as e:
         get_web_logger().error(f"주문 취소 실패: {e}")
         error_response = create_error_response("2000", f"주문 취소 실패: {str(e)}", "cancel_order")
+        return jsonify(error_response)
+
+
+# 차트 API 엔드포인트들
+@app.route('/api/chart/tick', methods=['POST'])
+def get_tick_chart():
+    """주식 틱차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        tick_scope = data.get('tick_scope', '1')
+        upd_stkpc_tp = data.get('upd_stkpc_tp', '0')
+        
+        if not stock_code:
+            error_response = create_error_response("1501", "종목코드가 필요합니다.", "get_tick_chart")
+            return jsonify(error_response)
+        
+        result = get_current_chart().get_stock_tick_chart(stock_code, tick_scope, upd_stkpc_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '틱차트 조회 실패') if result else '틱차트 조회 실패'
+            error_response = create_error_response("2000", f"틱차트 조회 실패: {error_msg}", "get_tick_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"틱차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"틱차트 조회 실패: {str(e)}", "get_tick_chart")
+        return jsonify(error_response)
+
+@app.route('/api/chart/minute', methods=['POST'])
+def get_minute_chart():
+    """주식 분봉차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        tick_scope = data.get('tick_scope', '1')
+        upd_stkpc_tp = data.get('upd_stkpc_tp', '0')
+        
+        if not stock_code:
+            error_response = create_error_response("1501", "종목코드가 필요합니다.", "get_minute_chart")
+            return jsonify(error_response)
+        
+        result = get_current_chart().get_stock_minute_chart(stock_code, tick_scope, upd_stkpc_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '분봉차트 조회 실패') if result else '분봉차트 조회 실패'
+            error_response = create_error_response("2000", f"분봉차트 조회 실패: {error_msg}", "get_minute_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"분봉차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"분봉차트 조회 실패: {str(e)}", "get_minute_chart")
+        return jsonify(error_response)
+
+@app.route('/api/chart/daily', methods=['POST'])
+def get_daily_chart():
+    """주식 일봉차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        base_dt = data.get('base_dt', '')
+        upd_stkpc_tp = data.get('upd_stkpc_tp', '0')
+        
+        if not stock_code:
+            error_response = create_error_response("1501", "종목코드가 필요합니다.", "get_daily_chart")
+            return jsonify(error_response)
+        
+        # base_dt가 비어있으면 오늘 날짜로 설정 (키움 API는 base_dt부터 과거 데이터를 가져옴)
+        if not base_dt:
+            from datetime import datetime
+            base_dt = datetime.now().strftime('%Y%m%d')
+        
+        result = get_current_chart().get_stock_daily_chart(stock_code, base_dt, upd_stkpc_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '일봉차트 조회 실패') if result else '일봉차트 조회 실패'
+            error_response = create_error_response("2000", f"일봉차트 조회 실패: {error_msg}", "get_daily_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"일봉차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"일봉차트 조회 실패: {str(e)}", "get_daily_chart")
+        return jsonify(error_response)
+
+@app.route('/api/chart/weekly', methods=['POST'])
+def get_weekly_chart():
+    """주식 주봉차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        base_dt = data.get('base_dt', '')
+        upd_stkpc_tp = data.get('upd_stkpc_tp', '0')
+        
+        if not stock_code:
+            error_response = create_error_response("1501", "종목코드가 필요합니다.", "get_weekly_chart")
+            return jsonify(error_response)
+        
+        # base_dt가 비어있으면 오늘 날짜로 설정
+        if not base_dt:
+            from datetime import datetime
+            base_dt = datetime.now().strftime('%Y%m%d')
+        
+        result = get_current_chart().get_stock_weekly_chart(stock_code, base_dt, upd_stkpc_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '주봉차트 조회 실패') if result else '주봉차트 조회 실패'
+            error_response = create_error_response("2000", f"주봉차트 조회 실패: {error_msg}", "get_weekly_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"주봉차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"주봉차트 조회 실패: {str(e)}", "get_weekly_chart")
+        return jsonify(error_response)
+
+@app.route('/api/chart/monthly', methods=['POST'])
+def get_monthly_chart():
+    """주식 월봉차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        base_dt = data.get('base_dt', '')
+        upd_stkpc_tp = data.get('upd_stkpc_tp', '0')
+        
+        if not stock_code:
+            error_response = create_error_response("1501", "종목코드가 필요합니다.", "get_monthly_chart")
+            return jsonify(error_response)
+        
+        # base_dt가 비어있으면 오늘 날짜로 설정
+        if not base_dt:
+            from datetime import datetime
+            base_dt = datetime.now().strftime('%Y%m%d')
+        
+        result = get_current_chart().get_stock_monthly_chart(stock_code, base_dt, upd_stkpc_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '월봉차트 조회 실패') if result else '월봉차트 조회 실패'
+            error_response = create_error_response("2000", f"월봉차트 조회 실패: {error_msg}", "get_monthly_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"월봉차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"월봉차트 조회 실패: {str(e)}", "get_monthly_chart")
+        return jsonify(error_response)
+
+@app.route('/api/chart/yearly', methods=['POST'])
+def get_yearly_chart():
+    """주식 년봉차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        base_dt = data.get('base_dt', '')
+        upd_stkpc_tp = data.get('upd_stkpc_tp', '0')
+        
+        if not stock_code:
+            error_response = create_error_response("1501", "종목코드가 필요합니다.", "get_yearly_chart")
+            return jsonify(error_response)
+        
+        # base_dt가 비어있으면 오늘 날짜로 설정
+        if not base_dt:
+            from datetime import datetime
+            base_dt = datetime.now().strftime('%Y%m%d')
+        
+        result = get_current_chart().get_stock_yearly_chart(stock_code, base_dt, upd_stkpc_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '년봉차트 조회 실패') if result else '년봉차트 조회 실패'
+            error_response = create_error_response("2000", f"년봉차트 조회 실패: {error_msg}", "get_yearly_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"년봉차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"년봉차트 조회 실패: {str(e)}", "get_yearly_chart")
+        return jsonify(error_response)
+
+@app.route('/api/chart/investor', methods=['POST'])
+def get_investor_chart():
+    """투자자별 차트 조회"""
+    try:
+        data = request.get_json()
+        stock_code = data.get('stock_code')
+        dt = data.get('dt', '')
+        amt_qty_tp = data.get('amt_qty_tp', '1')
+        trde_tp = data.get('trde_tp', '0')
+        unit_tp = data.get('unit_tp', '1000')
+        
+        if not stock_code or not dt:
+            error_response = create_error_response("1501", "종목코드와 일자가 필요합니다.", "get_investor_chart")
+            return jsonify(error_response)
+        
+        result = get_current_chart().get_investor_chart(stock_code, dt, amt_qty_tp, trde_tp, unit_tp)
+        
+        if result and result.get('return_code') == 0:
+            return jsonify({
+                'success': True,
+                'data': result
+            })
+        else:
+            error_msg = result.get('return_msg', '투자자별 차트 조회 실패') if result else '투자자별 차트 조회 실패'
+            error_response = create_error_response("2000", f"투자자별 차트 조회 실패: {error_msg}", "get_investor_chart")
+            return jsonify(error_response)
+            
+    except Exception as e:
+        get_web_logger().error(f"투자자별 차트 조회 실패: {e}")
+        error_response = create_error_response("2000", f"투자자별 차트 조회 실패: {str(e)}", "get_investor_chart")
         return jsonify(error_response)
 
 

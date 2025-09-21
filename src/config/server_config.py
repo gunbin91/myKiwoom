@@ -63,6 +63,7 @@ class ServerConfig:
         self.account_url = f"{self.domain}/api/dostk/acnt"
         self.quote_url = f"{self.domain}/api/dostk/stkinfo"
         self.order_url = f"{self.domain}/api/dostk/ordr"
+        self.chart_url = f"{self.domain}/api/dostk/chart"
         self.websocket_url = f"wss://{self.domain.replace('https://', '')}/ws"
     
     def _setup_paths(self):

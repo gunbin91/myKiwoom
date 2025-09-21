@@ -152,7 +152,7 @@
         </h5>
       </div>
       <div class="card-body">
-        <canvas id="portfolio-chart" width="400" height="400"></canvas>
+        <div id="portfolio-chart" style="width: 100%; height: 400px; overflow-y: auto;"></div>
       </div>
     </div>
   </div>
@@ -178,7 +178,7 @@
         </div>
       </div>
       <div class="card-body">
-        <canvas id="return-chart" width="800" height="300"></canvas>
+        <div id="return-chart" style="width: 100%; height: 300px; overflow-y: auto;"></div>
       </div>
     </div>
   </div>
@@ -186,7 +186,7 @@
 
 <!-- 종목 상세 모달 -->
 <div class="modal fade" id="stockDetailModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="stockDetailTitle">종목 상세 정보</h5>
@@ -209,6 +209,122 @@
           onclick="viewStockChart()"
         >
           차트 보기
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 차트 모달 -->
+<div class="modal fade" id="chartModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="chartModalTitle">종목 차트</h5>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <!-- 차트 컨트롤 -->
+        <div class="row mb-3">
+          <div class="col-md-3">
+            <label for="chartType" class="form-label">차트 타입</label>
+            <select class="form-select" id="chartType" onchange="changeChartType()">
+              <option value="daily">일봉</option>
+              <option value="weekly">주봉</option>
+              <option value="monthly">월봉</option>
+              <option value="yearly">년봉</option>
+              <option value="minute">분봉</option>
+              <option value="tick">틱차트</option>
+            </select>
+          </div>
+          <div class="col-md-3" id="timeFrameContainer" style="display: none;">
+            <label for="timeFrame" class="form-label">시간 단위</label>
+            <select class="form-select" id="timeFrame" onchange="loadChart()">
+              <option value="1">1분</option>
+              <option value="3">3분</option>
+              <option value="5">5분</option>
+              <option value="10">10분</option>
+              <option value="15">15분</option>
+              <option value="30">30분</option>
+              <option value="45">45분</option>
+              <option value="60">60분</option>
+            </select>
+          </div>
+          <div class="col-md-3" id="tickScopeContainer" style="display: none;">
+            <label for="tickScope" class="form-label">틱 범위</label>
+            <select class="form-select" id="tickScope" onchange="loadChart()">
+              <option value="1">1틱</option>
+              <option value="3">3틱</option>
+              <option value="5">5틱</option>
+              <option value="10">10틱</option>
+              <option value="30">30틱</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="chartPeriod" class="form-label">기간</label>
+            <select class="form-select" id="chartPeriod" onchange="loadChart()">
+              <option value="30">최근 30일</option>
+              <option value="90">최근 3개월</option>
+              <option value="180">최근 6개월</option>
+              <option value="365">최근 1년</option>
+              <option value="all">전체</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- 차트 영역 -->
+        <div class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="card-title mb-0" id="chartTitle">차트 로딩 중...</h6>
+                          <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-outline-primary active" id="candlestickBtn" onclick="toggleChartView('candlestick')">
+                              <i class="fas fa-chart-line"></i> 캔들
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="lineBtn" onclick="toggleChartView('line')">
+                              <i class="fas fa-chart-area"></i> 라인
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="volumeBtn" onclick="toggleChartView('volume')">
+                              <i class="fas fa-chart-bar"></i> 거래량
+                            </button>
+                          </div>
+                </div>
+                <div style="position: relative; height: 500px;">
+                  <div id="stockChart" style="width: 100%; height: 500px;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 투자자별 차트 (일봉일 때만 표시) -->
+        <div class="row mt-3" id="investorChartContainer" style="display: none;">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <h6 class="mb-0">투자자별 매매 동향</h6>
+              </div>
+                      <div class="card-body">
+                        <div style="position: relative; height: 300px;">
+                          <div id="investorChart" style="width: 100%; height: 100%;"></div>
+                        </div>
+                      </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          닫기
+        </button>
+        <button type="button" class="btn btn-primary" onclick="refreshChart()">
+          <i class="fas fa-sync-alt"></i> 새로고침
         </button>
       </div>
     </div>
@@ -406,118 +522,85 @@
   }
 
   function updatePortfolioChart(stocks) {
-    const ctx = document.getElementById("portfolio-chart").getContext("2d");
+    const chartContainer = document.getElementById("portfolio-chart");
 
     if (portfolioChart) {
-      portfolioChart.destroy();
+      portfolioChart.remove();
     }
 
     const labels = stocks.map((stock) => stock.stk_nm || "Unknown");
     const data = stocks.map((stock) => parseFloat(stock.evlt_amt || "0"));
     const colors = generateColors(stocks.length);
 
-    portfolioChart = new Chart(ctx, {
-      type: "doughnut",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            data: data,
-            backgroundColor: colors,
-            borderWidth: 2,
-            borderColor: "#fff",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: "bottom",
-            labels: {
-              padding: 20,
-              usePointStyle: true,
-            },
-          },
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                const value = context.parsed;
-                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                const percentage = ((value / total) * 100).toFixed(1);
-                return (
-                  context.label +
-                  ": " +
-                  formatNumber(value) +
-                  "원 (" +
-                  percentage +
-                  "%)"
-                );
-              },
-            },
-          },
-        },
-      },
+    // 간단한 HTML 기반 차트로 대체
+    const total = data.reduce((a, b) => a + b, 0);
+    
+    let chartHTML = '<div class="portfolio-chart-container">';
+    stocks.forEach((stock, index) => {
+      const value = parseFloat(stock.evlt_amt || "0");
+      const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+      
+      chartHTML += `
+        <div class="portfolio-chart-item" style="margin-bottom: 10px;">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+              <div class="chart-color-indicator" style="width: 12px; height: 12px; background-color: ${colors[index]}; border-radius: 50%; margin-right: 8px;"></div>
+              <span class="stock-name">${stock.stk_nm || "Unknown"}</span>
+            </div>
+            <div class="text-end">
+              <div class="stock-value">${formatNumber(value)}원</div>
+              <div class="stock-percentage text-muted small">${percentage}%</div>
+            </div>
+          </div>
+          <div class="progress mt-1" style="height: 4px;">
+            <div class="progress-bar" style="width: ${percentage}%; background-color: ${colors[index]};"></div>
+          </div>
+        </div>
+      `;
     });
+    chartHTML += '</div>';
+    
+    chartContainer.innerHTML = chartHTML;
   }
 
   function updateReturnChart(stocks) {
-    const ctx = document.getElementById("return-chart").getContext("2d");
+    const chartContainer = document.getElementById("return-chart");
 
     if (returnChart) {
-      returnChart.destroy();
+      returnChart.remove();
     }
 
     const labels = stocks.map((stock) => stock.stk_nm || "Unknown");
     const data = stocks.map((stock) => parseFloat(stock.pl_rt || "0"));
     const colors = data.map((value) => (value >= 0 ? "#28a745" : "#dc3545"));
 
-    returnChart = new Chart(ctx, {
-      type: isBarChart ? "bar" : "line",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: "수익률 (%)",
-            data: data,
-            backgroundColor: colors,
-            borderColor: colors,
-            borderWidth: 2,
-            fill: false,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            grid: {
-              color: "rgba(0,0,0,0.1)",
-            },
-          },
-          x: {
-            grid: {
-              display: false,
-            },
-          },
-        },
-        plugins: {
-          legend: {
-            display: false,
-          },
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                return context.label + ": " + context.parsed.y.toFixed(2) + "%";
-              },
-            },
-          },
-        },
-      },
+    // 간단한 HTML 기반 차트로 대체
+    let chartHTML = '<div class="return-chart-container">';
+    stocks.forEach((stock, index) => {
+      const returnRate = parseFloat(stock.pl_rt || "0");
+      const color = returnRate >= 0 ? "#28a745" : "#dc3545";
+      const icon = returnRate >= 0 ? "fa-arrow-up" : "fa-arrow-down";
+      
+      chartHTML += `
+        <div class="return-chart-item" style="margin-bottom: 8px;">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="stock-name">${stock.stk_nm || "Unknown"}</span>
+            <div class="d-flex align-items-center">
+              <i class="fas ${icon} me-1" style="color: ${color};"></i>
+              <span class="return-rate" style="color: ${color}; font-weight: bold;">
+                ${returnRate >= 0 ? '+' : ''}${returnRate.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+          <div class="progress mt-1" style="height: 3px;">
+            <div class="progress-bar" style="width: ${Math.min(Math.abs(returnRate) * 2, 100)}%; background-color: ${color};"></div>
+          </div>
+        </div>
+      `;
     });
+    chartHTML += '</div>';
+    
+    chartContainer.innerHTML = chartHTML;
   }
 
   function generateColors(count) {
@@ -777,9 +860,853 @@
     return [headers, ...rows].map((row) => row.join(",")).join("\n");
   }
 
+  // 차트 관련 전역 변수
+  let currentStockCode = '';
+  let currentStockName = '';
+  let stockChart = null;
+  let investorChart = null;
+  let currentChartView = 'candlestick';
+
   function viewStockChart() {
-    // 종목 차트 보기 기능 (추후 구현)
-    showAlert("차트 보기 기능은 추후 구현 예정입니다.", "info");
+    // 현재 선택된 종목 정보 가져오기
+    const modalTitle = document.getElementById('stockDetailTitle').textContent;
+    const match = modalTitle.match(/(.+?)\s*\((.+?)\)/);
+    
+    if (match) {
+      currentStockName = match[1].trim();
+      currentStockCode = match[2].trim();
+      
+      // 차트 모달 제목 설정
+      document.getElementById('chartModalTitle').textContent = `${currentStockName} (${currentStockCode}) 차트`;
+      
+      // 차트 모달 표시
+      new bootstrap.Modal(document.getElementById('chartModal')).show();
+      
+      // 차트 로드
+      loadChart();
+    } else {
+      showAlert("종목 정보를 가져올 수 없습니다.", "error");
+    }
+  }
+
+  function changeChartType() {
+    const chartType = document.getElementById('chartType').value;
+    const timeFrameContainer = document.getElementById('timeFrameContainer');
+    const tickScopeContainer = document.getElementById('tickScopeContainer');
+    const investorChartContainer = document.getElementById('investorChartContainer');
+    
+    // 컨트롤 표시/숨김
+    if (chartType === 'minute') {
+      timeFrameContainer.style.display = 'block';
+      tickScopeContainer.style.display = 'none';
+    } else if (chartType === 'tick') {
+      timeFrameContainer.style.display = 'none';
+      tickScopeContainer.style.display = 'block';
+    } else {
+      timeFrameContainer.style.display = 'none';
+      tickScopeContainer.style.display = 'none';
+    }
+    
+    // 투자자별 차트는 일봉일 때만 표시
+    if (chartType === 'daily') {
+      investorChartContainer.style.display = 'block';
+    } else {
+      investorChartContainer.style.display = 'none';
+    }
+    
+    // 차트 다시 로드
+    loadChart();
+  }
+
+  function loadChart() {
+    if (!currentStockCode) return;
+    
+    const chartType = document.getElementById('chartType').value;
+    const chartTitle = document.getElementById('chartTitle');
+    
+    // 차트 제목 설정
+    chartTitle.textContent = `${currentStockName} - ${getChartTypeName(chartType)}`;
+    
+    // 로딩 표시
+    showChartLoading();
+    
+    // 차트 타입에 따른 API 호출
+    let apiEndpoint = '';
+    let requestData = {
+      stock_code: currentStockCode
+    };
+    
+    // 키움 API는 base_dt부터 과거 데이터를 가져오므로 항상 오늘 날짜로 요청
+    // 기간 필터링은 프론트엔드에서 처리
+    const today = new Date();
+    const baseDate = today.toISOString().slice(0, 10).replace(/-/g, '');
+    
+    switch (chartType) {
+      case 'daily':
+        apiEndpoint = '/api/chart/daily';
+        requestData.base_dt = baseDate;
+        break;
+      case 'weekly':
+        apiEndpoint = '/api/chart/weekly';
+        requestData.base_dt = baseDate;
+        break;
+      case 'monthly':
+        apiEndpoint = '/api/chart/monthly';
+        requestData.base_dt = baseDate;
+        break;
+      case 'yearly':
+        apiEndpoint = '/api/chart/yearly';
+        requestData.base_dt = baseDate;
+        break;
+      case 'minute':
+        apiEndpoint = '/api/chart/minute';
+        requestData.tick_scope = document.getElementById('timeFrame').value;
+        break;
+      case 'tick':
+        apiEndpoint = '/api/chart/tick';
+        requestData.tick_scope = document.getElementById('tickScope').value;
+        break;
+    }
+    
+    // 차트 데이터 요청
+    fetch(apiEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        // 기간에 따른 데이터 필터링
+        const filteredData = filterChartDataByPeriod(data.data, chartType);
+        renderChart(filteredData, chartType);
+        
+        // 일봉일 때만 투자자별 차트도 로드
+        if (chartType === 'daily') {
+          loadInvestorChart();
+        } else {
+          // 다른 차트 타입일 때는 투자자별 차트 숨기기
+          const investorContainer = document.getElementById('investorChartContainer');
+          if (investorContainer) {
+            investorContainer.style.display = 'none';
+          }
+        }
+      } else {
+        showChartError(data.message || '차트 데이터를 불러올 수 없습니다.');
+      }
+    })
+    .catch(error => {
+      console.error('차트 로드 실패:', error);
+      showChartError('차트 데이터를 불러오는 중 오류가 발생했습니다.');
+    });
+  }
+
+  function loadInvestorChart() {
+    if (!currentStockCode) return;
+    
+    // 투자자별 데이터 요청 (최근 30일 데이터)
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const dateStr = thirtyDaysAgo.toISOString().slice(0, 10).replace(/-/g, '');
+    
+    fetch('/api/chart/investor', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        stock_code: currentStockCode,
+        dt: dateStr,
+        amt_qty_tp: '1', // 금액
+        trde_tp: '0',    // 순매수
+        unit_tp: '1000'  // 천주
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success && data.data && data.data.stk_invsr_orgn_chart) {
+        const chartData = data.data.stk_invsr_orgn_chart;
+        if (chartData.length > 0) {
+          renderInvestorChart(data.data);
+          // 투자자별 차트 컨테이너 표시
+          const investorContainer = document.getElementById('investorChartContainer');
+          if (investorContainer) {
+            investorContainer.style.display = 'block';
+          }
+        } else {
+          console.log('투자자별 차트 데이터가 없습니다.');
+          // 투자자별 차트 컨테이너 숨기기
+          const investorContainer = document.getElementById('investorChartContainer');
+          if (investorContainer) {
+            investorContainer.style.display = 'none';
+          }
+        }
+      } else {
+        console.log('투자자별 차트 API 응답이 비어있습니다.');
+        // 투자자별 차트 컨테이너 숨기기
+        const investorContainer = document.getElementById('investorChartContainer');
+        if (investorContainer) {
+          investorContainer.style.display = 'none';
+        }
+      }
+    })
+    .catch(error => {
+      console.error('투자자별 차트 로드 실패:', error);
+      // 투자자별 차트 컨테이너 숨기기
+      const investorContainer = document.getElementById('investorChartContainer');
+      if (investorContainer) {
+        investorContainer.style.display = 'none';
+      }
+    });
+  }
+
+  function renderChart(chartData, chartType) {
+    const chartContainer = document.getElementById('stockChart');
+    
+    // 기존 차트 제거
+    if (stockChart) {
+      stockChart.remove();
+      stockChart = null;
+    }
+    
+    // 컨테이너 초기화
+    chartContainer.innerHTML = '';
+    
+    // 차트 타입에 따른 데이터 필드 선택
+    let dataField = '';
+    switch (chartType) {
+      case 'daily':
+        dataField = 'stk_dt_pole_chart_qry';
+        break;
+      case 'weekly':
+        dataField = 'stk_stk_pole_chart_qry';
+        break;
+      case 'monthly':
+        dataField = 'stk_mth_pole_chart_qry';
+        break;
+      case 'yearly':
+        dataField = 'stk_yr_pole_chart_qry';
+        break;
+      case 'minute':
+        dataField = 'stk_min_pole_chart_qry';
+        break;
+      case 'tick':
+        dataField = 'stk_tic_chart_qry';
+        break;
+    }
+    
+    const rawData = chartData[dataField] || [];
+    
+    // 데이터 가공
+    const candlestickData = [];
+    const volumeData = [];
+    const lineData = [];
+    
+    rawData.forEach(item => {
+      try {
+        const open = parseFloat(item.open_pric || 0);
+        const high = parseFloat(item.high_pric || 0);
+        const low = parseFloat(item.low_pric || 0);
+        const close = parseFloat(item.cur_prc || 0);
+        const volume = parseFloat(item.trde_qty || 0);
+        
+        // 차트 타입에 따라 날짜 필드 선택
+        let date = '';
+        if (chartType === 'minute' || chartType === 'tick') {
+          date = item.cntr_tm || '';
+        } else {
+          date = item.dt || '';
+        }
+        
+        if (close > 0 && date && date.length >= 8) {
+          // 시간을 Unix timestamp로 변환
+          let timestamp;
+          if (date.length === 14) { // YYYYMMDDHHMMSS
+            const year = parseInt(date.substring(0, 4));
+            const month = parseInt(date.substring(4, 6)) - 1;
+            const day = parseInt(date.substring(6, 8));
+            const hour = parseInt(date.substring(8, 10));
+            const minute = parseInt(date.substring(10, 12));
+            const second = parseInt(date.substring(12, 14));
+            timestamp = Math.floor(new Date(year, month, day, hour, minute, second).getTime() / 1000);
+          } else if (date.length === 8) { // YYYYMMDD
+            const year = parseInt(date.substring(0, 4));
+            const month = parseInt(date.substring(4, 6)) - 1;
+            const day = parseInt(date.substring(6, 8));
+            timestamp = Math.floor(new Date(year, month, day).getTime() / 1000);
+          }
+          
+          if (timestamp && !isNaN(timestamp)) {
+            candlestickData.push({
+              time: timestamp,
+              open: open,
+              high: high,
+              low: low,
+              close: close
+            });
+            
+            volumeData.push({
+              time: timestamp,
+              value: volume,
+              color: close >= open ? '#26a69a' : '#ef5350'
+            });
+            
+            lineData.push({
+              time: timestamp,
+              value: close
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('차트 데이터 파싱 실패:', error, item);
+      }
+    });
+    
+    // 최근 데이터부터 표시 (역순 정렬)
+    candlestickData.reverse();
+    volumeData.reverse();
+    lineData.reverse();
+    
+    // 메인 차트 생성
+    const containerWidth = chartContainer.clientWidth || 800;
+    const containerHeight = Math.max(chartContainer.clientHeight || 400, 300);
+    
+    const chart = LightweightCharts.createChart(chartContainer, {
+      width: containerWidth,
+      height: containerHeight,
+      layout: {
+        backgroundColor: '#ffffff',
+        textColor: '#333',
+      },
+      grid: {
+        vertLines: {
+          color: '#f0f0f0',
+        },
+        horzLines: {
+          color: '#f0f0f0',
+        },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: '#cccccc',
+      },
+      timeScale: {
+        borderColor: '#cccccc',
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 0,
+        barSpacing: 0,
+        lockVisibleTimeRangeOnResize: true,
+      },
+    });
+    
+    // 캔들스틱 시리즈 추가
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderDownColor: '#ef5350',
+      borderUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+      wickUpColor: '#26a69a',
+    });
+    
+    // 라인 시리즈 추가
+    const lineSeries = chart.addLineSeries({
+      color: '#2196F3',
+      lineWidth: 2,
+    });
+    
+    // 거래량 시리즈를 메인 차트에 추가 (하단에 표시)
+    const volumeSeries = chart.addHistogramSeries({
+      color: '#26a69a',
+      priceFormat: {
+        type: 'volume',
+      },
+      priceScaleId: 'volume', // 별도 스케일 사용
+    });
+    
+    // 거래량용 가격 스케일 설정 (겹침 방지를 위해 마진 조정)
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: {
+        top: 0.75, // 상단 75%는 가격 차트용 (더 넓은 공간)
+        bottom: 0.05, // 하단 5% 여백 추가
+      },
+    });
+    
+    // 메인 가격 스케일도 조정 (겹침 방지)
+    chart.priceScale('right').applyOptions({
+      scaleMargins: {
+        top: 0.1,
+        bottom: 0.25, // 하단 25%는 거래량용으로 확보
+      },
+    });
+    
+    // 동기화 불필요 - 하나의 차트에 모든 데이터 표시
+    
+    // 차트 뷰에 따라 데이터 설정 (안전한 처리)
+    try {
+      if (currentChartView === 'candlestick' && candlestickData.length > 0) {
+        candlestickSeries.setData(candlestickData);
+        if (volumeData.length > 0) {
+          volumeSeries.setData(volumeData);
+        }
+      } else if (currentChartView === 'line' && lineData.length > 0) {
+        lineSeries.setData(lineData);
+        if (volumeData.length > 0) {
+          volumeSeries.setData(volumeData);
+        }
+      } else if (currentChartView === 'volume' && volumeData.length > 0) {
+        volumeSeries.setData(volumeData);
+      } else {
+        // 데이터가 없을 때 기본 메시지 표시
+        console.warn('차트 데이터가 없습니다.');
+      }
+    } catch (error) {
+      console.error('차트 데이터 설정 실패:', error);
+    }
+    
+    // 차트 리사이즈 처리 (디바운싱 적용)
+    let resizeTimeout;
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (chart) {
+          // 컨테이너의 실제 크기 계산
+          const containerRect = chartContainer.getBoundingClientRect();
+          const newWidth = Math.max(containerRect.width, 800);
+          
+          console.log(`차트 리사이즈: ${newWidth}px`);
+          
+          // 차트 크기 업데이트
+          chart.applyOptions({ 
+            width: newWidth, 
+            height: 500
+          });
+          
+          // 차트 강제 리페인트
+          chart.timeScale().fitContent();
+        }
+      }, 100);
+    };
+    
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(chartContainer);
+    
+    // 윈도우 리사이즈 이벤트도 처리
+    window.addEventListener('resize', handleResize);
+    
+    // 초기 로드 시 차트 크기 강제 조정 (해상도 문제 해결)
+    setTimeout(() => {
+      handleResize();
+    }, 100);
+    
+    // 추가 리사이즈 (더 확실하게)
+    setTimeout(() => {
+      handleResize();
+    }, 300);
+    
+    // 모달이 완전히 로드된 후 리사이즈
+    setTimeout(() => {
+      handleResize();
+    }, 500);
+    
+    // 이동평균선 추가 (안전한 처리)
+    if (candlestickData.length > 0) {
+      try {
+        // 5일 이동평균선
+        const ma5Data = calculateMovingAverage(candlestickData, 5);
+        if (ma5Data.length > 0) {
+          const ma5Series = chart.addLineSeries({
+            color: '#FF6B6B',
+            lineWidth: 1,
+            title: 'MA5',
+          });
+          ma5Series.setData(ma5Data);
+        }
+        
+        // 20일 이동평균선
+        const ma20Data = calculateMovingAverage(candlestickData, 20);
+        if (ma20Data.length > 0) {
+          const ma20Series = chart.addLineSeries({
+            color: '#4ECDC4',
+            lineWidth: 1,
+            title: 'MA20',
+          });
+          ma20Series.setData(ma20Data);
+        }
+        
+        // 60일 이동평균선
+        const ma60Data = calculateMovingAverage(candlestickData, 60);
+        if (ma60Data.length > 0) {
+          const ma60Series = chart.addLineSeries({
+            color: '#45B7D1',
+            lineWidth: 1,
+            title: 'MA60',
+          });
+          ma60Series.setData(ma60Data);
+        }
+        
+        // 120일 이동평균선
+        const ma120Data = calculateMovingAverage(candlestickData, 120);
+        if (ma120Data.length > 0) {
+          const ma120Series = chart.addLineSeries({
+            color: '#9C27B0', // 보라색
+            lineWidth: 1,
+            title: 'MA120',
+          });
+          ma120Series.setData(ma120Data);
+        }
+        
+        // 240일 이동평균선
+        const ma240Data = calculateMovingAverage(candlestickData, 240);
+        if (ma240Data.length > 0) {
+          const ma240Series = chart.addLineSeries({
+            color: '#000000', // 검은색
+            lineWidth: 1,
+            title: 'MA240',
+          });
+          ma240Series.setData(ma240Data);
+        }
+      } catch (error) {
+        console.error('이동평균선 추가 실패:', error);
+      }
+    }
+    
+    // 전역 변수에 저장
+    stockChart = chart;
+  }
+  
+  // 이동평균선 계산 함수
+  function calculateMovingAverage(data, period) {
+    const result = [];
+    
+    for (let i = period - 1; i < data.length; i++) {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += data[i - j].close;
+      }
+      const average = sum / period;
+      
+      result.push({
+        time: data[i].time,
+        value: average
+      });
+    }
+    
+    return result;
+  }
+
+  function renderInvestorChart(investorData) {
+    const chartContainer = document.getElementById('investorChart');
+    
+    // 기존 차트 제거
+    if (investorChart) {
+      investorChart.remove();
+      investorChart = null;
+    }
+    
+    // 컨테이너 초기화
+    chartContainer.innerHTML = '';
+    
+    const rawData = investorData.stk_invsr_orgn_chart || [];
+    
+    // 데이터 가공
+    const individualData = [];
+    const foreignData = [];
+    const institutionalData = [];
+    
+    rawData.forEach(item => {
+      const date = item.dt || '';
+      if (date) {
+        // YYYYMMDD 형식을 Unix timestamp로 변환
+        const year = parseInt(date.substring(0, 4));
+        const month = parseInt(date.substring(4, 6)) - 1;
+        const day = parseInt(date.substring(6, 8));
+        const timestamp = Math.floor(new Date(year, month, day).getTime() / 1000);
+        
+        individualData.push({
+          time: timestamp,
+          value: parseFloat(item.ind_invsr || 0)
+        });
+        
+        foreignData.push({
+          time: timestamp,
+          value: parseFloat(item.frgnr_invsr || 0)
+        });
+        
+        institutionalData.push({
+          time: timestamp,
+          value: parseFloat(item.orgn || 0)
+        });
+      }
+    });
+    
+    // 최근 데이터부터 표시 (역순 정렬)
+    individualData.reverse();
+    foreignData.reverse();
+    institutionalData.reverse();
+    
+    // 투자자별 차트 생성
+    const containerWidth = chartContainer.clientWidth || 800;
+    const containerHeight = 300;
+    
+    const chart = LightweightCharts.createChart(chartContainer, {
+      width: containerWidth,
+      height: containerHeight,
+      layout: {
+        backgroundColor: '#ffffff',
+        textColor: '#333',
+      },
+      grid: {
+        vertLines: {
+          color: '#f0f0f0',
+        },
+        horzLines: {
+          color: '#f0f0f0',
+        },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: '#cccccc',
+      },
+      timeScale: {
+        borderColor: '#cccccc',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+    
+    // 개인투자자 라인
+    const individualSeries = chart.addLineSeries({
+      color: '#dc3545',
+      lineWidth: 2,
+      title: '개인투자자',
+    });
+    
+    // 외국인투자자 라인
+    const foreignSeries = chart.addLineSeries({
+      color: '#007bff',
+      lineWidth: 2,
+      title: '외국인투자자',
+    });
+    
+    // 기관계 라인
+    const institutionalSeries = chart.addLineSeries({
+      color: '#28a745',
+      lineWidth: 2,
+      title: '기관계',
+    });
+    
+    // 데이터 설정 (안전한 처리)
+    try {
+      if (individualData.length > 0) {
+        individualSeries.setData(individualData);
+      }
+      if (foreignData.length > 0) {
+        foreignSeries.setData(foreignData);
+      }
+      if (institutionalData.length > 0) {
+        institutionalSeries.setData(institutionalData);
+      }
+    } catch (error) {
+      console.error('투자자별 차트 데이터 설정 실패:', error);
+    }
+    
+    // 차트 리사이즈 처리 (디바운싱 적용)
+    let resizeTimeout;
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (chart) {
+          const newWidth = chartContainer.clientWidth || 800;
+          chart.applyOptions({ width: newWidth, height: containerHeight });
+        }
+      }, 100);
+    };
+    
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(chartContainer);
+    
+    // 윈도우 리사이즈 이벤트도 처리
+    window.addEventListener('resize', handleResize);
+    
+    // 전역 변수에 저장
+    investorChart = chart;
+  }
+
+  function toggleChartView(viewType) {
+    currentChartView = viewType;
+    
+    // 버튼 활성화 상태 업데이트
+    document.querySelectorAll('.btn-group button').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    
+    // 현재 선택된 버튼 활성화
+    const activeBtn = document.getElementById(viewType + 'Btn');
+    if (activeBtn) {
+      activeBtn.classList.add('active');
+    }
+    
+    // 차트 다시 렌더링
+    loadChart();
+  }
+
+  function refreshChart() {
+    loadChart();
+    showAlert("차트가 새로고침되었습니다.", "success");
+  }
+
+  function showChartLoading() {
+    const chartContainer = document.getElementById('stockChart');
+    
+    // 기존 차트 제거
+    if (stockChart) {
+      stockChart.remove();
+      stockChart = null;
+    }
+    
+    // 로딩 메시지 표시
+    chartContainer.innerHTML = `
+      <div class="d-flex align-items-center justify-content-center" style="height: 500px; color: #666;">
+        <div class="text-center">
+          <div class="spinner-border text-primary mb-3" role="status">
+            <span class="visually-hidden">로딩중...</span>
+          </div>
+          <h5>차트 데이터를 불러오는 중...</h5>
+        </div>
+      </div>
+    `;
+  }
+
+  function showChartError(message) {
+    const chartContainer = document.getElementById('stockChart');
+    
+    // 기존 차트 제거
+    if (stockChart) {
+      stockChart.remove();
+      stockChart = null;
+    }
+    
+    // 에러 메시지 표시
+    chartContainer.innerHTML = `
+      <div class="d-flex align-items-center justify-content-center" style="height: 500px; color: #dc3545;">
+        <div class="text-center">
+          <i class="fas fa-exclamation-triangle fa-3x mb-3"></i>
+          <h5>차트 로드 실패</h5>
+          <p class="mb-0">${message}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  function getChartTypeName(chartType) {
+    const names = {
+      'daily': '일봉',
+      'weekly': '주봉',
+      'monthly': '월봉',
+      'yearly': '년봉',
+      'minute': '분봉',
+      'tick': '틱차트'
+    };
+    return names[chartType] || chartType;
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '';
+    
+    // YYYYMMDDHHMMSS 형식 (분봉, 틱차트)
+    if (dateStr.length === 14) {
+      return dateStr.slice(0, 4) + '-' + dateStr.slice(4, 6) + '-' + dateStr.slice(6, 8) + 
+             ' ' + dateStr.slice(8, 10) + ':' + dateStr.slice(10, 12) + ':' + dateStr.slice(12, 14);
+    }
+    
+    // YYYYMMDD 형식 (일봉, 주봉, 월봉, 년봉)
+    if (dateStr.length === 8) {
+      return dateStr.slice(0, 4) + '-' + dateStr.slice(4, 6) + '-' + dateStr.slice(6, 8);
+    }
+    
+    // HHMMSS 형식 (시간)
+    if (dateStr.length === 6) {
+      return dateStr.slice(0, 2) + ':' + dateStr.slice(2, 4) + ':' + dateStr.slice(4, 6);
+    }
+    
+    return dateStr;
+  }
+
+  // 기간에 따른 차트 데이터 필터링
+  function filterChartDataByPeriod(data, chartType) {
+    const period = document.getElementById('chartPeriod').value;
+    
+    // 'all'이면 필터링하지 않음
+    if (period === 'all') {
+      return data;
+    }
+    
+    const days = parseInt(period);
+    const today = new Date();
+    const cutoffDate = new Date(today.getTime() - days * 24 * 60 * 60 * 1000);
+    
+    // 차트 타입에 따른 데이터 키 찾기
+    let dataKey = '';
+    switch (chartType) {
+      case 'daily':
+        dataKey = 'stk_dt_pole_chart_qry';
+        break;
+      case 'weekly':
+        dataKey = 'stk_stk_pole_chart_qry';
+        break;
+      case 'monthly':
+        dataKey = 'stk_mth_pole_chart_qry';
+        break;
+      case 'yearly':
+        dataKey = 'stk_yr_pole_chart_qry';
+        break;
+      case 'minute':
+        dataKey = 'stk_min_pole_chart_qry';
+        break;
+      case 'tick':
+        dataKey = 'stk_tic_chart_qry';
+        break;
+    }
+    
+    if (!dataKey || !data[dataKey]) {
+      return data;
+    }
+    
+    // 데이터 필터링
+    const filteredData = { ...data };
+    filteredData[dataKey] = data[dataKey].filter(item => {
+      // 차트 타입에 따라 날짜 필드 선택
+      let dateStr = '';
+      if (chartType === 'minute' || chartType === 'tick') {
+        dateStr = item.cntr_tm || '';
+        // YYYYMMDDHHMMSS 형식에서 YYYYMMDD 부분만 추출
+        if (dateStr.length >= 8) {
+          dateStr = dateStr.substring(0, 8);
+        }
+      } else {
+        dateStr = item.dt || item.trde_dt || '';
+      }
+      
+      if (!dateStr) return false;
+      
+      // YYYYMMDD 형식을 Date 객체로 변환
+      const year = parseInt(dateStr.substring(0, 4));
+      const month = parseInt(dateStr.substring(4, 6)) - 1; // 월은 0부터 시작
+      const day = parseInt(dateStr.substring(6, 8));
+      const itemDate = new Date(year, month, day);
+      
+      return itemDate >= cutoffDate;
+    });
+    
+    return filteredData;
   }
 </script>
 {% endblock %}
