@@ -326,17 +326,38 @@
                 <th>상태</th>
                 <th>매수</th>
                 <th>매도</th>
+                <th>상세</th>
               </tr>
             </thead>
             <tbody id="execution-history-tbody">
               <tr>
-                <td colspan="5" class="text-center text-muted">
+                <td colspan="6" class="text-center text-muted">
                   실행 이력이 없습니다.
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 실행이력 상세 모달 -->
+<div class="modal fade" id="executionDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="executionDetailTitle">실행이력 상세</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="executionDetailContent">
+          <!-- 상세 내용이 여기에 표시됩니다 -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
       </div>
     </div>
   </div>
@@ -937,9 +958,9 @@
 
           if (data.data.length === 0) {
             tbody.innerHTML =
-              '<tr><td colspan="5" class="text-center text-muted">실행 이력이 없습니다.</td></tr>';
+              '<tr><td colspan="6" class="text-center text-muted">실행 이력이 없습니다.</td></tr>';
           } else {
-            data.data.forEach((execution) => {
+            data.data.forEach((execution, index) => {
               const row = document.createElement("tr");
 
               // 실행 구분 파싱
@@ -960,7 +981,13 @@
                             }">${execution.status}</span></td>
                             <td>${execution.buy_count || 0}</td>
                             <td>${execution.sell_count || 0}</td>
+                            <td>
+                              <button class="btn btn-sm btn-outline-primary" onclick="showExecutionDetail(${index})">
+                                <i class="fas fa-eye"></i> 상세
+                              </button>
+                            </td>
                         `;
+              row.setAttribute('data-execution', JSON.stringify(execution));
               tbody.appendChild(row);
             });
           }
@@ -969,6 +996,140 @@
       .catch((error) => {
         console.error("실행 이력 로드 실패:", error);
       });
+  }
+
+  // 실행이력 상세 보기
+  function showExecutionDetail(index) {
+    const tbody = document.getElementById("execution-history-tbody");
+    const rows = tbody.querySelectorAll('tr[data-execution]');
+    
+    if (index >= 0 && index < rows.length) {
+      const executionData = JSON.parse(rows[index].getAttribute('data-execution'));
+      
+      // 모달 제목 설정
+      document.getElementById('executionDetailTitle').textContent = 
+        `실행이력 상세 - ${executionData.execution_time}`;
+      
+      // 상세 내용 생성
+      const detailContent = generateExecutionDetailContent(executionData);
+      document.getElementById('executionDetailContent').innerHTML = detailContent;
+      
+      // 모달 표시
+      const modal = new bootstrap.Modal(document.getElementById('executionDetailModal'));
+      modal.show();
+    }
+  }
+
+  // 실행이력 상세 내용 생성
+  function generateExecutionDetailContent(execution) {
+    const executionType = execution.message && execution.message.includes("[수동]") ? "수동" : "자동";
+    const statusClass = execution.status === "success" ? "text-success" : "text-danger";
+    const statusIcon = execution.status === "success" ? "fa-check-circle" : "fa-times-circle";
+    
+    const formatNumber = (num) => {
+      if (!num || num === 0) return "0";
+      return new Intl.NumberFormat('ko-KR').format(num);
+    };
+    
+    return `
+      <div class="row">
+        <div class="col-md-6">
+          <h6><i class="fas fa-info-circle me-2"></i>기본 정보</h6>
+          <table class="table table-sm">
+            <tr>
+              <td><strong>실행 시간:</strong></td>
+              <td>${execution.execution_time}</td>
+            </tr>
+            <tr>
+              <td><strong>실행 유형:</strong></td>
+              <td><span class="badge ${executionType === "수동" ? "bg-warning" : "bg-info"}">${executionType}</span></td>
+            </tr>
+            <tr>
+              <td><strong>실행 상태:</strong></td>
+              <td><i class="fas ${statusIcon} ${statusClass} me-1"></i><span class="${statusClass}">${execution.status}</span></td>
+            </tr>
+            <tr>
+              <td><strong>메시지:</strong></td>
+              <td>${execution.message || "없음"}</td>
+            </tr>
+          </table>
+        </div>
+        <div class="col-md-6">
+          <h6><i class="fas fa-wallet me-2"></i>계좌 정보</h6>
+          <table class="table table-sm">
+            <tr>
+              <td><strong>총 예수금:</strong></td>
+              <td>${formatNumber(execution.total_deposit)}원</td>
+            </tr>
+            <tr>
+              <td><strong>주문가능금액:</strong></td>
+              <td>${formatNumber(execution.available_amount)}원</td>
+            </tr>
+            <tr>
+              <td><strong>보유 종목 수:</strong></td>
+              <td>${execution.holdings_count || 0}개</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+      
+      <div class="row mt-3">
+        <div class="col-md-6">
+          <h6><i class="fas fa-chart-line me-2"></i>매수 결과</h6>
+          <table class="table table-sm">
+            <tr>
+              <td><strong>총 시도:</strong></td>
+              <td>${execution.buy_count || 0}건</td>
+            </tr>
+            <tr>
+              <td><strong>성공:</strong></td>
+              <td><span class="text-success">${execution.buy_success_count || 0}건</span></td>
+            </tr>
+            <tr>
+              <td><strong>실패:</strong></td>
+              <td><span class="text-danger">${execution.buy_failed_count || 0}건</span></td>
+            </tr>
+            <tr>
+              <td><strong>총 매수금액:</strong></td>
+              <td>${formatNumber(execution.total_buy_amount)}원</td>
+            </tr>
+          </table>
+        </div>
+        <div class="col-md-6">
+          <h6><i class="fas fa-chart-line me-2"></i>매도 결과</h6>
+          <table class="table table-sm">
+            <tr>
+              <td><strong>총 시도:</strong></td>
+              <td>${execution.sell_count || 0}건</td>
+            </tr>
+            <tr>
+              <td><strong>성공:</strong></td>
+              <td><span class="text-success">${execution.sell_success_count || 0}건</span></td>
+            </tr>
+            <tr>
+              <td><strong>실패:</strong></td>
+              <td><span class="text-danger">${execution.sell_failed_count || 0}건</span></td>
+            </tr>
+            <tr>
+              <td><strong>총 매도금액:</strong></td>
+              <td>${formatNumber(execution.total_sell_amount)}원</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+      
+      <div class="row mt-3">
+        <div class="col-12">
+          <h6><i class="fas fa-list me-2"></i>상세 내역</h6>
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            상세한 매수/매도 내역은 로그 파일에서 확인할 수 있습니다.
+            <br>
+            <small class="text-muted">로그 파일 위치: logs/mock/trading_result.log</small>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // 분석 결과 확인

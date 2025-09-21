@@ -310,7 +310,7 @@ class DeepLearningAnalyzer:
             }
     
     
-    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20, include_sell_candidates=None):
+    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20, include_sell_candidates=None, sell_results=None):
         """
         매수 대상 종목 선정 (보유 종목 제외, 매도 예정 종목은 상위 매수고려대상에 추가)
         
@@ -319,6 +319,7 @@ class DeepLearningAnalyzer:
             top_n: 매수할 종목 수
             buy_universe_rank: 매수 대상 범위
             include_sell_candidates: 매도 예정 종목 코드 리스트 (팝업에서 상위 매수고려대상에 추가)
+            sell_results: 매도 주문 실행 결과 (성공한 종목만 보유종목에서 제거)
             
         Returns:
             list: 매수 대상 종목 리스트
@@ -347,13 +348,30 @@ class DeepLearningAnalyzer:
             final_exclude_stocks = exclude_stocks.copy() if exclude_stocks else set()
             
             if include_sell_candidates:
-                # 매도 예정 종목을 보유종목에서 제거 (매도 후 보유종목)
-                for stock_code in include_sell_candidates:
-                    # A 프리픽스 제거
-                    clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
-                    if clean_stock_code in final_exclude_stocks:
-                        final_exclude_stocks.remove(clean_stock_code)
-                        log_info(f"📉 매도 예정 종목 {clean_stock_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
+                # 매도 주문 결과가 있으면 성공한 종목만 제거, 없으면 예정 종목 모두 제거
+                if sell_results and sell_results.get('details'):
+                    # 매도 주문 성공한 종목만 보유종목에서 제거
+                    successful_sell_stocks = set()
+                    for detail in sell_results['details']:
+                        if detail.get('status') == '성공':
+                            stock_code = detail.get('stock_code', '')
+                            clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                            successful_sell_stocks.add(clean_stock_code)
+                    
+                    for stock_code in include_sell_candidates:
+                        clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                        if clean_stock_code in successful_sell_stocks and clean_stock_code in final_exclude_stocks:
+                            final_exclude_stocks.remove(clean_stock_code)
+                            log_info(f"📉 매도 성공 종목 {clean_stock_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
+                        elif clean_stock_code in final_exclude_stocks:
+                            log_info(f"📉 매도 실패 종목 {clean_stock_code}는 보유종목에 그대로 유지")
+                else:
+                    # 매도 주문 결과가 없으면 예정 종목 모두 제거 (기존 로직)
+                    for stock_code in include_sell_candidates:
+                        clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+                        if clean_stock_code in final_exclude_stocks:
+                            final_exclude_stocks.remove(clean_stock_code)
+                            log_info(f"📉 매도 예정 종목 {clean_stock_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
             
             # 3. 매도 후 보유종목을 DataFrame에서 필터링
             if final_exclude_stocks:

@@ -395,23 +395,83 @@ class AutoTradingConfigManager:
                     sell_count = 0
                     message = ""
                     execution_type = "자동"
+                    total_deposit = 0
+                    available_amount = 0
+                    holdings_count = 0
+                    buy_success_count = 0
+                    buy_failed_count = 0
+                    sell_success_count = 0
+                    sell_failed_count = 0
+                    total_buy_amount = 0
+                    total_sell_amount = 0
+                    
+                    # 현재 섹션 추적
+                    current_section = ""
                     
                     for line in lines:
-                        if line.startswith('실행 시간:'):
-                            time_str = line.replace('실행 시간:', '').strip()
+                        # 섹션 추적
+                        if '📈 매수 실행 결과:' in line:
+                            current_section = "buy"
+                        elif '📉 매도 실행 결과:' in line:
+                            current_section = "sell"
+                        elif '💰 계좌 정보:' in line:
+                            current_section = "account"
+                        elif '⚙️ 전략 파라미터:' in line:
+                            current_section = "strategy"
+                        elif '📋 매수 상세 내역:' in line:
+                            current_section = "buy_detail"
+                        elif '📋 매도 상세 내역:' in line:
+                            current_section = "sell_detail"
+                        elif '📋 매수 대상 종목 계획:' in line:
+                            current_section = "buy_plan"
+                        elif '📋 매도 대상 종목 계획:' in line:
+                            current_section = "sell_plan"
+                        
+                        if '⏰ 실행 시간:' in line:
+                            time_str = line.replace('⏰ 실행 시간:', '').strip()
                             execution_time = datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
-                        elif line.startswith('실행 상태:'):
-                            status = line.replace('실행 상태:', '').strip()
-                        elif line.startswith('매수 건수:'):
-                            buy_str = line.replace('매수 건수:', '').replace('건', '').strip()
+                        elif '📊 실행 상태:' in line:
+                            status = line.replace('📊 실행 상태:', '').strip()
+                        elif '📈 매수 시도:' in line:
+                            buy_str = line.replace('📈 매수 시도:', '').replace('건', '').strip()
                             buy_count = int(buy_str)
-                        elif line.startswith('매도 건수:'):
-                            sell_str = line.replace('매도 건수:', '').replace('건', '').strip()
+                        elif '📉 매도 시도:' in line:
+                            sell_str = line.replace('📉 매도 시도:', '').replace('건', '').strip()
                             sell_count = int(sell_str)
-                        elif line.startswith('메시지:'):
-                            message = line.replace('메시지:', '').strip()
-                        elif line.startswith('실행 유형:'):
-                            execution_type = line.replace('실행 유형:', '').strip()
+                        elif '💬 메시지:' in line:
+                            message = line.replace('💬 메시지:', '').strip()
+                        elif '🔄 실행 유형:' in line:
+                            execution_type = line.replace('🔄 실행 유형:', '').strip()
+                        elif '- 총 예수금:' in line and current_section == "account":
+                            deposit_str = line.replace('- 총 예수금:', '').replace('원', '').replace(',', '').strip()
+                            total_deposit = int(deposit_str) if deposit_str.isdigit() else 0
+                        elif '- 주문가능금액:' in line and current_section == "account":
+                            amount_str = line.replace('- 주문가능금액:', '').replace('원', '').replace(',', '').strip()
+                            # 괄호 안의 설명 제거
+                            if '(' in amount_str:
+                                amount_str = amount_str.split('(')[0].strip()
+                            available_amount = int(amount_str) if amount_str.isdigit() else 0
+                        elif '보유 종목 수:' in line:
+                            holdings_str = line.replace('보유 종목 수:', '').replace('개', '').strip()
+                            holdings_count = int(holdings_str) if holdings_str.isdigit() else 0
+                        elif '- 성공:' in line and current_section == "buy":
+                            success_str = line.replace('- 성공:', '').replace('건', '').strip()
+                            buy_success_count = int(success_str) if success_str.isdigit() else 0
+                        elif '- 실패:' in line and current_section == "buy":
+                            failed_str = line.replace('- 실패:', '').replace('건', '').strip()
+                            buy_failed_count = int(failed_str) if failed_str.isdigit() else 0
+                        elif '- 성공:' in line and current_section == "sell":
+                            success_str = line.replace('- 성공:', '').replace('건', '').strip()
+                            sell_success_count = int(success_str) if success_str.isdigit() else 0
+                        elif '- 실패:' in line and current_section == "sell":
+                            failed_str = line.replace('- 실패:', '').replace('건', '').strip()
+                            sell_failed_count = int(failed_str) if failed_str.isdigit() else 0
+                        elif '- 총 매수금액:' in line and current_section == "buy":
+                            amount_str = line.replace('- 총 매수금액:', '').replace('원', '').replace(',', '').strip()
+                            total_buy_amount = int(amount_str) if amount_str.isdigit() else 0
+                        elif '- 총 매도금액:' in line and current_section == "sell":
+                            amount_str = line.replace('- 총 매도금액:', '').replace('원', '').replace(',', '').strip()
+                            total_sell_amount = int(amount_str) if amount_str.isdigit() else 0
                     
                     if execution_time and execution_time >= cutoff_date:
                         history.append({
@@ -420,7 +480,16 @@ class AutoTradingConfigManager:
                             'buy_count': buy_count,
                             'sell_count': sell_count,
                             'message': message,
-                            'execution_type': execution_type
+                            'execution_type': execution_type,
+                            'total_deposit': total_deposit,
+                            'available_amount': available_amount,
+                            'holdings_count': holdings_count,
+                            'buy_success_count': buy_success_count,
+                            'buy_failed_count': buy_failed_count,
+                            'sell_success_count': sell_success_count,
+                            'sell_failed_count': sell_failed_count,
+                            'total_buy_amount': total_buy_amount,
+                            'total_sell_amount': total_sell_amount
                         })
                         
                 except Exception as e:

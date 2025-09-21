@@ -145,7 +145,8 @@ class AutoTradingEngine:
             analysis_result, 
             account_info, 
             strategy_params,
-            sell_candidates  # 매도된 종목들을 매수 대상에 포함
+            sell_candidates,  # 매도된 종목들을 매수 대상에 포함
+            sell_results  # 매도 주문 결과 전달
         )
         
         # 6. 매수 실행
@@ -173,7 +174,9 @@ class AutoTradingEngine:
             'sell_results': sell_results,
             'buy_results': buy_results,
             'sell_count': sell_count,
-            'buy_count': buy_count
+            'buy_count': buy_count,
+            'sell_candidates': sell_candidates,
+            'buy_candidates': buy_candidates
         }
 
     def _get_sell_candidates(self, account_info, strategy_params):
@@ -265,7 +268,7 @@ class AutoTradingEngine:
         
         return sell_candidates
 
-    def _get_buy_candidates(self, analysis_result, account_info, strategy_params, sell_candidates=None):
+    def _get_buy_candidates(self, analysis_result, account_info, strategy_params, sell_candidates=None, sell_results=None):
         """매수 대상 선별 (analysis_result에서 가져오기)"""
         try:
             # 매도된 종목들을 매수 대상에 포함 (재매수 가능)
@@ -278,7 +281,8 @@ class AutoTradingEngine:
                 analysis_result,
                 top_n=strategy_params.get('top_n', 5),
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20),
-                include_sell_candidates=include_sell_candidates
+                include_sell_candidates=include_sell_candidates,
+                sell_results=sell_results  # 매도 주문 결과 전달
             )
             
             self._get_logger().info(f"📋 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
@@ -365,13 +369,43 @@ class AutoTradingEngine:
                     trading_data['strategy_params']
                 )
                 
+                # 실행 결과 로그 기록
+                sell_count = trading_results['sell_count']
+                buy_count = trading_results['buy_count']
+                sell_results = trading_results['sell_results']
+                buy_results = trading_results['buy_results']
+                
+                # 성공/실패 메시지 생성
+                if buy_count > 0 or sell_count > 0:
+                    message = f"[자동] 매수 {buy_count}건, 매도 {sell_count}건 실행 완료"
+                    status = "success"
+                else:
+                    message = f"[자동] 매수 실패: {buy_results.get('total_attempts', 0)}개 종목 중 {buy_count}건 성공"
+                    status = "failed"
+                
+                # 실행 결과 로그 기록
+                self.config_manager.log_execution(
+                    status=status,
+                    buy_count=buy_count,
+                    sell_count=sell_count,
+                    message=message,
+                    strategy_params=trading_data['strategy_params'],
+                    buy_candidates=trading_results.get('buy_candidates'),
+                    sell_candidates=trading_results.get('sell_candidates'),
+                    execution_type="자동",
+                    buy_results=buy_results,
+                    sell_results=sell_results,
+                    account_info=trading_data['account_info']
+                )
+                
                 return {
                     'success': True,
                     'test_mode': False,
-                    'sell_count': trading_results['sell_count'],
-                    'buy_count': trading_results['buy_count'],
-                    'sell_results': trading_results['sell_results'],
-                    'buy_results': trading_results['buy_results']
+                    'message': message,  # ✅ message 키 추가
+                    'sell_count': sell_count,
+                    'buy_count': buy_count,
+                    'sell_results': sell_results,
+                    'buy_results': buy_results
                 }
         
         except Exception as e:
@@ -1043,12 +1077,42 @@ class AutoTradingEngine:
                 strategy_params
             )
             
+            # 4. 실행 결과 로그 기록
+            sell_count = trading_results['sell_count']
+            buy_count = trading_results['buy_count']
+            sell_results = trading_results['sell_results']
+            buy_results = trading_results['buy_results']
+            
+            # 성공/실패 메시지 생성
+            if buy_count > 0 or sell_count > 0:
+                message = f"[수동] 매수 {buy_count}건, 매도 {sell_count}건 실행 완료"
+                status = "success"
+            else:
+                message = f"[수동] 매수 실패: {buy_results.get('total_attempts', 0)}개 종목 중 {buy_count}건 성공"
+                status = "failed"
+            
+            # 실행 결과 로그 기록
+            self.config_manager.log_execution(
+                status=status,
+                buy_count=buy_count,
+                sell_count=sell_count,
+                message=message,
+                strategy_params=strategy_params,
+                buy_candidates=trading_results.get('buy_candidates'),
+                sell_candidates=trading_results.get('sell_candidates'),
+                execution_type="수동",
+                buy_results=buy_results,
+                sell_results=sell_results,
+                account_info=account_info
+            )
+            
             return {
                 'success': True,
-                'sell_count': trading_results['sell_count'],
-                'buy_count': trading_results['buy_count'],
-                'sell_results': trading_results['sell_results'],
-                'buy_results': trading_results['buy_results']
+                'message': message,
+                'sell_count': sell_count,
+                'buy_count': buy_count,
+                'sell_results': sell_results,
+                'buy_results': buy_results
             }
         
         except Exception as e:
