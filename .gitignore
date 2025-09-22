@@ -58,6 +58,13 @@ data/*.log
 data/cache/
 data/temp/
 
+# Auto Trading Configuration Files
+data/auto_trading_config_mock.json
+data/auto_trading_config_real.json
+data/server_selection.json
+data/order_history/mock/order_history.json
+data/order_history/real/order_history.json
+
 # API Keys and Secrets
 .env
 config_local.py
