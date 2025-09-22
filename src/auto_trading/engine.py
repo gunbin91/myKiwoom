@@ -438,14 +438,27 @@ class AutoTradingEngine:
                     'message': '예수금 정보를 가져올 수 없습니다.'
                 }
             
-            # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (대시보드와 동일한 로직)
-            if 'd2_entra' in deposit_result and deposit_result['d2_entra'] and deposit_result['d2_entra'] != '000000000000000':
+            # 주문가능금액을 우선적으로 사용 (100stk_ord_alow_amt)
+            if '100stk_ord_alow_amt' in deposit_result and deposit_result['100stk_ord_alow_amt'] and deposit_result['100stk_ord_alow_amt'] != '000000000000000':
+                original_entr = deposit_result.get('entr', '0')
+                deposit_result['entr'] = deposit_result['100stk_ord_alow_amt']
+                deposit_result['entr_type'] = '주문가능금액'
+                self._get_logger().info(f"✅ 자동매매: 주문가능금액 사용: {deposit_result['100stk_ord_alow_amt']} (기본 예수금: {original_entr})")
+            # D+2 추정예수금 사용 (주문가능금액이 없는 경우)
+            elif 'd2_entra' in deposit_result and deposit_result['d2_entra'] and deposit_result['d2_entra'] != '000000000000000':
+                original_entr = deposit_result.get('entr', '0')
                 deposit_result['entr'] = deposit_result['d2_entra']
-                self._get_logger().info(f"D+2 추정예수금 사용: {deposit_result['d2_entra']}")
-            # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
+                deposit_result['entr_type'] = 'D+2'
+                self._get_logger().info(f"✅ 자동매매: D+2 추정예수금 사용: {deposit_result['d2_entra']} (기본 예수금: {original_entr})")
+            # D+1 추정예수금 사용 (D+2가 없는 경우)
             elif 'd1_entra' in deposit_result and deposit_result['d1_entra'] and deposit_result['d1_entra'] != '000000000000000':
+                original_entr = deposit_result.get('entr', '0')
                 deposit_result['entr'] = deposit_result['d1_entra']
-                self._get_logger().info(f"D+1 추정예수금 사용: {deposit_result['d1_entra']}")
+                deposit_result['entr_type'] = 'D+1'
+                self._get_logger().info(f"✅ 자동매매: D+1 추정예수금 사용: {deposit_result['d1_entra']} (기본 예수금: {original_entr})")
+            else:
+                deposit_result['entr_type'] = 'D+0'
+                self._get_logger().info(f"✅ 자동매매: 기본 예수금 사용: {deposit_result.get('entr', '0')}")
             
             # 보유 종목 정보
             balance_result = self.account.get_account_balance_detail()
@@ -479,7 +492,8 @@ class AutoTradingEngine:
         try:
             # 예수금 정보 상세 로그
             total_deposit = int(account_info['deposit'].get('entr', 0))
-            self._get_logger().info(f"💰 총 예수금: {total_deposit:,}원")
+            entr_type = account_info['deposit'].get('entr_type', 'D+0')
+            self._get_logger().info(f"💰 총 예수금 ({entr_type}): {total_deposit:,}원")
             self._get_logger().info(f"💰 매매제외예수금: {reserve_cash:,}원")
             
             # 사용 가능한 현금 계산
@@ -488,6 +502,11 @@ class AutoTradingEngine:
             
             if available_cash <= 0:
                 self._get_logger().warning(f"사용 가능한 현금이 부족합니다. (예수금: {total_deposit:,}, 예약금: {reserve_cash:,})")
+                return {'success_count': 0}
+            
+            # 매수 대상이 없는 경우 조기 종료
+            if not buy_candidates or len(buy_candidates) == 0:
+                self._get_logger().info("📊 매수 대상 종목이 없습니다.")
                 return {'success_count': 0}
             
             # 실전에서는 종목당 동일한 금액 투자 (수수료 고려)

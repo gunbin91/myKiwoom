@@ -476,6 +476,64 @@ class KiwoomAccount:
         
         return self._make_request('ka10073', data)
     
+    def get_realized_profit_by_date(self, stock_code: str, start_date: str) -> Optional[Dict[str, Any]]:
+        """
+        일자별종목별실현손익요청_일자 (ka10072)
+        
+        Args:
+            stock_code: 종목코드
+            start_date: 시작일자 (YYYYMMDD)
+            
+        Returns:
+            특정 일자 종목별 실현손익 정보
+        """
+        api_logger.info(f"일자별종목별실현손익 조회 (종목: {stock_code}, 시작일자: {start_date})")
+        
+        data = {
+            'stk_cd': stock_code,
+            'strt_dt': start_date
+        }
+        
+        return self._make_request('ka10072', data)
+    
+    def get_daily_realized_profit(self, start_date: str, end_date: str) -> Optional[Dict[str, Any]]:
+        """
+        일자별실현손익요청 (ka10074)
+        
+        Args:
+            start_date: 시작일자 (YYYYMMDD)
+            end_date: 종료일자 (YYYYMMDD)
+            
+        Returns:
+            일자별 실현손익 정보 (실현손익이 발생한 일자에 대해서만 데이터 제공)
+        """
+        api_logger.info(f"일자별실현손익 조회 (기간: {start_date}~{end_date})")
+        
+        data = {
+            'strt_dt': start_date,
+            'end_dt': end_date
+        }
+        
+        return self._make_request('ka10074', data)
+    
+    def get_daily_realized_profit_detail(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        당일실현손익상세요청 (ka10077)
+        
+        Args:
+            stock_code: 종목코드
+            
+        Returns:
+            당일 실현손익 상세 내역
+        """
+        api_logger.info(f"당일실현손익상세 조회 (종목: {stock_code})")
+        
+        data = {
+            'stk_cd': stock_code
+        }
+        
+        return self._make_request('ka10077', data)
+    
     def get_trust_overall_trade_history(self, start_date: str, end_date: str, trade_type: str = "3",
                                        stock_code: str = "", goods_type: str = "1", 
                                        domestic_exchange_type: str = "%") -> Optional[Dict[str, Any]]:

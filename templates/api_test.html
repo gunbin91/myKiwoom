@@ -1,8 +1,5 @@
-{% extends "base.html" %}
-
-{% block title %}API 테스트{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}API 테스트{% endblock %} {% block
+content %}
 <div class="container-fluid">
   <div class="row">
     <div class="col-12">
@@ -10,7 +7,17 @@
         <h2><i class="fas fa-flask me-2"></i>API 테스트</h2>
         <div class="d-flex gap-2">
           <span class="badge bg-info" id="server-badge">서버: 로딩중...</span>
-          <button class="btn btn-outline-secondary btn-sm" onclick="clearAllResults()">
+          <button
+            class="btn btn-outline-primary btn-sm"
+            onclick="checkServerType()"
+            title="서버 상태 새로고침"
+          >
+            <i class="fas fa-sync-alt"></i> 서버상태
+          </button>
+          <button
+            class="btn btn-outline-secondary btn-sm"
+            onclick="clearAllResults()"
+          >
             <i class="fas fa-trash"></i> 결과 초기화
           </button>
         </div>
@@ -29,11 +36,17 @@
           <!-- API 선택 -->
           <div class="mb-3">
             <label for="api-select" class="form-label">API 선택</label>
-            <select class="form-select" id="api-select" onchange="updateApiForm()">
+            <select
+              class="form-select"
+              id="api-select"
+              onchange="updateApiForm()"
+            >
               <option value="">API를 선택하세요</option>
               <optgroup label="계좌 정보">
                 <option value="kt00001">kt00001 - 예수금상세현황요청</option>
-                <option value="kt00002">kt00002 - 일별추정예탁자산현황요청</option>
+                <option value="kt00002">
+                  kt00002 - 일별추정예탁자산현황요청
+                </option>
                 <option value="kt00003">kt00003 - 추정자산요청</option>
                 <option value="kt00004">kt00004 - 계좌평가현황요청</option>
                 <option value="kt00017">kt00017 - 계좌별당일현황요청</option>
@@ -42,15 +55,26 @@
                 <option value="ka10075">ka10075 - 미체결요청</option>
                 <option value="ka10076">ka10076 - 체결요청</option>
                 <option value="ka01690">ka01690 - 일별잔고수익률</option>
-                <option value="ka10073">ka10073 - 일자별종목별실현손익요청</option>
+                <option value="ka10072">
+                  ka10072 - 일자별종목별실현손익요청_일자
+                </option>
+                <option value="ka10073">
+                  ka10073 - 일자별종목별실현손익요청_기간
+                </option>
+                <option value="ka10074">ka10074 - 일자별실현손익요청</option>
+                <option value="ka10077">ka10077 - 당일실현손익상세요청</option>
               </optgroup>
               <optgroup label="매매일지">
                 <option value="ka10170">ka10170 - 당일매매일지요청</option>
                 <option value="kt00015">kt00015 - 위탁종합거래내역요청</option>
               </optgroup>
               <optgroup label="주문 관련">
-                <option value="kt00007">kt00007 - 계좌별주문체결내역상세요청</option>
-                <option value="kt00009">kt00009 - 계좌별주문체결내역요청</option>
+                <option value="kt00007">
+                  kt00007 - 계좌별주문체결내역상세요청
+                </option>
+                <option value="kt00009">
+                  kt00009 - 계좌별주문체결내역요청
+                </option>
                 <option value="kt00010">kt00010 - 주문가능금액조회요청</option>
               </optgroup>
             </select>
@@ -64,7 +88,7 @@
           </div>
 
           <!-- 파라미터 입력 폼 -->
-          <div id="api-params-form" style="display: none;">
+          <div id="api-params-form" style="display: none">
             <h6>파라미터 입력</h6>
             <div id="params-container">
               <!-- 동적으로 생성됨 -->
@@ -73,10 +97,20 @@
 
           <!-- 요청 버튼 -->
           <div class="d-grid gap-2 mt-3">
-            <button class="btn btn-primary" id="test-btn" onclick="testApi()" disabled>
+            <button
+              class="btn btn-primary"
+              id="test-btn"
+              onclick="testApi()"
+              disabled
+            >
               <i class="fas fa-play me-2"></i>API 테스트 실행
             </button>
-            <button class="btn btn-outline-secondary" id="reset-btn" onclick="resetParameters()" disabled>
+            <button
+              class="btn btn-outline-secondary"
+              id="reset-btn"
+              onclick="resetParameters()"
+              disabled
+            >
               <i class="fas fa-undo me-2"></i>파라미터 초기화
             </button>
           </div>
@@ -87,13 +121,23 @@
     <!-- 결과 표시 -->
     <div class="col-lg-8">
       <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>테스트 결과</h5>
+        <div
+          class="card-header d-flex justify-content-between align-items-center"
+        >
+          <h5 class="mb-0">
+            <i class="fas fa-chart-line me-2"></i>테스트 결과
+          </h5>
           <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary btn-sm" onclick="copyResult()">
+            <button
+              class="btn btn-outline-secondary btn-sm"
+              onclick="copyResult()"
+            >
               <i class="fas fa-copy"></i> 복사
             </button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="downloadResult()">
+            <button
+              class="btn btn-outline-secondary btn-sm"
+              onclick="downloadResult()"
+            >
               <i class="fas fa-download"></i> 다운로드
             </button>
           </div>
@@ -113,602 +157,927 @@
 
 <!-- API 파라미터 정의 -->
 <script>
-const apiDefinitions = {
-  'kt00001': {
-    name: '예수금상세현황요청',
-    description: '계좌의 예수금 상세 현황을 조회합니다.',
-    params: [
-      { name: 'qry_tp', label: '조회구분', type: 'select', required: true, 
-        options: [
-          { value: '2', label: '일반조회' },
-          { value: '3', label: '추정조회' }
-        ],
-        default: '2',
-        description: '조회할 예수금 구분을 선택합니다.'
-      }
-    ]
-  },
-  'kt00002': {
-    name: '일별추정예탁자산현황요청',
-    description: '일별 추정예탁자산 현황을 조회합니다.',
-    params: [
-      { name: 'start_dt', label: '시작일자', type: 'date', required: true,
-        default: getDefaultDate(-7), // 7일 전
-        description: '조회 시작일자 (YYYYMMDD 형식)' },
-      { name: 'end_dt', label: '종료일자', type: 'date', required: true,
-        default: getDefaultDate(0), // 오늘
-        description: '조회 종료일자 (YYYYMMDD 형식)' }
-    ]
-  },
-  'kt00003': {
-    name: '추정자산요청',
-    description: '계좌의 추정 자산을 조회합니다.',
-    params: [
-      { name: 'qry_tp', label: '상장폐지조회구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '상장폐지종목제외' }
-        ],
-        default: '1',
-        description: '상장폐지 종목 포함 여부를 선택합니다.'
-      }
-    ]
-  },
-  'kt00004': {
-    name: '계좌평가현황요청',
-    description: '계좌의 평가 현황을 조회합니다.',
-    params: [
-      { name: 'qry_tp', label: '상장폐지조회구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '상장폐지종목제외' }
-        ],
-        default: '1',
-        description: '상장폐지 종목 포함 여부를 선택합니다.'
-      },
-      { name: 'dmst_stex_tp', label: '국내거래소구분', type: 'select', required: true,
-        options: [
-          { value: 'KRX', label: '한국거래소' },
-          { value: 'NXT', label: '넥스트트레이드' }
-        ],
-        default: 'KRX',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'kt00017': {
-    name: '계좌별당일현황요청',
-    description: '계좌의 당일 현황을 조회합니다.',
-    params: []
-  },
-  'kt00018': {
-    name: '계좌평가잔고내역요청',
-    description: '계좌의 평가 잔고 내역을 조회합니다.',
-    params: [
-      { name: 'qry_tp', label: '조회구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '보유종목' },
-          { value: '2', label: '미보유종목' }
-        ],
-        default: '1',
-        description: '조회할 잔고 구분을 선택합니다.'
-      },
-      { name: 'dmst_stex_tp', label: '국내거래소구분', type: 'select', required: true,
-        options: [
-          { value: 'KRX', label: '한국거래소' },
-          { value: 'NXT', label: '넥스트트레이드' }
-        ],
-        default: 'KRX',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'ka10085': {
-    name: '계좌수익률요청',
-    description: '계좌의 수익률을 조회합니다.',
-    params: [
-      { name: 'stex_tp', label: '거래소구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '통합' },
-          { value: '1', label: 'KRX' },
-          { value: '2', label: 'NXT' }
-        ],
-        default: '0',
-        description: '조회할 거래소 구분을 선택합니다.'
-      }
-    ]
-  },
-  'ka10170': {
-    name: '당일매매일지요청',
-    description: '당일 매매일지를 조회합니다.',
-    params: [
-      { name: 'base_dt', label: '기준일자', type: 'date', required: false,
-        default: getDefaultDate(0), // 오늘
-        description: '조회할 기준일자 (YYYYMMDD 형식, 빈 값이면 당일)' },
-      { name: 'ottks_tp', label: '단주구분', type: 'select', required: false,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '단주제외' }
-        ],
-        default: '0',
-        description: '단주 포함 여부를 선택합니다.'
-      },
-      { name: 'ch_crd_tp', label: '현금신용구분', type: 'select', required: false,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '현금' },
-          { value: '2', label: '신용' }
-        ],
-        default: '0',
-        description: '현금/신용 구분을 선택합니다.'
-      }
-    ]
-  },
-  'kt00015': {
-    name: '위탁종합거래내역요청',
-    description: '위탁종합거래내역을 조회합니다.',
-    params: [
-      { name: 'strt_dt', label: '시작일자', type: 'date', required: true,
-        default: getDefaultDate(-7), // 7일 전
-        description: '조회 시작일자 (YYYYMMDD 형식)' },
-      { name: 'end_dt', label: '종료일자', type: 'date', required: true,
-        default: getDefaultDate(0), // 오늘
-        description: '조회 종료일자 (YYYYMMDD 형식)' },
-      { name: 'tp', label: '구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '입출금' },
-          { value: '2', label: '입출고' },
-          { value: '3', label: '매매' },
-          { value: '4', label: '매수' },
-          { value: '5', label: '매도' },
-          { value: '6', label: '입금' },
-          { value: '7', label: '출금' },
-          { value: 'A', label: '예탁담보대출입금' },
-          { value: 'B', label: '매도담보대출입금' },
-          { value: 'C', label: '현금상환(융자,담보상환)' },
-          { value: 'F', label: '환전' },
-          { value: 'M', label: '입출금+환전' },
-          { value: 'G', label: '외화매수' },
-          { value: 'H', label: '외화매도' },
-          { value: 'I', label: '환전정산입금' },
-          { value: 'J', label: '환전정산출금' }
-        ],
-        default: '3',
-        description: '거래 구분을 선택합니다.'
-      },
-      { name: 'stk_cd', label: '종목코드', type: 'text', required: false,
-        default: '',
-        description: '조회할 종목코드 (빈 값이면 전체 종목)' },
-      { name: 'crnc_cd', label: '통화코드', type: 'text', required: false,
-        default: '',
-        description: '조회할 통화코드 (빈 값이면 전체 통화)' },
-      { name: 'gds_tp', label: '상품구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '국내주식' },
-          { value: '2', label: '수익증권' },
-          { value: '3', label: '해외주식' },
-          { value: '4', label: '금융상품' }
-        ],
-        default: '1',
-        description: '상품 구분을 선택합니다.'
-      },
-      { name: 'frgn_stex_code', label: '해외거래소코드', type: 'text', required: false,
-        default: '',
-        description: '해외거래소코드 (해외주식 선택시)' },
-      { name: 'dmst_stex_tp', label: '국내거래소구분', type: 'select', required: true,
-        options: [
-          { value: '%', label: '전체' },
-          { value: 'KRX', label: '한국거래소' },
-          { value: 'NXT', label: '넥스트트레이드' }
-        ],
-        default: '%',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'kt00007': {
-    name: '계좌별주문체결내역상세요청',
-    description: '계좌별 주문체결내역 상세를 조회합니다.',
-    params: [
-      { name: 'ord_dt', label: '주문일자', type: 'date', required: false,
-        default: getDefaultDate(0), // 오늘
-        description: '조회할 주문일자 (YYYYMMDD 형식)' },
-      { name: 'qry_tp', label: '조회구분', type: 'select', required: true,
-        options: [
-          { value: '1', label: '주문순' },
-          { value: '2', label: '역순' },
-          { value: '3', label: '미체결' },
-          { value: '4', label: '체결내역만' }
-        ],
-        default: '1',
-        description: '조회 구분을 선택합니다.'
-      },
-      { name: 'stk_bond_tp', label: '주식채권구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '주식' },
-          { value: '2', label: '채권' }
-        ],
-        default: '1',
-        description: '주식/채권 구분을 선택합니다.'
-      },
-      { name: 'sell_tp', label: '매도수구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '매도' },
-          { value: '2', label: '매수' }
-        ],
-        default: '0',
-        description: '매도/매수 구분을 선택합니다.'
-      },
-      { name: 'stk_cd', label: '종목코드', type: 'text', required: false,
-        default: '',
-        description: '조회할 종목코드 (빈 값이면 전체 종목)' },
-      { name: 'fr_ord_no', label: '시작주문번호', type: 'text', required: false,
-        default: '',
-        description: '조회 시작 주문번호 (빈 값이면 전체)' },
-      { name: 'dmst_stex_tp', label: '국내거래소구분', type: 'select', required: true,
-        options: [
-          { value: '%', label: '전체' },
-          { value: 'KRX', label: '한국거래소' },
-          { value: 'NXT', label: '넥스트트레이드' },
-          { value: 'SOR', label: '최선주문집행' }
-        ],
-        default: '%',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'kt00009': {
-    name: '계좌별주문체결현황요청',
-    description: '계좌별 주문체결현황을 조회합니다.',
-    params: [
-      { name: 'ord_dt', label: '주문일자', type: 'date', required: false,
-        default: getDefaultDate(0), // 오늘
-        description: '조회할 주문일자 (YYYYMMDD 형식)' },
-      { name: 'stk_bond_tp', label: '주식채권구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '주식' },
-          { value: '2', label: '채권' }
-        ],
-        default: '1',
-        description: '주식/채권 구분을 선택합니다.'
-      },
-      { name: 'mrkt_tp', label: '시장구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '코스피' },
-          { value: '2', label: '코스닥' },
-          { value: '3', label: 'OTCBB' },
-          { value: '4', label: 'ECN' }
-        ],
-        default: '0',
-        description: '시장 구분을 선택합니다.'
-      },
-      { name: 'sell_tp', label: '매도수구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '매도' },
-          { value: '2', label: '매수' }
-        ],
-        default: '0',
-        description: '매도/매수 구분을 선택합니다.'
-      },
-      { name: 'qry_tp', label: '조회구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '체결' }
-        ],
-        default: '0',
-        description: '조회 구분을 선택합니다.'
-      },
-      { name: 'stk_cd', label: '종목코드', type: 'text', required: false,
-        default: '',
-        description: '조회할 종목코드 (빈 값이면 전체 종목)' },
-      { name: 'fr_ord_no', label: '시작주문번호', type: 'text', required: false,
-        default: '',
-        description: '조회 시작 주문번호 (빈 값이면 전체)' },
-      { name: 'dmst_stex_tp', label: '국내거래소구분', type: 'select', required: true,
-        options: [
-          { value: '%', label: '전체' },
-          { value: 'KRX', label: '한국거래소' },
-          { value: 'NXT', label: '넥스트트레이드' },
-          { value: 'SOR', label: '최선주문집행' }
-        ],
-        default: '%',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'kt00010': {
-    name: '주문인출가능금액요청',
-    description: '주문인출가능금액을 조회합니다.',
-    params: [
-      { name: 'io_amt', label: '입출금액', type: 'number', required: false,
-        default: '',
-        description: '입출금액 (빈 값이면 전체)' },
-      { name: 'stk_cd', label: '종목번호', type: 'text', required: true,
-        default: '005930', // 삼성전자
-        description: '조회할 종목번호' },
-      { name: 'trde_tp', label: '매매구분', type: 'select', required: true,
-        options: [
-          { value: '1', label: '매도' },
-          { value: '2', label: '매수' }
-        ],
-        default: '2',
-        description: '매매 구분을 선택합니다.'
-      }
-    ]
-  },
-  'ka10075': {
-    name: '미체결요청',
-    description: '미체결 주문 내역을 조회합니다.',
-    params: [
-      { name: 'all_stk_tp', label: '전체종목구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '종목' }
-        ],
-        default: '0',
-        description: '전체종목 또는 종목 구분을 선택합니다.'
-      },
-      { name: 'trde_tp', label: '매매구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '매도' },
-          { value: '2', label: '매수' }
-        ],
-        default: '0',
-        description: '매매 구분을 선택합니다.'
-      },
-      { name: 'stk_cd', label: '종목코드', type: 'text', required: false,
-        default: '',
-        description: '조회할 종목코드 (종목 선택시 필수)' },
-      { name: 'stex_tp', label: '거래소구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '통합' },
-          { value: '1', label: 'KRX' },
-          { value: '2', label: 'NXT' }
-        ],
-        default: '0',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'ka10076': {
-    name: '체결요청',
-    description: '체결 주문 내역을 조회합니다.',
-    params: [
-      { name: 'stk_cd', label: '종목코드', type: 'text', required: false,
-        default: '',
-        description: '조회할 종목코드 (빈 값이면 전체 종목)' },
-      { name: 'qry_tp', label: '조회구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '종목' }
-        ],
-        default: '0',
-        description: '조회 구분을 선택합니다.'
-      },
-      { name: 'sell_tp', label: '매도수구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '전체' },
-          { value: '1', label: '매도' },
-          { value: '2', label: '매수' }
-        ],
-        default: '0',
-        description: '매도/매수 구분을 선택합니다.'
-      },
-      { name: 'ord_no', label: '주문번호', type: 'text', required: false,
-        default: '',
-        description: '검색 기준 주문번호 (과거 체결내역 조회)' },
-      { name: 'stex_tp', label: '거래소구분', type: 'select', required: true,
-        options: [
-          { value: '0', label: '통합' },
-          { value: '1', label: 'KRX' },
-          { value: '2', label: 'NXT' }
-        ],
-        default: '0',
-        description: '조회할 거래소를 선택합니다.'
-      }
-    ]
-  },
-  'ka01690': {
-    name: '일별잔고수익률',
-    description: '일별 잔고 수익률을 조회합니다.',
-    params: [
-      { name: 'qry_dt', label: '조회일자', type: 'date', required: true,
-        default: getDefaultDate(0), // 오늘
-        description: '조회할 일자 (YYYYMMDD 형식)' }
-    ]
-  },
-  'ka10073': {
-    name: '일자별종목별실현손익요청',
-    description: '일자별 종목별 실현손익을 조회합니다.',
-    params: [
-      { name: 'stk_cd', label: '종목코드', type: 'text', required: true,
-        default: '005930', // 삼성전자
-        description: '조회할 종목코드' },
-      { name: 'strt_dt', label: '시작일자', type: 'date', required: true,
-        default: getDefaultDate(-30), // 30일 전
-        description: '조회 시작일자 (YYYYMMDD 형식)' },
-      { name: 'end_dt', label: '종료일자', type: 'date', required: true,
-        default: getDefaultDate(0), // 오늘
-        description: '조회 종료일자 (YYYYMMDD 형식)' }
-    ]
+  const apiDefinitions = {
+    kt00001: {
+      name: "예수금상세현황요청",
+      description: "계좌의 예수금 상세 현황을 조회합니다.",
+      params: [
+        {
+          name: "qry_tp",
+          label: "조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "2", label: "일반조회" },
+            { value: "3", label: "추정조회" },
+          ],
+          default: "2",
+          description: "조회할 예수금 구분을 선택합니다.",
+        },
+      ],
+    },
+    kt00002: {
+      name: "일별추정예탁자산현황요청",
+      description: "일별 추정예탁자산 현황을 조회합니다.",
+      params: [
+        {
+          name: "start_dt",
+          label: "시작일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(-7), // 7일 전
+          description: "조회 시작일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "end_dt",
+          label: "종료일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(0), // 오늘
+          description: "조회 종료일자 (YYYYMMDD 형식)",
+        },
+      ],
+    },
+    kt00003: {
+      name: "추정자산요청",
+      description: "계좌의 추정 자산을 조회합니다.",
+      params: [
+        {
+          name: "qry_tp",
+          label: "상장폐지조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "상장폐지종목제외" },
+          ],
+          default: "1",
+          description: "상장폐지 종목 포함 여부를 선택합니다.",
+        },
+      ],
+    },
+    kt00004: {
+      name: "계좌평가현황요청",
+      description: "계좌의 평가 현황을 조회합니다.",
+      params: [
+        {
+          name: "qry_tp",
+          label: "상장폐지조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "상장폐지종목제외" },
+          ],
+          default: "1",
+          description: "상장폐지 종목 포함 여부를 선택합니다.",
+        },
+        {
+          name: "dmst_stex_tp",
+          label: "국내거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "KRX", label: "한국거래소" },
+            { value: "NXT", label: "넥스트트레이드" },
+          ],
+          default: "KRX",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    kt00017: {
+      name: "계좌별당일현황요청",
+      description: "계좌의 당일 현황을 조회합니다.",
+      params: [],
+    },
+    kt00018: {
+      name: "계좌평가잔고내역요청",
+      description: "계좌의 평가 잔고 내역을 조회합니다.",
+      params: [
+        {
+          name: "qry_tp",
+          label: "조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "보유종목" },
+            { value: "2", label: "미보유종목" },
+          ],
+          default: "1",
+          description: "조회할 잔고 구분을 선택합니다.",
+        },
+        {
+          name: "dmst_stex_tp",
+          label: "국내거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "KRX", label: "한국거래소" },
+            { value: "NXT", label: "넥스트트레이드" },
+          ],
+          default: "KRX",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    ka10085: {
+      name: "계좌수익률요청",
+      description: "계좌의 수익률을 조회합니다.",
+      params: [
+        {
+          name: "stex_tp",
+          label: "거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "통합" },
+            { value: "1", label: "KRX" },
+            { value: "2", label: "NXT" },
+          ],
+          default: "0",
+          description: "조회할 거래소 구분을 선택합니다.",
+        },
+      ],
+    },
+    ka10170: {
+      name: "당일매매일지요청",
+      description: "당일 매매일지를 조회합니다.",
+      params: [
+        {
+          name: "base_dt",
+          label: "기준일자",
+          type: "date",
+          required: false,
+          default: getDefaultDate(0), // 오늘
+          description: "조회할 기준일자 (YYYYMMDD 형식, 빈 값이면 당일)",
+        },
+        {
+          name: "ottks_tp",
+          label: "단주구분",
+          type: "select",
+          required: false,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "단주제외" },
+          ],
+          default: "0",
+          description: "단주 포함 여부를 선택합니다.",
+        },
+        {
+          name: "ch_crd_tp",
+          label: "현금신용구분",
+          type: "select",
+          required: false,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "현금" },
+            { value: "2", label: "신용" },
+          ],
+          default: "0",
+          description: "현금/신용 구분을 선택합니다.",
+        },
+      ],
+    },
+    kt00015: {
+      name: "위탁종합거래내역요청",
+      description: "위탁종합거래내역을 조회합니다.",
+      params: [
+        {
+          name: "strt_dt",
+          label: "시작일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(-7), // 7일 전
+          description: "조회 시작일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "end_dt",
+          label: "종료일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(0), // 오늘
+          description: "조회 종료일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "tp",
+          label: "구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "입출금" },
+            { value: "2", label: "입출고" },
+            { value: "3", label: "매매" },
+            { value: "4", label: "매수" },
+            { value: "5", label: "매도" },
+            { value: "6", label: "입금" },
+            { value: "7", label: "출금" },
+            { value: "A", label: "예탁담보대출입금" },
+            { value: "B", label: "매도담보대출입금" },
+            { value: "C", label: "현금상환(융자,담보상환)" },
+            { value: "F", label: "환전" },
+            { value: "M", label: "입출금+환전" },
+            { value: "G", label: "외화매수" },
+            { value: "H", label: "외화매도" },
+            { value: "I", label: "환전정산입금" },
+            { value: "J", label: "환전정산출금" },
+          ],
+          default: "3",
+          description: "거래 구분을 선택합니다.",
+        },
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회할 종목코드 (빈 값이면 전체 종목)",
+        },
+        {
+          name: "crnc_cd",
+          label: "통화코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회할 통화코드 (빈 값이면 전체 통화)",
+        },
+        {
+          name: "gds_tp",
+          label: "상품구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "국내주식" },
+            { value: "2", label: "수익증권" },
+            { value: "3", label: "해외주식" },
+            { value: "4", label: "금융상품" },
+          ],
+          default: "1",
+          description: "상품 구분을 선택합니다.",
+        },
+        {
+          name: "frgn_stex_code",
+          label: "해외거래소코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "해외거래소코드 (해외주식 선택시)",
+        },
+        {
+          name: "dmst_stex_tp",
+          label: "국내거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "%", label: "전체" },
+            { value: "KRX", label: "한국거래소" },
+            { value: "NXT", label: "넥스트트레이드" },
+          ],
+          default: "%",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    kt00007: {
+      name: "계좌별주문체결내역상세요청",
+      description: "계좌별 주문체결내역 상세를 조회합니다.",
+      params: [
+        {
+          name: "ord_dt",
+          label: "주문일자",
+          type: "date",
+          required: false,
+          default: getDefaultDate(0), // 오늘
+          description: "조회할 주문일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "qry_tp",
+          label: "조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "1", label: "주문순" },
+            { value: "2", label: "역순" },
+            { value: "3", label: "미체결" },
+            { value: "4", label: "체결내역만" },
+          ],
+          default: "1",
+          description: "조회 구분을 선택합니다.",
+        },
+        {
+          name: "stk_bond_tp",
+          label: "주식채권구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "주식" },
+            { value: "2", label: "채권" },
+          ],
+          default: "1",
+          description: "주식/채권 구분을 선택합니다.",
+        },
+        {
+          name: "sell_tp",
+          label: "매도수구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "매도" },
+            { value: "2", label: "매수" },
+          ],
+          default: "0",
+          description: "매도/매수 구분을 선택합니다.",
+        },
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회할 종목코드 (빈 값이면 전체 종목)",
+        },
+        {
+          name: "fr_ord_no",
+          label: "시작주문번호",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회 시작 주문번호 (빈 값이면 전체)",
+        },
+        {
+          name: "dmst_stex_tp",
+          label: "국내거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "%", label: "전체" },
+            { value: "KRX", label: "한국거래소" },
+            { value: "NXT", label: "넥스트트레이드" },
+            { value: "SOR", label: "최선주문집행" },
+          ],
+          default: "%",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    kt00009: {
+      name: "계좌별주문체결현황요청",
+      description: "계좌별 주문체결현황을 조회합니다.",
+      params: [
+        {
+          name: "ord_dt",
+          label: "주문일자",
+          type: "date",
+          required: false,
+          default: getDefaultDate(0), // 오늘
+          description: "조회할 주문일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "stk_bond_tp",
+          label: "주식채권구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "주식" },
+            { value: "2", label: "채권" },
+          ],
+          default: "1",
+          description: "주식/채권 구분을 선택합니다.",
+        },
+        {
+          name: "mrkt_tp",
+          label: "시장구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "코스피" },
+            { value: "2", label: "코스닥" },
+            { value: "3", label: "OTCBB" },
+            { value: "4", label: "ECN" },
+          ],
+          default: "0",
+          description: "시장 구분을 선택합니다.",
+        },
+        {
+          name: "sell_tp",
+          label: "매도수구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "매도" },
+            { value: "2", label: "매수" },
+          ],
+          default: "0",
+          description: "매도/매수 구분을 선택합니다.",
+        },
+        {
+          name: "qry_tp",
+          label: "조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "체결" },
+          ],
+          default: "0",
+          description: "조회 구분을 선택합니다.",
+        },
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회할 종목코드 (빈 값이면 전체 종목)",
+        },
+        {
+          name: "fr_ord_no",
+          label: "시작주문번호",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회 시작 주문번호 (빈 값이면 전체)",
+        },
+        {
+          name: "dmst_stex_tp",
+          label: "국내거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "%", label: "전체" },
+            { value: "KRX", label: "한국거래소" },
+            { value: "NXT", label: "넥스트트레이드" },
+            { value: "SOR", label: "최선주문집행" },
+          ],
+          default: "%",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    kt00010: {
+      name: "주문인출가능금액요청",
+      description: "주문인출가능금액을 조회합니다.",
+      params: [
+        {
+          name: "io_amt",
+          label: "입출금액",
+          type: "number",
+          required: false,
+          default: "",
+          description: "입출금액 (빈 값이면 전체)",
+        },
+        {
+          name: "stk_cd",
+          label: "종목번호",
+          type: "text",
+          required: true,
+          default: "005930", // 삼성전자
+          description: "조회할 종목번호",
+        },
+        {
+          name: "trde_tp",
+          label: "매매구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "1", label: "매도" },
+            { value: "2", label: "매수" },
+          ],
+          default: "2",
+          description: "매매 구분을 선택합니다.",
+        },
+      ],
+    },
+    ka10075: {
+      name: "미체결요청",
+      description: "미체결 주문 내역을 조회합니다.",
+      params: [
+        {
+          name: "all_stk_tp",
+          label: "전체종목구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "종목" },
+          ],
+          default: "0",
+          description: "전체종목 또는 종목 구분을 선택합니다.",
+        },
+        {
+          name: "trde_tp",
+          label: "매매구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "매도" },
+            { value: "2", label: "매수" },
+          ],
+          default: "0",
+          description: "매매 구분을 선택합니다.",
+        },
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회할 종목코드 (종목 선택시 필수)",
+        },
+        {
+          name: "stex_tp",
+          label: "거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "통합" },
+            { value: "1", label: "KRX" },
+            { value: "2", label: "NXT" },
+          ],
+          default: "0",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    ka10076: {
+      name: "체결요청",
+      description: "체결 주문 내역을 조회합니다.",
+      params: [
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: false,
+          default: "",
+          description: "조회할 종목코드 (빈 값이면 전체 종목)",
+        },
+        {
+          name: "qry_tp",
+          label: "조회구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "종목" },
+          ],
+          default: "0",
+          description: "조회 구분을 선택합니다.",
+        },
+        {
+          name: "sell_tp",
+          label: "매도수구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "전체" },
+            { value: "1", label: "매도" },
+            { value: "2", label: "매수" },
+          ],
+          default: "0",
+          description: "매도/매수 구분을 선택합니다.",
+        },
+        {
+          name: "ord_no",
+          label: "주문번호",
+          type: "text",
+          required: false,
+          default: "",
+          description: "검색 기준 주문번호 (과거 체결내역 조회)",
+        },
+        {
+          name: "stex_tp",
+          label: "거래소구분",
+          type: "select",
+          required: true,
+          options: [
+            { value: "0", label: "통합" },
+            { value: "1", label: "KRX" },
+            { value: "2", label: "NXT" },
+          ],
+          default: "0",
+          description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    ka01690: {
+      name: "일별잔고수익률",
+      description: "일별 잔고 수익률을 조회합니다.",
+      params: [
+        {
+          name: "qry_dt",
+          label: "조회일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(0), // 오늘
+          description: "조회할 일자 (YYYYMMDD 형식)",
+        },
+      ],
+    },
+    ka10072: {
+      name: "일자별종목별실현손익요청_일자",
+      description: "특정 종목의 특정 일자 실현손익을 조회합니다.",
+      params: [
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: true,
+          default: "005930", // 삼성전자
+          description: "조회할 종목코드",
+        },
+        {
+          name: "strt_dt",
+          label: "시작일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(0), // 오늘
+          description: "조회할 시작일자 (YYYYMMDD 형식)",
+        },
+      ],
+    },
+    ka10073: {
+      name: "일자별종목별실현손익요청_기간",
+      description: "특정 종목의 기간별 실현손익을 조회합니다.",
+      params: [
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: true,
+          default: "005930", // 삼성전자
+          description: "조회할 종목코드",
+        },
+        {
+          name: "strt_dt",
+          label: "시작일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(-30), // 30일 전
+          description: "조회 시작일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "end_dt",
+          label: "종료일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(0), // 오늘
+          description: "조회 종료일자 (YYYYMMDD 형식)",
+        },
+      ],
+    },
+    ka10074: {
+      name: "일자별실현손익요청",
+      description:
+        "전체 계좌의 기간별 실현손익을 조회합니다. (실현손익이 발생한 일자에 대해서만 데이터 제공)",
+      params: [
+        {
+          name: "strt_dt",
+          label: "시작일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(-30), // 30일 전
+          description: "조회 시작일자 (YYYYMMDD 형식)",
+        },
+        {
+          name: "end_dt",
+          label: "종료일자",
+          type: "date",
+          required: true,
+          default: getDefaultDate(0), // 오늘
+          description: "조회 종료일자 (YYYYMMDD 형식)",
+        },
+      ],
+    },
+    ka10077: {
+      name: "당일실현손익상세요청",
+      description: "당일 실현손익 상세 내역을 조회합니다.",
+      params: [
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: true,
+          default: "005930", // 삼성전자
+          description: "조회할 종목코드",
+        },
+      ],
+    },
+  };
+
+  let currentServerType = "";
+
+  // 페이지 로드 시 서버 정보 확인
+  document.addEventListener("DOMContentLoaded", function () {
+    checkServerType();
+
+    // 30초마다 서버 상태 재확인
+    setInterval(checkServerType, 30000);
+  });
+
+  // 기본 날짜 생성 함수
+  function getDefaultDate(daysOffset) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysOffset);
+    return date.toISOString().split("T")[0]; // YYYY-MM-DD 형식
   }
-};
 
-let currentServerType = '';
+  function checkServerType() {
+    console.log("서버 상태 확인 시작...");
+    fetch("/api/server/current")
+      .then((response) => response.json())
+      .then((data) => {
+        console.log("서버 상태 응답:", data);
+        if (data.success) {
+          currentServerType = data.server_type;
+          console.log("현재 서버 타입:", currentServerType);
+          updateServerBadge(data.server_type);
+        } else {
+          console.error("서버 상태 확인 실패:", data.message);
+          updateServerBadge("error");
+        }
+      })
+      .catch((error) => {
+        console.error("서버 정보 확인 실패:", error);
+        updateServerBadge("error");
+      });
+  }
 
-// 페이지 로드 시 서버 정보 확인
-document.addEventListener('DOMContentLoaded', function() {
-  checkServerType();
-});
-
-// 기본 날짜 생성 함수
-function getDefaultDate(daysOffset) {
-  const date = new Date();
-  date.setDate(date.getDate() + daysOffset);
-  return date.toISOString().split('T')[0]; // YYYY-MM-DD 형식
-}
-
-function checkServerType() {
-  fetch('/api/server/current')
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        currentServerType = data.server_type;
-        const badge = document.getElementById('server-badge');
-        badge.textContent = `서버: ${data.server_type === 'mock' ? '모의투자' : '실전투자'}`;
-        badge.className = data.server_type === 'mock' ? 'badge bg-warning' : 'badge bg-danger';
-      }
-    })
-    .catch(error => {
-      console.error('서버 정보 확인 실패:', error);
-      document.getElementById('server-badge').textContent = '서버: 확인실패';
-    });
-}
-
-function updateApiForm() {
-  const apiSelect = document.getElementById('api-select');
-  const selectedApi = apiSelect.value;
-  const paramsForm = document.getElementById('api-params-form');
-  const paramsContainer = document.getElementById('params-container');
-  const description = document.getElementById('api-description');
-  const testBtn = document.getElementById('test-btn');
-
-  if (!selectedApi) {
-    paramsForm.style.display = 'none';
-    description.innerHTML = 'API를 선택하면 파라미터 입력 폼이 표시됩니다.';
-    testBtn.disabled = true;
-    
-    // 초기화 버튼 비활성화
-    const resetBtn = document.getElementById('reset-btn');
-    if (resetBtn) {
-      resetBtn.disabled = true;
+  function updateServerBadge(serverType) {
+    const badge = document.getElementById("server-badge");
+    if (serverType === "mock") {
+      badge.textContent = "서버: 모의투자";
+      badge.className = "badge bg-warning";
+    } else if (serverType === "real") {
+      badge.textContent = "서버: 실전투자";
+      badge.className = "badge bg-danger";
+    } else {
+      badge.textContent = "서버: 확인실패";
+      badge.className = "badge bg-secondary";
     }
-    return;
   }
 
-  const apiDef = apiDefinitions[selectedApi];
-  if (!apiDef) {
-    paramsForm.style.display = 'none';
-    description.innerHTML = '선택한 API의 정의를 찾을 수 없습니다.';
-    testBtn.disabled = true;
-    
-    // 초기화 버튼 비활성화
-    const resetBtn = document.getElementById('reset-btn');
-    if (resetBtn) {
-      resetBtn.disabled = true;
+  function updateApiForm() {
+    const apiSelect = document.getElementById("api-select");
+    const selectedApi = apiSelect.value;
+    const paramsForm = document.getElementById("api-params-form");
+    const paramsContainer = document.getElementById("params-container");
+    const description = document.getElementById("api-description");
+    const testBtn = document.getElementById("test-btn");
+
+    if (!selectedApi) {
+      paramsForm.style.display = "none";
+      description.innerHTML = "API를 선택하면 파라미터 입력 폼이 표시됩니다.";
+      testBtn.disabled = true;
+
+      // 초기화 버튼 비활성화
+      const resetBtn = document.getElementById("reset-btn");
+      if (resetBtn) {
+        resetBtn.disabled = true;
+      }
+      return;
     }
-    return;
-  }
 
-  // API 설명 업데이트
-  description.innerHTML = `
+    const apiDef = apiDefinitions[selectedApi];
+    if (!apiDef) {
+      paramsForm.style.display = "none";
+      description.innerHTML = "선택한 API의 정의를 찾을 수 없습니다.";
+      testBtn.disabled = true;
+
+      // 초기화 버튼 비활성화
+      const resetBtn = document.getElementById("reset-btn");
+      if (resetBtn) {
+        resetBtn.disabled = true;
+      }
+      return;
+    }
+
+    // API 설명 업데이트
+    description.innerHTML = `
     <strong>${apiDef.name}</strong><br>
     ${apiDef.description}
   `;
 
-  // 파라미터 폼 생성
-  paramsContainer.innerHTML = '';
-  
-  if (apiDef.params && apiDef.params.length > 0) {
-    apiDef.params.forEach(param => {
-      const paramDiv = document.createElement('div');
-      paramDiv.className = 'mb-3';
-      
-      let inputHtml = '';
-      const required = param.required ? ' <span class="text-danger">*</span>' : '';
-      
-      switch (param.type) {
-        case 'select':
-          inputHtml = `
-            <select class="form-select" id="param-${param.name}" ${param.required ? 'required' : ''}>
-              ${param.options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
+    // 파라미터 폼 생성
+    paramsContainer.innerHTML = "";
+
+    if (apiDef.params && apiDef.params.length > 0) {
+      apiDef.params.forEach((param) => {
+        const paramDiv = document.createElement("div");
+        paramDiv.className = "mb-3";
+
+        let inputHtml = "";
+        const required = param.required
+          ? ' <span class="text-danger">*</span>'
+          : "";
+
+        switch (param.type) {
+          case "select":
+            inputHtml = `
+            <select class="form-select" id="param-${param.name}" ${
+              param.required ? "required" : ""
+            }>
+              ${param.options
+                .map(
+                  (opt) => `<option value="${opt.value}">${opt.label}</option>`
+                )
+                .join("")}
             </select>
           `;
-          break;
-        case 'date':
-          inputHtml = `
-            <input type="date" class="form-control" id="param-${param.name}" ${param.required ? 'required' : ''}>
+            break;
+          case "date":
+            inputHtml = `
+            <input type="date" class="form-control" id="param-${param.name}" ${
+              param.required ? "required" : ""
+            }>
           `;
-          break;
-        case 'number':
-          inputHtml = `
-            <input type="number" class="form-control" id="param-${param.name}" ${param.required ? 'required' : ''}>
+            break;
+          case "number":
+            inputHtml = `
+            <input type="number" class="form-control" id="param-${
+              param.name
+            }" ${param.required ? "required" : ""}>
           `;
-          break;
-        default:
-          inputHtml = `
-            <input type="text" class="form-control" id="param-${param.name}" ${param.required ? 'required' : ''}>
+            break;
+          default:
+            inputHtml = `
+            <input type="text" class="form-control" id="param-${param.name}" ${
+              param.required ? "required" : ""
+            }>
           `;
-      }
-      
-      paramDiv.innerHTML = `
+        }
+
+        paramDiv.innerHTML = `
         <label for="param-${param.name}" class="form-label">
           ${param.label}${required}
         </label>
         ${inputHtml}
         <div class="form-text">${param.description}</div>
       `;
-      
-      paramsContainer.appendChild(paramDiv);
-    });
-  } else {
-    paramsContainer.innerHTML = '<div class="text-muted">이 API는 추가 파라미터가 필요하지 않습니다.</div>';
+
+        paramsContainer.appendChild(paramDiv);
+      });
+    } else {
+      paramsContainer.innerHTML =
+        '<div class="text-muted">이 API는 추가 파라미터가 필요하지 않습니다.</div>';
+    }
+
+    paramsForm.style.display = "block";
+    testBtn.disabled = false;
+
+    // 초기화 버튼 활성화
+    const resetBtn = document.getElementById("reset-btn");
+    if (resetBtn) {
+      resetBtn.disabled = false;
+    }
   }
 
-  paramsForm.style.display = 'block';
-  testBtn.disabled = false;
-  
-  // 초기화 버튼 활성화
-  const resetBtn = document.getElementById('reset-btn');
-  if (resetBtn) {
-    resetBtn.disabled = false;
-  }
-}
+  function testApi() {
+    const apiSelect = document.getElementById("api-select");
+    const selectedApi = apiSelect.value;
 
-function testApi() {
-  const apiSelect = document.getElementById('api-select');
-  const selectedApi = apiSelect.value;
-  
-  if (!selectedApi) {
-    alert('API를 선택해주세요.');
-    return;
-  }
+    if (!selectedApi) {
+      alert("API를 선택해주세요.");
+      return;
+    }
 
-  const apiDef = apiDefinitions[selectedApi];
-  const params = {};
-  
-  // 파라미터 수집
-  if (apiDef.params) {
-    apiDef.params.forEach(param => {
-      const input = document.getElementById(`param-${param.name}`);
-      if (input) {
-        let value = input.value;
-        
-        // 날짜 형식 변환 (YYYY-MM-DD -> YYYYMMDD)
-        if (param.type === 'date' && value) {
-          value = value.replace(/-/g, '');
+    // API 테스트 실행 전 서버 상태 다시 확인
+    checkServerType();
+
+    const apiDef = apiDefinitions[selectedApi];
+    const params = {};
+
+    // 파라미터 수집
+    if (apiDef.params) {
+      apiDef.params.forEach((param) => {
+        const input = document.getElementById(`param-${param.name}`);
+        if (input) {
+          let value = input.value;
+
+          // 날짜 형식 변환 (YYYY-MM-DD -> YYYYMMDD)
+          if (param.type === "date" && value) {
+            value = value.replace(/-/g, "");
+          }
+
+          // 빈 값이 아닌 경우만 추가
+          if (value !== "") {
+            params[param.name] = value;
+          }
         }
-        
-        // 빈 값이 아닌 경우만 추가
-        if (value !== '') {
-          params[param.name] = value;
-        }
-      }
-    });
-  }
+      });
+    }
 
-  // 로딩 표시
-  const resultsDiv = document.getElementById('test-results');
-  resultsDiv.innerHTML = `
+    // 로딩 표시
+    const resultsDiv = document.getElementById("test-results");
+    resultsDiv.innerHTML = `
     <div class="text-center py-4">
       <div class="spinner-border text-primary" role="status">
         <span class="visually-hidden">로딩중...</span>
@@ -717,38 +1086,38 @@ function testApi() {
     </div>
   `;
 
-  // API 테스트 요청
-  fetch('/api/test/execute', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      api_id: selectedApi,
-      params: params
+    // API 테스트 요청
+    fetch("/api/test/execute", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        api_id: selectedApi,
+        params: params,
+      }),
     })
-  })
-  .then(response => response.json())
-  .then(data => {
-    displayResults(selectedApi, params, data);
-  })
-  .catch(error => {
-    console.error('API 테스트 실패:', error);
-    resultsDiv.innerHTML = `
+      .then((response) => response.json())
+      .then((data) => {
+        displayResults(selectedApi, params, data);
+      })
+      .catch((error) => {
+        console.error("API 테스트 실패:", error);
+        resultsDiv.innerHTML = `
       <div class="alert alert-danger">
         <h6><i class="fas fa-exclamation-triangle me-2"></i>API 테스트 실패</h6>
         <p>요청 처리 중 오류가 발생했습니다.</p>
         <pre class="mt-2">${error.message}</pre>
       </div>
     `;
-  });
-}
+      });
+  }
 
-function displayResults(apiId, params, data) {
-  const resultsDiv = document.getElementById('test-results');
-  const timestamp = new Date().toLocaleString();
-  
-  let resultHtml = `
+  function displayResults(apiId, params, data) {
+    const resultsDiv = document.getElementById("test-results");
+    const timestamp = new Date().toLocaleString();
+
+    let resultHtml = `
     <div class="mb-3">
       <div class="d-flex justify-content-between align-items-center">
         <h6><i class="fas fa-check-circle text-success me-2"></i>테스트 완료</h6>
@@ -764,9 +1133,19 @@ function displayResults(apiId, params, data) {
           </div>
           <div class="card-body">
             <p><strong>API ID:</strong> ${apiId}</p>
-            <p><strong>서버:</strong> ${currentServerType === 'mock' ? '모의투자' : '실전투자'}</p>
+             <p><strong>서버:</strong> ${
+               currentServerType === "mock"
+                 ? "모의투자"
+                 : currentServerType === "real"
+                 ? "실전투자"
+                 : "확인실패"
+             }</p>
             <p><strong>파라미터:</strong></p>
-            <pre class="bg-light p-2 rounded text-dark">${JSON.stringify(params, null, 2)}</pre>
+            <pre class="bg-light p-2 rounded text-dark">${JSON.stringify(
+              params,
+              null,
+              2
+            )}</pre>
           </div>
         </div>
       </div>
@@ -777,12 +1156,20 @@ function displayResults(apiId, params, data) {
           </div>
           <div class="card-body">
             <p><strong>성공 여부:</strong> 
-              <span class="badge ${data.success ? 'bg-success' : 'bg-danger'}">
-                ${data.success ? '성공' : '실패'}
+              <span class="badge ${data.success ? "bg-success" : "bg-danger"}">
+                ${data.success ? "성공" : "실패"}
               </span>
             </p>
-            ${data.message ? `<p><strong>메시지:</strong> ${data.message}</p>` : ''}
-            ${data.error_code ? `<p><strong>오류 코드:</strong> ${data.error_code}</p>` : ''}
+            ${
+              data.message
+                ? `<p><strong>메시지:</strong> ${data.message}</p>`
+                : ""
+            }
+            ${
+              data.error_code
+                ? `<p><strong>오류 코드:</strong> ${data.error_code}</p>`
+                : ""
+            }
           </div>
         </div>
       </div>
@@ -793,100 +1180,114 @@ function displayResults(apiId, params, data) {
         <h6 class="mb-0">응답 데이터</h6>
       </div>
       <div class="card-body">
-        <pre class="bg-light p-3 rounded text-dark" style="max-height: 500px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
+        <pre class="bg-light p-3 rounded text-dark" style="max-height: 500px; overflow-y: auto;">${JSON.stringify(
+          data,
+          null,
+          2
+        )}</pre>
       </div>
     </div>
   `;
-  
-  resultsDiv.innerHTML = resultHtml;
-}
 
-function clearAllResults() {
-  document.getElementById('test-results').innerHTML = `
+    resultsDiv.innerHTML = resultHtml;
+  }
+
+  function clearAllResults() {
+    document.getElementById("test-results").innerHTML = `
     <div class="text-center text-muted py-5">
       <i class="fas fa-flask fa-3x mb-3"></i>
       <p>API를 선택하고 테스트를 실행해보세요.</p>
     </div>
   `;
-}
+  }
 
-function resetParameters() {
-  const apiSelect = document.getElementById('api-select');
-  const selectedApi = apiSelect.value;
-  
-  if (!selectedApi) {
-    alert('API를 먼저 선택해주세요.');
-    return;
-  }
-  
-  const apiDef = apiDefinitions[selectedApi];
-  if (!apiDef || !apiDef.params) {
-    return;
-  }
-  
-  // 각 파라미터를 기본값으로 초기화
-  apiDef.params.forEach(param => {
-    const input = document.getElementById(`param-${param.name}`);
-    if (input) {
-      if (param.default !== undefined) {
-        input.value = param.default;
-      } else {
-        // 기본값이 없는 경우 빈 값으로 초기화
-        if (param.type === 'select') {
-          input.selectedIndex = 0; // 첫 번째 옵션 선택
+  function resetParameters() {
+    const apiSelect = document.getElementById("api-select");
+    const selectedApi = apiSelect.value;
+
+    if (!selectedApi) {
+      alert("API를 먼저 선택해주세요.");
+      return;
+    }
+
+    const apiDef = apiDefinitions[selectedApi];
+    if (!apiDef || !apiDef.params) {
+      return;
+    }
+
+    // 각 파라미터를 기본값으로 초기화
+    apiDef.params.forEach((param) => {
+      const input = document.getElementById(`param-${param.name}`);
+      if (input) {
+        if (param.default !== undefined) {
+          input.value = param.default;
         } else {
-          input.value = '';
+          // 기본값이 없는 경우 빈 값으로 초기화
+          if (param.type === "select") {
+            input.selectedIndex = 0; // 첫 번째 옵션 선택
+          } else {
+            input.value = "";
+          }
         }
       }
-    }
-  });
-  
-  // 성공 메시지 표시
-  showAlert('파라미터가 기본값으로 초기화되었습니다.', 'success', 2000);
-}
+    });
 
-function showAlert(message, type = 'info', duration = 5000) {
-  // 간단한 알림 표시 (기존 showAlert 함수가 없는 경우를 대비)
-  const alertDiv = document.createElement('div');
-  alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-  alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-  
-  alertDiv.innerHTML = `
+    // 성공 메시지 표시
+    showAlert("파라미터가 기본값으로 초기화되었습니다.", "success", 2000);
+  }
+
+  function showAlert(message, type = "info", duration = 5000) {
+    // 간단한 알림 표시 (기존 showAlert 함수가 없는 경우를 대비)
+    const alertDiv = document.createElement("div");
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.cssText =
+      "top: 20px; right: 20px; z-index: 9999; min-width: 300px;";
+
+    alertDiv.innerHTML = `
     <div class="d-flex align-items-center">
-      <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-triangle' : 'info-circle'} me-2"></i>
+      <i class="fas fa-${
+        type === "success"
+          ? "check-circle"
+          : type === "danger"
+          ? "exclamation-triangle"
+          : "info-circle"
+      } me-2"></i>
       <span>${message}</span>
       <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
     </div>
   `;
-  
-  document.body.appendChild(alertDiv);
-  
-  // 자동 제거
-  setTimeout(() => {
-    if (alertDiv.parentNode) {
-      alertDiv.remove();
-    }
-  }, duration);
-}
 
-function copyResult() {
-  const resultText = document.getElementById('test-results').textContent;
-  navigator.clipboard.writeText(resultText).then(() => {
-    alert('결과가 클립보드에 복사되었습니다.');
-  });
-}
+    document.body.appendChild(alertDiv);
 
-function downloadResult() {
-  const resultText = document.getElementById('test-results').textContent;
-  const blob = new Blob([resultText], { type: 'text/plain' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `api_test_result_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
-}
+    // 자동 제거
+    setTimeout(() => {
+      if (alertDiv.parentNode) {
+        alertDiv.remove();
+      }
+    }, duration);
+  }
+
+  function copyResult() {
+    const resultText = document.getElementById("test-results").textContent;
+    navigator.clipboard.writeText(resultText).then(() => {
+      alert("결과가 클립보드에 복사되었습니다.");
+    });
+  }
+
+  function downloadResult() {
+    const resultText = document.getElementById("test-results").textContent;
+    const blob = new Blob([resultText], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `api_test_result_${new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/:/g, "-")}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  }
 </script>
 {% endblock %}

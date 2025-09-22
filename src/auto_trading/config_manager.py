@@ -138,9 +138,10 @@ class AutoTradingConfigManager:
                 available_amount = max(0, total_deposit - reserve_cash)
                 
                 log_entry += f"  - 총 예수금: {total_deposit:,}원\n"
+                log_entry += f"  - 주문가능금액(100%): {int(deposit_info.get('100stk_ord_alow_amt', 0)):,}원\n"
                 log_entry += f"  - D+1 추정예수금: {int(deposit_info.get('d1_entra', 0)):,}원\n"
                 log_entry += f"  - D+2 추정예수금: {int(deposit_info.get('d2_entra', 0)):,}원\n"
-                log_entry += f"  - 주문가능금액: {available_amount:,}원 (총예수금 - 매매제외예수금)\n"
+                log_entry += f"  - 사용가능금액: {available_amount:,}원 (총예수금 - 매매제외예수금)\n"
                 
                 if balance_info and 'output1' in balance_info:
                     holdings = balance_info['output1']

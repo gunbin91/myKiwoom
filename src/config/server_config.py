@@ -154,7 +154,14 @@ current_server_config = ServerConfig('mock')
 
 def get_current_server_config() -> ServerConfig:
     """현재 서버 설정 반환"""
-    return current_server_config
+    # server_manager에서 현재 서버 상태를 가져와서 동적으로 설정
+    try:
+        from src.utils.server_manager import get_current_server
+        current_server_type = get_current_server()
+        return ServerConfig(current_server_type)
+    except Exception:
+        # server_manager를 사용할 수 없는 경우 기본값 반환
+        return current_server_config
 
 
 def set_server_type(server_type: str) -> ServerConfig:

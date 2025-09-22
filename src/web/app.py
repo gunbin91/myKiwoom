@@ -449,14 +449,27 @@ def get_deposit():
                     get_web_logger().warning(f"운영서버 kt00002 조회 실패, kt00001 결과 사용: {e}")
                     get_web_logger().info("🔄 kt00002 실패로 인해 kt00001 예수금 정보로 대체 호출합니다")
             
-            # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (모든 서버 공통)
-            if 'd2_entra' in result and result['d2_entra'] and result['d2_entra'] != '000000000000000':
+            # 주문가능금액을 우선적으로 사용 (100stk_ord_alow_amt)
+            if '100stk_ord_alow_amt' in result and result['100stk_ord_alow_amt'] and result['100stk_ord_alow_amt'] != '000000000000000':
+                original_entr = result.get('entr', '0')
+                result['entr'] = result['100stk_ord_alow_amt']
+                result['entr_type'] = '주문가능금액'
+                get_web_logger().info(f"✅ 주문가능금액 사용: {result['100stk_ord_alow_amt']} (기본 예수금: {original_entr})")
+            # D+2 추정예수금 사용 (주문가능금액이 없는 경우)
+            elif 'd2_entra' in result and result['d2_entra'] and result['d2_entra'] != '000000000000000':
+                original_entr = result.get('entr', '0')
                 result['entr'] = result['d2_entra']
-                get_web_logger().info(f"D+2 추정예수금 사용: {result['d2_entra']}")
-            # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
+                result['entr_type'] = 'D+2'
+                get_web_logger().info(f"✅ D+2 추정예수금 사용: {result['d2_entra']} (기본 예수금: {original_entr})")
+            # D+1 추정예수금 사용 (D+2가 없는 경우)
             elif 'd1_entra' in result and result['d1_entra'] and result['d1_entra'] != '000000000000000':
+                original_entr = result.get('entr', '0')
                 result['entr'] = result['d1_entra']
-                get_web_logger().info(f"D+1 추정예수금 사용: {result['d1_entra']}")
+                result['entr_type'] = 'D+1'
+                get_web_logger().info(f"✅ D+1 추정예수금 사용: {result['d1_entra']} (기본 예수금: {original_entr})")
+            else:
+                result['entr_type'] = 'D+0'
+                get_web_logger().info(f"✅ 기본 예수금 사용: {result.get('entr', '0')}")
             
             # 주문가능금액도 참고용으로 추가
             if 'ord_alow_amt' in result:
@@ -2541,21 +2554,25 @@ def get_analysis_result():
             # 예수금 정보 조회 (account_info에서 가져오기) - 기존 로직 복원
             deposit_info = account_info.get('deposit', {})
             if deposit_info:
-                # D+2 추정예수금이 있으면 더 정확한 현재 예수금으로 사용 (대시보드와 동일한 로직)
-                if 'd2_entra' in deposit_info and deposit_info['d2_entra'] and deposit_info['d2_entra'] != '000000000000000':
+                # 주문가능금액을 우선적으로 사용 (100stk_ord_alow_amt)
+                if '100stk_ord_alow_amt' in deposit_info and deposit_info['100stk_ord_alow_amt'] and deposit_info['100stk_ord_alow_amt'] != '000000000000000':
+                    total_deposit = int(deposit_info['100stk_ord_alow_amt'])
+                    get_web_logger().info(f"✅ 자동매매 분석: 주문가능금액 사용: {deposit_info['100stk_ord_alow_amt']}")
+                # D+2 추정예수금 사용 (주문가능금액이 없는 경우)
+                elif 'd2_entra' in deposit_info and deposit_info['d2_entra'] and deposit_info['d2_entra'] != '000000000000000':
                     total_deposit = int(deposit_info['d2_entra'])
-                    get_web_logger().info(f"D+2 추정예수금 사용: {deposit_info['d2_entra']}")
-                # D+1 추정예수금이 있으면 사용 (D+2가 없는 경우)
+                    get_web_logger().info(f"✅ 자동매매 분석: D+2 추정예수금 사용: {deposit_info['d2_entra']}")
+                # D+1 추정예수금 사용 (D+2가 없는 경우)
                 elif 'd1_entra' in deposit_info and deposit_info['d1_entra'] and deposit_info['d1_entra'] != '000000000000000':
                     total_deposit = int(deposit_info['d1_entra'])
-                    get_web_logger().info(f"D+1 추정예수금 사용: {deposit_info['d1_entra']}")
+                    get_web_logger().info(f"✅ 자동매매 분석: D+1 추정예수금 사용: {deposit_info['d1_entra']}")
                 # 기본 예수금 사용
                 elif 'entr' in deposit_info:
                     total_deposit = int(deposit_info['entr'])
-                    get_web_logger().info(f"기본 예수금 사용: {deposit_info['entr']}")
+                    get_web_logger().info(f"✅ 자동매매 분석: 기본 예수금 사용: {deposit_info['entr']}")
                 else:
                     total_deposit = 0
-                    get_web_logger().warning("⚠️ 분석결과확인 테스트: 예수금 정보 없음")
+                    get_web_logger().warning("⚠️ 자동매매 분석: 예수금 정보 없음")
                 
                 reserve_cash = strategy_params.get('reserve_cash', 1000000)
                 available_cash = total_deposit + sell_proceeds - reserve_cash
@@ -2816,11 +2833,25 @@ def execute_api_test():
             )
         elif api_id == 'ka01690':
             result = account.get_daily_balance_profit_rate(params.get('qry_dt', ''))
+        elif api_id == 'ka10072':
+            result = account.get_realized_profit_by_date(
+                params.get('stk_cd', ''),
+                params.get('strt_dt', '')
+            )
         elif api_id == 'ka10073':
             result = account.get_realized_profit_by_period(
                 params.get('stk_cd', ''),
                 params.get('strt_dt', ''),
                 params.get('end_dt', '')
+            )
+        elif api_id == 'ka10074':
+            result = account.get_daily_realized_profit(
+                params.get('strt_dt', ''),
+                params.get('end_dt', '')
+            )
+        elif api_id == 'ka10077':
+            result = account.get_daily_realized_profit_detail(
+                params.get('stk_cd', '')
             )
         elif api_id == 'ka10170':
             result = account.get_today_trading_diary(

@@ -7,7 +7,7 @@
       <div class="card-body">
         <div class="d-flex justify-content-between">
           <div>
-            <h6 class="card-title">예수금</h6>
+            <h6 class="card-title">주문가능금액</h6>
             <h4 class="mb-0" id="deposit-amount">-</h4>
           </div>
           <div class="align-self-center">
@@ -258,6 +258,22 @@
               min="1"
               required
             />
+            <!-- 매도 시 전체수량 선택 체크박스 -->
+            <div
+              class="form-check mt-2"
+              id="sell-all-quantity-section"
+              style="display: none"
+            >
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="sell-all-quantity"
+                onchange="toggleSellAllQuantity()"
+              />
+              <label class="form-check-label" for="sell-all-quantity">
+                전체수량으로 매도
+              </label>
+            </div>
           </div>
 
           <!-- 금액 입력 (매수 금액주문일 때만) -->
@@ -513,8 +529,21 @@
       .then((data) => {
         if (data.success) {
           const deposit = data.data.entr || "0";
+          const entrType = data.data.entr_type || "D+0";
           document.getElementById("deposit-amount").textContent =
             formatNumber(deposit) + "원";
+
+          // 예수금 타입에 따라 제목 업데이트
+          const depositTitle = document.querySelector(".card-title");
+          if (entrType === "주문가능금액") {
+            depositTitle.textContent = "주문가능금액";
+          } else if (entrType === "D+2") {
+            depositTitle.textContent = "예수금 (D+2)";
+          } else if (entrType === "D+1") {
+            depositTitle.textContent = "예수금 (D+1)";
+          } else {
+            depositTitle.textContent = "예수금 (D+0)";
+          }
         } else if (data.authenticated === false) {
           // 인증 실패 시 로그아웃 처리
           isAuthenticated = false;
@@ -552,14 +581,14 @@
           const profitRate = data.data.tot_prft_rt || "0";
 
           // 평가손익에 + 기호 추가 (양수일 때)
-          const formattedProfitLoss = parseFloat(profitLoss) > 0 
+          const formattedProfitLoss = parseFloat(profitLoss) > 0
             ? "+" + formatNumber(profitLoss) + "원"
             : formatNumber(profitLoss) + "원";
           document.getElementById("profit-loss").textContent = formattedProfitLoss;
-          
+
           // 수익률에 + 기호 추가 (양수일 때) 및 소수점 둘째자리 제한
           const profitRateNum = parseFloat(profitRate);
-          const formattedProfitRate = profitRateNum > 0 
+          const formattedProfitRate = profitRateNum > 0
             ? "+" + profitRateNum.toFixed(2) + "%"
             : profitRateNum.toFixed(2) + "%";
           document.getElementById("profit-rate").textContent = formattedProfitRate;
@@ -742,6 +771,9 @@
       stockInputSection.style.display = "none";
       stockSelectSection.style.display = "block";
       loadHeldStocks(); // 보유종목 로드
+
+      // 매도 시 전체수량 체크박스 표시
+      document.getElementById("sell-all-quantity-section").style.display = "block";
     } else {
       // 매수인 경우 종목코드 입력 표시
       stockInputSection.style.display = "block";
@@ -759,6 +791,10 @@
       const quantityInput = document.getElementById("order-quantity");
       quantityInput.max = "";
       quantityInput.placeholder = "";
+
+      // 매수 시 전체수량 체크박스 숨김
+      document.getElementById("sell-all-quantity-section").style.display = "none";
+      document.getElementById("sell-all-quantity").checked = false;
     }
 
     // 매도인 경우 금액주문 비활성화
@@ -863,8 +899,8 @@
     fetch("/api/account/balance")
       .then((response) => response.json())
       .then((data) => {
-        if (data.success && data.acnt_evlt_remn_indv_tot) {
-          data.acnt_evlt_remn_indv_tot.forEach((stock) => {
+        if (data.success && data.data && data.data.acnt_evlt_remn_indv_tot) {
+          data.data.acnt_evlt_remn_indv_tot.forEach((stock) => {
             if (parseInt(stock.rmnd_qty || "0") > 0) {
               // 보유 수량이 있는 경우만
               const option = document.createElement("option");
@@ -930,9 +966,37 @@
       quantityInput.max = heldQuantity;
       quantityInput.placeholder = `최대 ${formatNumber(heldQuantity)}주`;
 
+      // 전체수량 체크박스 상태에 따라 수량 입력 필드 업데이트
+      const sellAllCheckbox = document.getElementById("sell-all-quantity");
+      if (sellAllCheckbox.checked) {
+        quantityInput.value = heldQuantity;
+      }
+
       updateOrderSummary();
       updateSubmitButton();
     }
+  }
+
+  // 전체수량 체크박스 토글 함수
+  function toggleSellAllQuantity() {
+    const sellAllCheckbox = document.getElementById("sell-all-quantity");
+    const quantityInput = document.getElementById("order-quantity");
+    const stockSelect = document.getElementById("stock-select");
+    const selectedOption = stockSelect.options[stockSelect.selectedIndex];
+
+    if (sellAllCheckbox.checked && selectedOption.value) {
+      // 전체수량 선택 시 보유 수량으로 자동 입력
+      const heldQuantity = selectedOption.dataset.quantity || "0";
+      quantityInput.value = heldQuantity;
+      quantityInput.disabled = true;
+    } else {
+      // 체크박스 해제 시 수동 입력 가능
+      quantityInput.disabled = false;
+      quantityInput.value = "";
+    }
+
+    updateOrderSummary();
+    updateSubmitButton();
   }
 
   // 주문 요약 업데이트
@@ -1145,6 +1209,9 @@
           if (data.success) {
             showAlert(data.message, "success", 8000); // 성공 메시지는 8초간 표시
             document.getElementById("quick-order-form").reset();
+            // 전체수량 체크박스도 초기화
+            document.getElementById("sell-all-quantity").checked = false;
+            document.getElementById("order-quantity").disabled = false;
             updateOrderForm();
             updateSubmitButton();
             refreshDashboard();
