@@ -326,36 +326,37 @@ class KiwoomAccount:
         
         return self._make_request('ka10076', data)
     
-    def get_executed_orders_history(self, query_type: str = "1", sell_type: str = "0", 
-                                   start_date: str = "", end_date: str = "", exchange: str = "%",
-                                   stock_code: str = "", from_order_no: str = "") -> Optional[Dict[str, Any]]:
+    def get_executed_orders_history(self, order_date: str = "", query_type: str = "1", 
+                                   stock_bond_type: str = "0", sell_type: str = "0",
+                                   stock_code: str = "", from_order_no: str = "", 
+                                   exchange: str = "%") -> Optional[Dict[str, Any]]:
         """
         계좌별주문체결내역상세요청 (kt00007) - 과거 이력 조회용
         
         Args:
+            order_date: 주문일자 (YYYYMMDD, 공백시 전체)
             query_type: 조회구분 ("1": 주문순, "2": 역순, "3": 미체결, "4": 체결내역만)
+            stock_bond_type: 주식채권구분 ("0": 전체, "1": 주식, "2": 채권)
             sell_type: 매도수구분 ("0": 전체, "1": 매도, "2": 매수)
-            start_date: 시작일자 (YYYYMMDD)
-            end_date: 종료일자 (YYYYMMDD)
-            exchange: 국내거래소구분 ("KRX": 한국거래소, "NXT": 넥스트트레이드, "%": 전체)
             stock_code: 종목코드 (공백시 전체종목)
             from_order_no: 시작주문번호 (공백시 전체주문)
+            exchange: 국내거래소구분 ("%": 전체, "KRX": 한국거래소, "NXT": 넥스트트레이드, "SOR": 최선주문집행)
             
         Returns:
             체결 주문 내역 (과거 이력 포함)
         """
-        api_logger.info(f"체결 주문 이력 조회 (조회구분: {query_type}, 매도수구분: {sell_type}, 거래소: {exchange}, 종목: {stock_code})")
+        api_logger.info(f"체결 주문 이력 조회 (주문일자: {order_date}, 조회구분: {query_type}, 매도수구분: {sell_type}, 거래소: {exchange}, 종목: {stock_code})")
         
         data = {
             'qry_tp': query_type,
-            'stk_bond_tp': '0',  # 0: 전체 (더 유연한 기본값)
+            'stk_bond_tp': stock_bond_type,
             'sell_tp': sell_type,
             'dmst_stex_tp': exchange
         }
         
-        # 날짜 필터링 (kt00007 API는 ord_dt 파라미터 사용)
-        if start_date:
-            data['ord_dt'] = start_date
+        # 주문일자 필터링 (kt00007 API는 ord_dt 파라미터 사용)
+        if order_date:
+            data['ord_dt'] = order_date
         
         # 종목코드 필터링
         if stock_code:

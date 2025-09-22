@@ -1215,7 +1215,7 @@ def get_trading_diary():
 
 @app.route('/api/account/trading/daily')
 def get_daily_trading():
-    """일별 매매일지 조회 - kt00015 API 사용 (최적화된 매매일지 API)"""
+    """일별 매매일지 조회 - ka10074 API 사용 (일자별실현손익요청)"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
@@ -1226,70 +1226,46 @@ def get_daily_trading():
         
         # 날짜 범위가 너무 크면 제한 (성능 최적화)
         date_range = (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days
-        if date_range > 365:  # 1년 초과 시 제한 (ka10085는 효율적이므로 범위 확대)
+        if date_range > 365:  # 1년 초과 시 제한
             return jsonify({
                 'success': False,
                 'message': '조회 기간이 너무 깁니다. 최대 1년까지만 조회 가능합니다.'
             })
         
-        # kt00015 API로 기간별 거래내역 조회 (1회 호출로 전체 데이터 획득)
-        result = get_current_account().get_trust_overall_trade_history(
+        # ka10074 API로 일자별 실현손익 조회
+        result = get_current_account().get_daily_realized_profit(
             start_date=start_date,
-            end_date=end_date,
-            trade_type="3",  # 매매
-            stock_code="",   # 전체 종목
-            goods_type="1",  # 국내주식
-            domestic_exchange_type="%"  # 전체 거래소
+            end_date=end_date
         )
         
         if result and result.get('success') is not False:
             daily_trades = []
             
-            if 'trst_ovrl_trde_prps_array' in result and result['trst_ovrl_trde_prps_array']:
-                # 날짜별로 그룹화
-                date_groups = {}
-                for trade in result['trst_ovrl_trde_prps_array']:
-                    trade_date = trade.get('trde_dt', '')
+            # ka10074 응답에서 dt_rlzt_pl 배열 처리
+            if 'dt_rlzt_pl' in result and result['dt_rlzt_pl']:
+                for day_data in result['dt_rlzt_pl']:
+                    trade_date = day_data.get('dt', '')
                     if not trade_date:
                         continue
-                        
-                    if trade_date not in date_groups:
-                        date_groups[trade_date] = {
-                            'trade_date': trade_date,
-                            'trade_count': 0,
-                            'buy_amount': 0,
-                            'sell_amount': 0,
-                            'commission': 0,
-                            'tax': 0,
-                            'profit_amount': 0,
-                            'return_rate': 0,
-                            'trades': []
-                        }
                     
-                    # 거래 내역 추가
-                    date_groups[trade_date]['trade_count'] += 1
-                    date_groups[trade_date]['trades'].append(trade)
-                    
-                    # 정산금액 분석 (매수/매도 구분)
-                    exct_amt = safe_float(trade.get('exct_amt', '0'))
-                    rmrk_nm = trade.get('rmrk_nm', '')
-                    
-                    if '매수' in rmrk_nm or exct_amt < 0:  # 매수 (음수)
-                        date_groups[trade_date]['buy_amount'] += abs(exct_amt)
-                    elif '매도' in rmrk_nm or exct_amt > 0:  # 매도 (양수)
-                        date_groups[trade_date]['sell_amount'] += exct_amt
-                        date_groups[trade_date]['profit_amount'] += exct_amt
-                
-                # 요청된 날짜 범위 내의 데이터만 필터링
-                start_date_obj = datetime.strptime(start_date, '%Y%m%d')
-                end_date_obj = datetime.strptime(end_date, '%Y%m%d')
-                
-                for trade_date, data in date_groups.items():
+                    # 요청된 날짜 범위 내의 데이터만 필터링
+                    start_date_obj = datetime.strptime(start_date, '%Y%m%d')
+                    end_date_obj = datetime.strptime(end_date, '%Y%m%d')
                     trade_date_obj = datetime.strptime(trade_date, '%Y%m%d')
+                    
                     if start_date_obj <= trade_date_obj <= end_date_obj:
-                        # trades 정보 제거 (프론트엔드에서 사용하지 않음)
-                        del data['trades']
-                        daily_trades.append(data)
+                        # ka10074 응답을 프론트엔드 형식으로 변환
+                        daily_trade = {
+                            'trade_date': trade_date,
+                            'trade_count': 1,  # ka10074는 일자별 집계이므로 1로 설정
+                            'buy_amount': safe_float(day_data.get('buy_amt', '0')),
+                            'sell_amount': safe_float(day_data.get('sell_amt', '0')),
+                            'commission': safe_float(day_data.get('tdy_trde_cmsn', '0')),
+                            'tax': safe_float(day_data.get('tdy_trde_tax', '0')),
+                            'profit_amount': safe_float(day_data.get('tdy_sel_pl', '0')),
+                            'return_rate': 0.0  # ka10074에서는 수익률 정보 없음
+                        }
+                        daily_trades.append(daily_trade)
                 
                 # 날짜순 정렬
                 daily_trades.sort(key=lambda x: x['trade_date'])
@@ -1303,7 +1279,7 @@ def get_daily_trading():
         else:
             return jsonify({
                 'success': False,
-                'message': '위탁종합거래내역 조회 실패'
+                'message': '일자별실현손익 조회 실패'
             })
         
     except Exception as e:
@@ -1316,7 +1292,7 @@ def get_daily_trading():
 
 @app.route('/api/account/trading/monthly')
 def get_monthly_trading():
-    """월별 매매일지 조회 - kt00015 API 사용 (최적화된 매매일지 API)"""
+    """월별 매매일지 조회 - ka10074 API 사용 (일자별실현손익요청)"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
@@ -1333,26 +1309,23 @@ def get_monthly_trading():
                 'message': '조회 기간이 너무 깁니다. 최대 1년까지만 조회 가능합니다.'
             })
         
-        # kt00015 API로 기간별 거래내역 조회 (1회 호출로 전체 데이터 획득)
-        result = get_current_account().get_trust_overall_trade_history(
+        # ka10074 API로 일자별 실현손익 조회
+        result = get_current_account().get_daily_realized_profit(
             start_date=start_date,
-            end_date=end_date,
-            trade_type="3",  # 매매
-            stock_code="",   # 전체 종목
-            goods_type="1",  # 국내주식
-            domestic_exchange_type="%"  # 전체 거래소
+            end_date=end_date
         )
         
         if result and result.get('success') is not False:
             monthly_trades = {}
             
-            if 'trst_ovrl_trde_prps_array' in result and result['trst_ovrl_trde_prps_array']:
+            # ka10074 응답에서 dt_rlzt_pl 배열 처리
+            if 'dt_rlzt_pl' in result and result['dt_rlzt_pl']:
                 # 요청된 날짜 범위 내의 데이터만 필터링
                 start_date_obj = datetime.strptime(start_date, '%Y%m%d')
                 end_date_obj = datetime.strptime(end_date, '%Y%m%d')
                 
-                for trade in result['trst_ovrl_trde_prps_array']:
-                    trade_date = trade.get('trde_dt', '')
+                for day_data in result['dt_rlzt_pl']:
+                    trade_date = day_data.get('dt', '')
                     if not trade_date:
                         continue
                     
@@ -1376,16 +1349,11 @@ def get_monthly_trading():
                     
                     # 월별 데이터 누적
                     monthly_trades[month_key]['trade_count'] += 1
-                    
-                    # 정산금액 분석 (매수/매도 구분)
-                    exct_amt = safe_float(trade.get('exct_amt', '0'))
-                    rmrk_nm = trade.get('rmrk_nm', '')
-                    
-                    if '매수' in rmrk_nm or exct_amt < 0:  # 매수 (음수)
-                        monthly_trades[month_key]['buy_amount'] += abs(exct_amt)
-                    elif '매도' in rmrk_nm or exct_amt > 0:  # 매도 (양수)
-                        monthly_trades[month_key]['sell_amount'] += exct_amt
-                        monthly_trades[month_key]['profit_amount'] += exct_amt
+                    monthly_trades[month_key]['buy_amount'] += safe_float(day_data.get('buy_amt', '0'))
+                    monthly_trades[month_key]['sell_amount'] += safe_float(day_data.get('sell_amt', '0'))
+                    monthly_trades[month_key]['commission'] += safe_float(day_data.get('tdy_trde_cmsn', '0'))
+                    monthly_trades[month_key]['tax'] += safe_float(day_data.get('tdy_trde_tax', '0'))
+                    monthly_trades[month_key]['profit_amount'] += safe_float(day_data.get('tdy_sel_pl', '0'))
                 
                 # 월별 수익률 계산
                 for month, data in monthly_trades.items():
@@ -1412,7 +1380,7 @@ def get_monthly_trading():
         else:
             return jsonify({
                 'success': False,
-                'message': '위탁종합거래내역 조회 실패'
+                'message': '일자별실현손익 조회 실패'
             })
         
     except Exception as e:
@@ -1423,185 +1391,55 @@ def get_monthly_trading():
         })
 
 
-@app.route('/api/account/trading/analysis')
-def get_trading_analysis():
-    """매매 분석 조회 - kt00015 API 사용 (최적화된 매매일지 API)"""
-    auth_ok, error_response = check_auth()
-    if not auth_ok:
-        return error_response
-    
-    try:
-        start_date = request.args.get('start_date', (datetime.now() - timedelta(days=30)).strftime('%Y%m%d'))
-        end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
-        
-        # 날짜 범위가 너무 크면 제한 (성능 최적화)
-        date_range = (datetime.strptime(end_date, '%Y%m%d') - datetime.strptime(start_date, '%Y%m%d')).days
-        if date_range > 90:  # 90일 초과 시 제한
-            return jsonify({
-                'success': False,
-                'message': '조회 기간이 너무 깁니다. 최대 90일까지만 조회 가능합니다.'
-            })
-        
-        # kt00015 API로 기간별 거래내역 조회 (1회 호출로 전체 데이터 획득)
-        result = get_current_account().get_trust_overall_trade_history(
-            start_date=start_date,
-            end_date=end_date,
-            trade_type="3",  # 매매
-            stock_code="",   # 전체 종목
-            goods_type="1",  # 국내주식
-            domestic_exchange_type="%"  # 전체 거래소
-        )
-        
-        if result and result.get('success') is not False:
-            # 분석 데이터 초기화
-            stock_analysis = {}
-            profit_trend = {}
-            pattern_analysis = {'profit_count': 0, 'loss_count': 0}
-            
-            if 'trst_ovrl_trde_prps_array' in result and result['trst_ovrl_trde_prps_array']:
-                # 요청된 날짜 범위 내의 데이터만 필터링
-                start_date_obj = datetime.strptime(start_date, '%Y%m%d')
-                end_date_obj = datetime.strptime(end_date, '%Y%m%d')
-                
-                # 날짜별 그룹화
-                date_groups = {}
-                for trade in result['trst_ovrl_trde_prps_array']:
-                    trade_date = trade.get('trde_dt', '')
-                    if not trade_date:
-                        continue
-                    
-                    trade_date_obj = datetime.strptime(trade_date, '%Y%m%d')
-                    if not (start_date_obj <= trade_date_obj <= end_date_obj):
-                        continue
-                    
-                    if trade_date not in date_groups:
-                        date_groups[trade_date] = []
-                    date_groups[trade_date].append(trade)
-                
-                # 날짜별 분석
-                for date_str, daily_trades in date_groups.items():
-                    daily_profit = 0
-                    
-                    for trade in daily_trades:
-                        # 정산금액 분석 (매수/매도 구분)
-                        exct_amt = safe_float(trade.get('exct_amt', '0'))
-                        rmrk_nm = trade.get('rmrk_nm', '')
-                        
-                        if '매도' in rmrk_nm or exct_amt > 0:  # 매도 (양수)
-                            daily_profit += exct_amt
-                        
-                        # 종목별 분석
-                        stock_code = trade.get('stk_cd', '')
-                        stock_name = trade.get('stk_nm', '')
-                        
-                        if stock_code and stock_code not in stock_analysis:
-                            stock_analysis[stock_code] = {
-                                'stock_code': stock_code,
-                                'stock_name': stock_name,
-                                'trade_count': 0,
-                                'total_profit': 0,
-                                'avg_return': 0,
-                                'win_rate': 0,
-                                'max_profit': 0,
-                                'max_loss': 0,
-                                'profits': []
-                            }
-                        
-                        if stock_code:
-                            stock_analysis[stock_code]['trade_count'] += 1
-                            stock_analysis[stock_code]['profits'].append(exct_amt)
-                            
-                            if '매도' in rmrk_nm or exct_amt > 0:  # 매도일 때만 수익 계산
-                                stock_analysis[stock_code]['total_profit'] += exct_amt
-                                stock_analysis[stock_code]['max_profit'] = max(stock_analysis[stock_code]['max_profit'], exct_amt)
-                            else:
-                                stock_analysis[stock_code]['max_loss'] = min(stock_analysis[stock_code]['max_loss'], exct_amt)
-                    
-                    # 수익률 추이
-                    profit_trend[date_str] = daily_profit
-                    
-                    # 패턴 분석
-                    if daily_profit > 0:
-                        pattern_analysis['profit_count'] += 1
-                    elif daily_profit < 0:
-                        pattern_analysis['loss_count'] += 1
-        
-        # 종목별 통계 계산
-        for stock_code, data in stock_analysis.items():
-            if data['trade_count'] > 0:
-                data['avg_return'] = data['total_profit'] / data['trade_count']
-                win_count = sum(1 for p in data['profits'] if p > 0)
-                data['win_rate'] = (win_count / data['trade_count'] * 100) if data['trade_count'] > 0 else 0
-        
-        # 수익률 추이 정렬 및 누적 계산
-        profit_trend_list = []
-        cumulative_profit = 0
-        for date in sorted(profit_trend.keys()):
-            cumulative_profit += profit_trend[date]
-            profit_trend_list.append({
-                'date': date,
-                'cumulative_profit': cumulative_profit
-            })
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'stock_analysis': list(stock_analysis.values()),
-                'profit_trend': profit_trend_list,
-                'pattern_analysis': pattern_analysis
-            }
-        })
-        
-    except Exception as e:
-        get_web_logger().error(f"매매 분석 조회 실패: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'매매 분석 조회 실패: {str(e)}'
-        })
 
 
 @app.route('/api/account/trading/daily/<trade_date>')
 def get_daily_trading_detail(trade_date):
-    """일별 매매 상세 조회 - kt00015 API 사용 (최적화된 매매일지 API)"""
+    """일별 매매 상세 조회 - kt00007 API 사용 (계좌별주문체결내역상세요청)"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
     
     try:
-        # kt00015 API로 해당 날짜의 거래내역 조회
-        result = get_current_account().get_trust_overall_trade_history(
-            start_date=trade_date,
-            end_date=trade_date,
-            trade_type="3",  # 매매
-            stock_code="",   # 전체 종목
-            goods_type="1",  # 국내주식
-            domestic_exchange_type="%"  # 전체 거래소
+        # kt00007 API로 해당 날짜의 주문체결내역 조회
+        result = get_current_account().get_executed_orders_history(
+            order_date=trade_date,
+            query_type="4",  # 체결내역만
+            stock_bond_type="1",  # 주식
+            sell_type="0",  # 전체
+            stock_code="",  # 전체 종목
+            from_order_no="",  # 전체 주문
+            exchange="%"  # 전체 거래소
         )
         
         if result and result.get('success') is not False:
-            if 'trst_ovrl_trde_prps_array' in result and result['trst_ovrl_trde_prps_array']:
-                # kt00015 API 응답을 프론트엔드 형식으로 변환
+            if 'acnt_ord_cntr_prps_dtl' in result and result['acnt_ord_cntr_prps_dtl']:
+                # kt00007 API 응답을 프론트엔드 형식으로 변환
                 trades = []
-                for trade in result['trst_ovrl_trde_prps_array']:
-                    # kt00015 응답 구조에 맞게 매핑
+                for trade in result['acnt_ord_cntr_prps_dtl']:
+                    # kt00007 응답 구조에 맞게 매핑
                     mapped_trade = {
                         'stk_cd': trade.get('stk_cd', ''),
                         'stk_nm': trade.get('stk_nm', ''),
-                        'buy_avg_pric': '0',  # kt00015에서는 평균가 정보 없음
-                        'buy_qty': '0',  # kt00015에서는 수량 정보 없음
-                        'sel_avg_pric': '0',  # kt00015에서는 평균가 정보 없음
-                        'sell_qty': '0',  # kt00015에서는 수량 정보 없음
-                        'cmsn_alm_tax': '0',  # kt00015에서는 수수료 정보 없음
-                        'pl_amt': trade.get('exct_amt', '0'),  # 정산금액을 손익으로 사용
-                        'sell_amt': trade.get('exct_amt', '0') if safe_float(trade.get('exct_amt', '0')) > 0 else '0',
-                        'buy_amt': abs(safe_float(trade.get('exct_amt', '0'))) if safe_float(trade.get('exct_amt', '0')) < 0 else '0',
-                        'prft_rt': '0',  # kt00015에서는 수익률 정보 없음
-                        'cntr_tm': trade.get('trde_tm', ''),  # 거래시간
-                        'sell_tp': '1' if safe_float(trade.get('exct_amt', '0')) > 0 else '0',  # 매도 여부 판단
-                        'cntr_qty': '0',  # kt00015에서는 수량 정보 없음
-                        'cntr_pric': '0',  # kt00015에서는 가격 정보 없음
-                        'cntr_amt': trade.get('exct_amt', '0'),
-                        'cmsn': '0'  # kt00015에서는 수수료 정보 없음
+                        'buy_avg_pric': trade.get('ord_uv', '0'),  # 주문단가
+                        'buy_qty': trade.get('ord_qty', '0'),  # 주문수량
+                        'sel_avg_pric': trade.get('cntr_uv', '0'),  # 체결단가
+                        'sell_qty': trade.get('cntr_qty', '0'),  # 체결수량
+                        'cmsn_alm_tax': '0',  # kt00007에서는 수수료 정보 없음
+                        'pl_amt': '0',  # kt00007에서는 손익 정보 없음
+                        'sell_amt': '0',  # kt00007에서는 금액 정보 없음
+                        'buy_amt': '0',  # kt00007에서는 금액 정보 없음
+                        'prft_rt': '0',  # kt00007에서는 수익률 정보 없음
+                        'cntr_tm': trade.get('ord_tm', ''),  # 주문시간
+                        'sell_tp': '1' if trade.get('io_tp_nm', '').find('매도') != -1 else '0',  # 매도 여부 판단
+                        'cntr_qty': trade.get('cntr_qty', '0'),  # 체결수량
+                        'cntr_pric': trade.get('cntr_uv', '0'),  # 체결단가
+                        'cntr_amt': str(safe_float(trade.get('cntr_qty', '0')) * safe_float(trade.get('cntr_uv', '0'))),  # 체결금액 계산
+                        'cmsn': '0',  # kt00007에서는 수수료 정보 없음
+                        'trde_tp': trade.get('trde_tp', ''),  # 매매구분
+                        'crd_tp': trade.get('crd_tp', ''),  # 신용구분
+                        'ord_no': trade.get('ord_no', ''),  # 주문번호
+                        'acpt_tp': trade.get('acpt_tp', '')  # 접수구분
                     }
                     trades.append(mapped_trade)
                 
@@ -1621,7 +1459,7 @@ def get_daily_trading_detail(trade_date):
         else:
             return jsonify({
                 'success': False,
-                'message': '위탁종합거래내역 조회 실패'
+                'message': '계좌별주문체결내역 조회 실패'
             })
             
     except Exception as e:

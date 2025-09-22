@@ -164,18 +164,6 @@
       <i class="fas fa-calendar-alt me-1"></i>월별 매매일지
     </button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button
-      class="nav-link"
-      id="analysis-tab"
-      data-bs-toggle="tab"
-      data-bs-target="#analysis"
-      type="button"
-      role="tab"
-    >
-      <i class="fas fa-chart-pie me-1"></i>매매 분석
-    </button>
-  </li>
 </ul>
 
 <!-- 탭 콘텐츠 -->
@@ -282,74 +270,6 @@
     </div>
   </div>
 
-  <!-- 매매 분석 탭 -->
-  <div class="tab-pane fade" id="analysis" role="tabpanel">
-    <div class="row">
-      <!-- 수익률 추이 차트 -->
-      <div class="col-lg-8 mb-4">
-        <div class="card">
-          <div class="card-header">
-            <h5 class="mb-0">
-              <i class="fas fa-chart-line me-2"></i>수익률 추이
-            </h5>
-          </div>
-          <div class="card-body">
-            <canvas id="profit-chart" width="800" height="300"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- 매매 패턴 분석 -->
-      <div class="col-lg-4 mb-4">
-        <div class="card">
-          <div class="card-header">
-            <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>매매 패턴</h5>
-          </div>
-          <div class="card-body">
-            <canvas id="pattern-chart" width="400" height="300"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 종목별 매매 분석 -->
-    <div class="row">
-      <div class="col-12">
-        <div class="card">
-          <div class="card-header">
-            <h5 class="mb-0">
-              <i class="fas fa-list me-2"></i>종목별 매매 분석
-            </h5>
-          </div>
-          <div class="card-body">
-            <div class="table-responsive">
-              <table class="table table-hover" id="stock-analysis-table">
-                <thead>
-                  <tr>
-                    <th>종목명</th>
-                    <th>매매건수</th>
-                    <th>총 손익</th>
-                    <th>평균 수익률</th>
-                    <th>승률</th>
-                    <th>최대 수익</th>
-                    <th>최대 손실</th>
-                    <th>액션</th>
-                  </tr>
-                </thead>
-                <tbody id="stock-analysis-tbody">
-                  <tr>
-                    <td colspan="8" class="text-center text-muted">
-                      데이터를 불러오는 중...
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- 일별 상세 모달 -->
@@ -414,9 +334,6 @@
   // 매매일지 전용 JavaScript
   let dailyTradesData = [];
   let monthlyTradesData = [];
-  let stockAnalysisData = [];
-  let profitChart = null;
-  let patternChart = null;
 
   document.addEventListener("DOMContentLoaded", function () {
     // 서버 정보 즉시 업데이트
@@ -463,9 +380,6 @@
     loadDailyTrades()
       .then(() => {
         setTimeout(() => loadMonthlyTrades(), 1000);
-      })
-      .then(() => {
-        setTimeout(() => loadStockAnalysis(), 1000);
       });
   }
 
@@ -544,43 +458,6 @@
       });
   }
 
-  function loadStockAnalysis() {
-    const startDate = document
-      .getElementById("diary-date-from")
-      .value.replace(/-/g, "");
-    const endDate = document
-      .getElementById("diary-date-to")
-      .value.replace(/-/g, "");
-
-    return fetch(
-      `/api/account/trading/analysis?start_date=${startDate}&end_date=${endDate}`
-    )
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.success && data.data.stock_analysis) {
-          stockAnalysisData = data.data.stock_analysis;
-          updateStockAnalysisTable(stockAnalysisData);
-          updateAnalysisCharts(data.data);
-        } else if (data.authenticated === false) {
-          isAuthenticated = false;
-          updateAuthUI(false);
-          showAlert("세션이 만료되었습니다. 다시 로그인해주세요.", "warning");
-          return;
-        } else {
-          let message = '분석 데이터가 없습니다.';
-          if (data.message) {
-            message = data.message;
-          }
-          document.getElementById("stock-analysis-tbody").innerHTML =
-            `<tr><td colspan="8" class="text-center text-muted">${message}</td></tr>`;
-        }
-      })
-      .catch((error) => {
-        console.error("매매 분석 조회 실패:", error);
-        document.getElementById("stock-analysis-tbody").innerHTML =
-          '<tr><td colspan="8" class="text-center text-danger">데이터 조회 실패</td></tr>';
-      });
-  }
 
   function updateTradingSummary(data) {
     const trades = data.daily_trades || [];
@@ -696,172 +573,6 @@
     });
   }
 
-  function updateStockAnalysisTable(analysis) {
-    const tbody = document.getElementById("stock-analysis-tbody");
-    tbody.innerHTML = "";
-
-    analysis.forEach((stock) => {
-      const row = document.createElement("tr");
-      const totalProfit = parseFloat(stock.total_profit || "0");
-      const avgReturn = parseFloat(stock.avg_return || "0");
-      const winRate = parseFloat(stock.win_rate || "0");
-
-      row.innerHTML = `
-            <td>
-                <strong>${stock.stock_name || "-"}</strong>
-                <br><small class="text-muted">${stock.stock_code || ""}</small>
-            </td>
-            <td>${stock.trade_count || "0"}건</td>
-            <td class="${totalProfit >= 0 ? "text-up" : "text-down"}">
-                ${formatNumber(stock.total_profit || "0")}원
-            </td>
-            <td class="${avgReturn >= 0 ? "text-up" : "text-down"}">
-                ${stock.avg_return || "0"}%
-            </td>
-            <td>${winRate}%</td>
-            <td class="text-success">${formatNumber(
-              stock.max_profit || "0"
-            )}원</td>
-            <td class="text-danger">${formatNumber(
-              stock.max_loss || "0"
-            )}원</td>
-            <td>
-                <button class="btn btn-sm btn-outline-primary" onclick="showStockTradingDetail('${
-                  stock.stock_code
-                }')">
-                    <i class="fas fa-chart-line"></i>
-                </button>
-            </td>
-        `;
-      tbody.appendChild(row);
-    });
-  }
-
-  function updateAnalysisCharts(data) {
-    updateProfitChart(data.profit_trend || []);
-    updatePatternChart(data.pattern_analysis || {});
-  }
-
-  function updateProfitChart(profitTrend) {
-    const ctx = document.getElementById("profit-chart").getContext("2d");
-
-    if (profitChart) {
-      profitChart.destroy();
-    }
-
-    const labels = profitTrend.map((item) => item.date);
-    const data = profitTrend.map((item) =>
-      parseFloat(item.cumulative_profit || "0")
-    );
-
-    profitChart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: "누적 수익금액",
-            data: data,
-            borderColor: "#007bff",
-            backgroundColor: "rgba(0, 123, 255, 0.1)",
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            grid: {
-              color: "rgba(0,0,0,0.1)",
-            },
-            ticks: {
-              callback: function (value) {
-                return formatNumber(value) + "원";
-              },
-            },
-          },
-          x: {
-            grid: {
-              display: false,
-            },
-          },
-        },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                return "누적 수익: " + formatNumber(context.parsed.y) + "원";
-              },
-            },
-          },
-        },
-      },
-    });
-  }
-
-  function updatePatternChart(patternData) {
-    const ctx = document.getElementById("pattern-chart").getContext("2d");
-
-    if (patternChart) {
-      patternChart.destroy();
-    }
-
-    const labels = ["수익 거래", "손실 거래"];
-    const data = [patternData.profit_count || 0, patternData.loss_count || 0];
-    const colors = ["#28a745", "#dc3545"];
-
-    patternChart = new Chart(ctx, {
-      type: "doughnut",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            data: data,
-            backgroundColor: colors,
-            borderWidth: 2,
-            borderColor: "#fff",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: "bottom",
-            labels: {
-              padding: 20,
-              usePointStyle: true,
-            },
-          },
-          tooltip: {
-            callbacks: {
-              label: function (context) {
-                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                const percentage =
-                  total > 0
-                    ? ((context.parsed / total) * 100).toFixed(1)
-                    : "0.0";
-                return (
-                  context.label +
-                  ": " +
-                  context.parsed +
-                  "건 (" +
-                  percentage +
-                  "%)"
-                );
-              },
-            },
-          },
-        },
-      },
-    });
-  }
 
   function formatDate(dateStr) {
     if (!dateStr) return "-";
@@ -964,10 +675,6 @@
     showAlert("월별 상세 기능은 추후 구현 예정입니다.", "info");
   }
 
-  function showStockTradingDetail(stockCode) {
-    // 종목별 매매 상세 기능 (추후 구현)
-    showAlert("종목별 매매 상세 기능은 추후 구현 예정입니다.", "info");
-  }
 
   function filterTradingDiary() {
     const startDate = document.getElementById("diary-date-from").value;
