@@ -277,7 +277,7 @@
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="dailyDetailTitle">일별 매매 상세</h5>
+        <h5 class="modal-title text-dark" id="dailyDetailTitle">일별 매매 상세</h5>
         <button
           type="button"
           class="btn-close"
@@ -470,16 +470,14 @@
       0
     );
 
-    let winCount = 0;
     let totalReturn = 0;
 
     trades.forEach((trade) => {
-      if (parseFloat(trade.profit_amount || "0") > 0) winCount++;
       totalReturn += parseFloat(trade.return_rate || "0");
     });
 
-    const winRate =
-      totalTrades > 0 ? ((winCount / trades.length) * 100).toFixed(1) : "0.0";
+    // 서버에서 계산된 승률 사용
+    const winRate = data.summary ? data.summary.win_rate : "0.0";
     const avgReturn =
       trades.length > 0 ? (totalReturn / trades.length).toFixed(2) : "0.00";
 
@@ -525,7 +523,7 @@
                 ${formatNumber(trade.profit_amount || "0")}원
             </td>
             <td class="${returnRate >= 0 ? "text-up" : "text-down"}">
-                ${trade.return_rate || "0"}%
+                ${parseFloat(trade.return_rate || "0").toFixed(2)}%
             </td>
             <td>
                 <button class="btn btn-sm btn-outline-primary" onclick="showDailyDetail('${
@@ -559,7 +557,7 @@
                 ${formatNumber(trade.profit_amount || "0")}원
             </td>
             <td class="${returnRate >= 0 ? "text-up" : "text-down"}">
-                ${trade.return_rate || "0"}%
+                ${parseFloat(trade.return_rate || "0").toFixed(2)}%
             </td>
             <td>
                 <button class="btn btn-sm btn-outline-primary" onclick="showMonthlyDetail('${
@@ -592,6 +590,7 @@
           ).textContent = `${formatDate(tradeDate)} 매매 상세`;
 
           const trades = data.data.trades;
+          const summary = data.data.summary || {};
           let tableHTML = `
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -602,45 +601,32 @@
                                     <th>구분</th>
                                     <th>수량</th>
                                     <th>단가</th>
-                                    <th>금액</th>
-                                    <th>수수료</th>
+                                    <th>매도금액</th>
+                                    <th>매수금액</th>
+                                    <th>수수료_세금</th>
                                     <th>손익</th>
+                                    <th>수익률</th>
                                 </tr>
                             </thead>
                             <tbody>
                 `;
 
           trades.forEach((trade) => {
-            // ka10170 API 응답 구조에 맞게 수정
+            // 매도 거래만 표시 (22일은 매도만 했으므로)
             const hasSell = parseFloat(trade.sell_qty || "0") > 0;
-            const hasBuy = parseFloat(trade.buy_qty || "0") > 0;
+            const isSellTrade = trade.sell_tp === '1' || hasSell;
 
-            // 매수 정보 표시
-            if (hasBuy) {
+            // 매도 거래만 표시 (매수 정보는 표시하지 않음)
+            if (isSellTrade) {
               tableHTML += `
                         <tr>
-                            <td>-</td>
-                            <td>${trade.stk_nm || "-"}</td>
-                            <td><span class="text-success">매수</span></td>
-                            <td>${formatNumber(trade.buy_qty || "0")}</td>
-                            <td>${formatNumber(trade.buy_avg_pric || "0")}원</td>
-                            <td>${formatNumber(trade.buy_amt || "0")}원</td>
-                            <td>-</td>
-                            <td>-</td>
-                        </tr>
-                    `;
-            }
-
-            // 매도 정보 표시
-            if (hasSell) {
-              tableHTML += `
-                        <tr>
-                            <td>-</td>
+                            <td>${trade.cntr_tm || "-"}</td>
                             <td>${trade.stk_nm || "-"}</td>
                             <td><span class="text-danger">매도</span></td>
                             <td>${formatNumber(trade.sell_qty || "0")}</td>
                             <td>${formatNumber(trade.sel_avg_pric || "0")}원</td>
                             <td>${formatNumber(trade.sell_amt || "0")}원</td>
+                            <td>${formatNumber(trade.buy_amt || "0")}원</td>
                             <td>${formatNumber(trade.cmsn_alm_tax || "0")}원</td>
                             <td class="${
                               parseFloat(trade.pl_amt || "0") >= 0
@@ -649,10 +635,47 @@
                             }">
                                 ${formatNumber(trade.pl_amt || "0")}원
                             </td>
+                            <td class="${
+                              parseFloat(trade.prft_rt || "0") >= 0
+                                ? "text-up"
+                                : "text-down"
+                            }">
+                                ${parseFloat(trade.prft_rt || "0").toFixed(2)}%
+                            </td>
                         </tr>
                     `;
             }
           });
+
+          // 총합 행 추가
+          if (summary.total_sell_amount || summary.total_buy_amount) {
+            tableHTML += `
+                        <tr class="table-info fw-bold">
+                            <td colspan="3">총합</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td>${formatNumber(summary.total_sell_amount || "0")}원</td>
+                            <td>${formatNumber(summary.total_buy_amount || "0")}원</td>
+                            <td>${formatNumber(summary.total_commission_tax || "0")}원</td>
+                            <td class="${
+                              parseFloat(summary.total_profit || "0") >= 0
+                                ? "text-up"
+                                : "text-down"
+                            }">
+                                ${formatNumber(summary.total_profit || "0")}원
+                            </td>
+                            <td class="${
+                              parseFloat(summary.total_profit || "0") >= 0
+                                ? "text-up"
+                                : "text-down"
+                            }">
+                                ${summary.total_buy_amount > 0 ? 
+                                  ((parseFloat(summary.total_profit || "0") / parseFloat(summary.total_buy_amount || "1")) * 100).toFixed(2) + "%" : 
+                                  "0.00%"}
+                            </td>
+                        </tr>
+                    `;
+          }
 
           tableHTML += "</tbody></table></div>";
           document.getElementById("dailyDetailBody").innerHTML = tableHTML;

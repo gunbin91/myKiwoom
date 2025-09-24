@@ -871,7 +871,7 @@ def get_executed_orders_history():
         result = get_current_account().get_executed_orders_history(
             query_type="1",  # 1: 주문순, 2: 역순, 3: 미체결, 4: 체결내역만
             sell_type=sell_type,
-            start_date=order_date,
+            order_date=order_date,
             exchange="%",    # %: 전체 거래소
             stock_code=stock_code,
             from_order_no=""
@@ -1254,26 +1254,97 @@ def get_daily_trading():
                     trade_date_obj = datetime.strptime(trade_date, '%Y%m%d')
                     
                     if start_date_obj <= trade_date_obj <= end_date_obj:
+                        # ka10074 API 응답 데이터
+                        sell_amount = safe_float(day_data.get('sell_amt', '0'))
+                        commission = safe_float(day_data.get('tdy_trde_cmsn', '0'))
+                        tax = safe_float(day_data.get('tdy_trde_tax', '0'))
+                        profit_amount = safe_float(day_data.get('tdy_sel_pl', '0'))
+                        
+                        # ka10074의 buy_amt가 0원인 문제 해결: 역산 계산
+                        # 실제 매수금액 = 매도금액 - 실현손익 - 수수료 - 세금
+                        if sell_amount > 0:
+                            # ka10170 API와 일관성을 위해 ka10170 데이터 사용
+                            # ka10074의 손익/수수료/세금 대신 ka10170 데이터 사용
+                            buy_amount = sell_amount - profit_amount - commission - tax
+                        else:
+                            buy_amount = safe_float(day_data.get('buy_amt', '0'))  # 매도금액이 0이면 원본 사용
+                        
+                        # buy_amt와 sell_amt가 모두 0인 객체는 제외
+                        if buy_amount == 0 and sell_amount == 0:
+                            continue
+                        
+                        # ka10170 API로 해당 날짜의 실제 거래 건수 조회
+                        trade_count = 0
+                        try:
+                            ka10170_result = get_current_account().get_daily_trading_diary(
+                                base_dt=trade_date,
+                                ottks_tp="2",  # 당일매도 전체
+                                ch_crd_tp="0"  # 전체
+                            )
+                            if ka10170_result and ka10170_result.get('success') is not False and 'tdy_trde_diary' in ka10170_result:
+                                trade_count = len(ka10170_result['tdy_trde_diary'])
+                        except:
+                            trade_count = 1  # API 호출 실패 시 기본값 1
+                        
+                        # 수익률 계산 (매수금액이 0보다 클 때만)
+                        if buy_amount > 0:
+                            return_rate = (profit_amount / buy_amount) * 100
+                        else:
+                            return_rate = 0.0
+                        
                         # ka10074 응답을 프론트엔드 형식으로 변환
                         daily_trade = {
                             'trade_date': trade_date,
-                            'trade_count': 1,  # ka10074는 일자별 집계이므로 1로 설정
-                            'buy_amount': safe_float(day_data.get('buy_amt', '0')),
-                            'sell_amount': safe_float(day_data.get('sell_amt', '0')),
-                            'commission': safe_float(day_data.get('tdy_trde_cmsn', '0')),
-                            'tax': safe_float(day_data.get('tdy_trde_tax', '0')),
-                            'profit_amount': safe_float(day_data.get('tdy_sel_pl', '0')),
-                            'return_rate': 0.0  # ka10074에서는 수익률 정보 없음
+                            'trade_count': trade_count,  # ka10170에서 실제 거래 건수 조회
+                            'buy_amount': buy_amount,
+                            'sell_amount': sell_amount,
+                            'commission': commission,
+                            'tax': tax,
+                            'profit_amount': profit_amount,
+                            'return_rate': return_rate
                         }
                         daily_trades.append(daily_trade)
                 
                 # 날짜순 정렬
                 daily_trades.sort(key=lambda x: x['trade_date'])
             
+            # 총 거래 건수와 승률 계산 (ka10170 API 개별 거래 데이터 사용)
+            total_trade_count = 0
+            total_win_count = 0
+            
+            for trade in daily_trades:
+                trade_date = trade['trade_date']
+                try:
+                    # ka10170 API로 해당 날짜의 개별 거래 데이터 조회
+                    ka10170_result = get_current_account().get_daily_trading_diary(
+                        base_dt=trade_date,
+                        ottks_tp="2",  # 당일매도 전체
+                        ch_crd_tp="0"  # 전체
+                    )
+                    if ka10170_result and ka10170_result.get('success') is not False and 'tdy_trde_diary' in ka10170_result:
+                        ka10170_trades = ka10170_result['tdy_trde_diary']
+                        for individual_trade in ka10170_trades:
+                            pl_amt = safe_float(individual_trade.get('pl_amt', '0'))
+                            total_trade_count += 1
+                            if pl_amt > 0:
+                                total_win_count += 1
+                except:
+                    # API 호출 실패 시 일별 집계 데이터 사용
+                    total_trade_count += trade['trade_count']
+                    if trade['profit_amount'] > 0:
+                        total_win_count += trade['trade_count']
+            
+            win_rate = (total_win_count / total_trade_count * 100) if total_trade_count > 0 else 0.0
+            
             return jsonify({
                 'success': True,
                 'data': {
-                    'daily_trades': daily_trades
+                    'daily_trades': daily_trades,
+                    'summary': {
+                        'total_trade_count': total_trade_count,
+                        'total_win_count': total_win_count,
+                        'win_rate': round(win_rate, 1)
+                    }
                 }
             })
         else:
@@ -1347,13 +1418,25 @@ def get_monthly_trading():
                             'return_rate': 0
                         }
                     
+                    # ka10074 API 응답 데이터
+                    sell_amount = safe_float(day_data.get('sell_amt', '0'))
+                    commission = safe_float(day_data.get('tdy_trde_cmsn', '0'))
+                    tax = safe_float(day_data.get('tdy_trde_tax', '0'))
+                    profit_amount = safe_float(day_data.get('tdy_sel_pl', '0'))
+                    
+                    # ka10074의 buy_amt가 0원인 문제 해결: 역산 계산
+                    if sell_amount > 0:
+                        buy_amount = sell_amount - profit_amount - commission - tax
+                    else:
+                        buy_amount = safe_float(day_data.get('buy_amt', '0'))
+                    
                     # 월별 데이터 누적
                     monthly_trades[month_key]['trade_count'] += 1
-                    monthly_trades[month_key]['buy_amount'] += safe_float(day_data.get('buy_amt', '0'))
-                    monthly_trades[month_key]['sell_amount'] += safe_float(day_data.get('sell_amt', '0'))
-                    monthly_trades[month_key]['commission'] += safe_float(day_data.get('tdy_trde_cmsn', '0'))
-                    monthly_trades[month_key]['tax'] += safe_float(day_data.get('tdy_trde_tax', '0'))
-                    monthly_trades[month_key]['profit_amount'] += safe_float(day_data.get('tdy_sel_pl', '0'))
+                    monthly_trades[month_key]['buy_amount'] += buy_amount
+                    monthly_trades[month_key]['sell_amount'] += sell_amount
+                    monthly_trades[month_key]['commission'] += commission
+                    monthly_trades[month_key]['tax'] += tax
+                    monthly_trades[month_key]['profit_amount'] += profit_amount
                 
                 # 월별 수익률 계산
                 for month, data in monthly_trades.items():
@@ -1395,14 +1478,21 @@ def get_monthly_trading():
 
 @app.route('/api/account/trading/daily/<trade_date>')
 def get_daily_trading_detail(trade_date):
-    """일별 매매 상세 조회 - kt00007 API 사용 (계좌별주문체결내역상세요청)"""
+    """일별 매매 상세 조회 - ka10074 + kt00007 + ka10170 API 조합 사용"""
     auth_ok, error_response = check_auth()
     if not auth_ok:
         return error_response
     
     try:
-        # kt00007 API로 해당 날짜의 주문체결내역 조회
-        result = get_current_account().get_executed_orders_history(
+        # 1단계: ka10170 API로 해당 날짜의 정확한 매매일지 정보 조회
+        ka10170_result = get_current_account().get_daily_trading_diary(
+            base_dt=trade_date,
+            ottks_tp="2",  # 당일매도 전체
+            ch_crd_tp="0"  # 전체
+        )
+        
+        # 2단계: kt00007 API로 해당 날짜의 주문체결내역 조회 (시간 정보용)
+        kt00007_result = get_current_account().get_executed_orders_history(
             order_date=trade_date,
             query_type="4",  # 체결내역만
             stock_bond_type="1",  # 주식
@@ -1412,54 +1502,94 @@ def get_daily_trading_detail(trade_date):
             exchange="%"  # 전체 거래소
         )
         
-        if result and result.get('success') is not False:
-            if 'acnt_ord_cntr_prps_dtl' in result and result['acnt_ord_cntr_prps_dtl']:
-                # kt00007 API 응답을 프론트엔드 형식으로 변환
-                trades = []
-                for trade in result['acnt_ord_cntr_prps_dtl']:
-                    # kt00007 응답 구조에 맞게 매핑
-                    mapped_trade = {
-                        'stk_cd': trade.get('stk_cd', ''),
-                        'stk_nm': trade.get('stk_nm', ''),
-                        'buy_avg_pric': trade.get('ord_uv', '0'),  # 주문단가
-                        'buy_qty': trade.get('ord_qty', '0'),  # 주문수량
-                        'sel_avg_pric': trade.get('cntr_uv', '0'),  # 체결단가
-                        'sell_qty': trade.get('cntr_qty', '0'),  # 체결수량
-                        'cmsn_alm_tax': '0',  # kt00007에서는 수수료 정보 없음
-                        'pl_amt': '0',  # kt00007에서는 손익 정보 없음
-                        'sell_amt': '0',  # kt00007에서는 금액 정보 없음
-                        'buy_amt': '0',  # kt00007에서는 금액 정보 없음
-                        'prft_rt': '0',  # kt00007에서는 수익률 정보 없음
-                        'cntr_tm': trade.get('ord_tm', ''),  # 주문시간
-                        'sell_tp': '1' if trade.get('io_tp_nm', '').find('매도') != -1 else '0',  # 매도 여부 판단
-                        'cntr_qty': trade.get('cntr_qty', '0'),  # 체결수량
-                        'cntr_pric': trade.get('cntr_uv', '0'),  # 체결단가
-                        'cntr_amt': str(safe_float(trade.get('cntr_qty', '0')) * safe_float(trade.get('cntr_uv', '0'))),  # 체결금액 계산
-                        'cmsn': '0',  # kt00007에서는 수수료 정보 없음
-                        'trde_tp': trade.get('trde_tp', ''),  # 매매구분
-                        'crd_tp': trade.get('crd_tp', ''),  # 신용구분
-                        'ord_no': trade.get('ord_no', ''),  # 주문번호
-                        'acpt_tp': trade.get('acpt_tp', '')  # 접수구분
-                    }
-                    trades.append(mapped_trade)
+        if ka10170_result and ka10170_result.get('success') is not False and 'tdy_trde_diary' in ka10170_result:
+            trades = []
+            ka10170_trades = ka10170_result['tdy_trde_diary']
+            
+            # kt00007에서 시간 정보 매핑
+            kt00007_trades = {}
+            if kt00007_result and 'acnt_ord_cntr_prps_dtl' in kt00007_result and kt00007_result['acnt_ord_cntr_prps_dtl']:
+                for trade in kt00007_result['acnt_ord_cntr_prps_dtl']:
+                    stock_name = trade.get('stk_nm', '')
+                    cntr_tm = trade.get('ord_tm', '')
+                    if stock_name not in kt00007_trades:
+                        kt00007_trades[stock_name] = cntr_tm
+            
+            total_sell_amount = 0
+            total_buy_amount = 0
+            total_commission_tax = 0
+            total_profit = 0
+            
+            for trade in ka10170_trades:
+                stock_name = trade.get('stk_nm', '')
+                sell_amt = safe_float(trade.get('sell_amt', '0'))
+                cmsn_alm_tax = safe_float(trade.get('cmsn_alm_tax', '0'))
+                pl_amt = safe_float(trade.get('pl_amt', '0'))
+                prft_rt = safe_float(trade.get('prft_rt', '0'))
+                sell_qty = safe_float(trade.get('sell_qty', '0'))
+                sel_avg_pric = safe_float(trade.get('sel_avg_pric', '0'))
                 
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'trades': trades
+                # 매수금액 계산: 매도금액 - 손익 - 수수료_세금
+                buy_amt = sell_amt - pl_amt - cmsn_alm_tax
+                
+                # 총합 계산
+                total_sell_amount += sell_amt
+                total_buy_amount += buy_amt
+                total_commission_tax += cmsn_alm_tax
+                total_profit += pl_amt
+                
+                # kt00007에서 시간 정보 가져오기
+                cntr_tm = kt00007_trades.get(stock_name, '')
+                
+                # 매도 거래 정보 생성
+                mapped_trade = {
+                    'stk_cd': trade.get('stk_cd', ''),
+                    'stk_nm': stock_name,
+                    'sel_avg_pric': str(sel_avg_pric),  # 매도 평균단가
+                    'sell_qty': str(sell_qty),  # 매도 수량
+                    'pl_amt': str(pl_amt),  # 손익
+                    'sell_amt': str(sell_amt),  # 매도금액
+                    'buy_amt': str(buy_amt),  # 매수금액 (ka10170에서 제공)
+                    'cmsn_alm_tax': str(cmsn_alm_tax),  # 수수료_세금
+                    'prft_rt': str(prft_rt),  # 수익률
+                    'cntr_tm': cntr_tm,  # 주문시간 (kt00007에서)
+                    'sell_tp': '1',  # 매도 거래
+                    'cntr_qty': str(sell_qty),  # 체결수량
+                    'cntr_pric': str(sel_avg_pric),  # 체결단가
+                    'cntr_amt': str(sell_amt),  # 체결금액
+                    'trde_tp': '',  # 매매구분
+                    'crd_tp': '',  # 신용구분
+                    'ord_no': '',  # 주문번호
+                    'acpt_tp': ''  # 접수구분
+                }
+                trades.append(mapped_trade)
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'trades': trades,
+                    'summary': {
+                        'total_commission_tax': total_commission_tax,
+                        'total_profit': total_profit,
+                        'total_sell_amount': total_sell_amount,
+                        'total_buy_amount': total_buy_amount,
+                        'trade_count': len(trades)
                     }
-                })
-            else:
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'trades': []
-                    }
-                })
+                }
+            })
         else:
             return jsonify({
-                'success': False,
-                'message': '계좌별주문체결내역 조회 실패'
+                'success': True,
+                'data': {
+                    'trades': [],
+                    'summary': {
+                        'total_commission_tax': 0,
+                        'total_profit': 0,
+                        'total_sell_amount': 0,
+                        'total_buy_amount': 0,
+                        'trade_count': 0
+                    }
+                }
             })
             
     except Exception as e:
@@ -2708,13 +2838,13 @@ def execute_api_test():
             )
         elif api_id == 'kt00007':
             result = account.get_executed_orders_history(
-                params.get('qry_tp', '4'),
-                params.get('sell_tp', '0'),
-                params.get('ord_dt', ''),
-                params.get('ord_dt', ''),  # end_date는 start_date와 동일하게
-                params.get('dmst_stex_tp', '%'),
-                params.get('stk_cd', ''),
-                params.get('fr_ord_no', '')
+                order_date=params.get('ord_dt', ''),
+                query_type=params.get('qry_tp', '4'),
+                stock_bond_type=params.get('stk_bond_tp', '1'),
+                sell_type=params.get('sell_tp', '0'),
+                stock_code=params.get('stk_cd', ''),
+                from_order_no=params.get('fr_ord_no', ''),
+                exchange=params.get('dmst_stex_tp', '%')
             )
         elif api_id == 'kt00009':
             result = account.get_order_status(

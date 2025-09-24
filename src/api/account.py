@@ -589,6 +589,15 @@ class KiwoomAccount:
         
         return self._make_request('kt00010', data)
 
+    def get_daily_trading_diary(self, base_dt: str = "", ottks_tp: str = "2", ch_crd_tp: str = "0") -> Optional[Dict[str, Any]]:
+        """당일매매일지요청 (ka10170)"""
+        data = {
+            'base_dt': base_dt,
+            'ottks_tp': ottks_tp,  # 1:당일매수에 대한 당일매도, 2:당일매도 전체
+            'ch_crd_tp': ch_crd_tp  # 0:전체, 1:현금매매만, 2:신용매매만
+        }
+        return self._make_request('ka10170', data)
+
 
 # 전역 계좌 API 인스턴스들 (서버별)
 mock_account = KiwoomAccount('mock')
