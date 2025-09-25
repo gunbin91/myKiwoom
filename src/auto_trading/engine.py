@@ -490,10 +490,10 @@ class AutoTradingEngine:
         transaction_fee_rate = strategy_params.get('transaction_fee_rate', 0.015)
         
         try:
-            # 예수금 정보 상세 로그
-            total_deposit = int(account_info['deposit'].get('entr', 0))
+            # 예수금 정보 상세 로그 (100stk_ord_alow_amt 사용)
+            total_deposit = int(account_info['deposit'].get('100stk_ord_alow_amt', 0))
             entr_type = account_info['deposit'].get('entr_type', 'D+0')
-            self._get_logger().info(f"💰 총 예수금 ({entr_type}): {total_deposit:,}원")
+            self._get_logger().info(f"💰 주문가능금액 ({entr_type}): {total_deposit:,}원")
             self._get_logger().info(f"💰 매매제외예수금: {reserve_cash:,}원")
             
             # 사용 가능한 현금 계산
@@ -1029,9 +1029,9 @@ class AutoTradingEngine:
             }
     
     def _get_holding_period(self, stock_code, current_quantity):
-        """보유기간 계산 (OrderHistoryManager 사용)"""
+        """보유기간 계산 (OrderHistoryManager 사용) - A 프리픽스 유무와 관계없이 매칭"""
         try:
-            # OrderHistoryManager를 사용하여 보유기간 계산
+            # OrderHistoryManager를 사용하여 보유기간 계산 (A 프리픽스 유무와 관계없이 매칭)
             holding_days = self.order_history_manager.get_holding_period(stock_code, current_quantity)
             
             # -1이면 체결일 수집 안됨, 0 이상이면 실제 보유일수
