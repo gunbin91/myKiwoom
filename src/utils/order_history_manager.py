@@ -88,10 +88,10 @@ class OrderHistoryManager:
                 
                 # kt00007 API 호출 - 매수만 조회
                 result = self.account.get_executed_orders_history(
-                    query_type="4",  # 체결내역만
-                    sell_type="2",   # 매수만
-                    start_date=date_str,
-                    exchange="KRX"   # 한국거래소
+                    order_date=date_str,  # 주문일자
+                    query_type="4",       # 체결내역만
+                    sell_type="2",         # 매수만
+                    exchange="KRX"         # 한국거래소
                 )
                 
                 if result and result.get('success'):
@@ -110,9 +110,15 @@ class OrderHistoryManager:
                     for order in orders:
                         # 매수 주문만 필터링 (io_tp_nm에 "매수"가 포함된 경우)
                         if '매수' in order.get('io_tp_nm', ''):
+                            # A 프리픽스 유지 (보유종목과 매칭을 위해)
+                            stock_code = order.get('stk_cd', '')
+                            # A 프리픽스가 없으면 추가
+                            if not stock_code.startswith('A'):
+                                stock_code = 'A' + stock_code
+                            
                             normalized_order = {
                                 'date': date_str,
-                                'stock_code': order.get('stk_cd', ''),
+                                'stock_code': stock_code,
                                 'stock_name': order.get('stk_nm', ''),
                                 'order_no': order.get('ord_no', ''),
                                 'quantity': int(order.get('cntr_qty', '0')),
@@ -153,11 +159,35 @@ class OrderHistoryManager:
             
             logger.info(f"🔍 보유종목 조회 API 응답: {result}")
             
-            if result and result.get('success') and result.get('stk_acnt_evlt_prst'):
+            if result and result.get('success'):
+                # kt00004 API 응답 구조에 맞게 수정: stk_acnt_evlt_prst 배열 사용
                 stocks = result.get('stk_acnt_evlt_prst', [])
-                stock_codes = [stock.get('stk_cd', '') for stock in stocks if stock.get('stk_cd')]
-                logger.info(f"📊 현재 보유종목 {len(stock_codes)}개 조회 완료: {stock_codes}")
-                return stock_codes
+                if not stocks:
+                    # stk_acnt_evlt_prst가 없으면 stk_cntr_remn도 확인
+                    stocks = result.get('stk_cntr_remn', [])
+                
+                if stocks:
+                    stock_codes = []
+                    for stock in stocks:
+                        stock_code = stock.get('stk_cd', '')
+                        # rmnd_qty (잔고수량) 필드 사용
+                        remaining_qty = int(stock.get('rmnd_qty', '0'))
+                        
+                        # A 프리픽스 유지 (일관성을 위해)
+                        # A 프리픽스가 없으면 추가
+                        if not stock_code.startswith('A'):
+                            stock_code = 'A' + stock_code
+                        
+                        # 수량이 0보다 큰 종목만 포함
+                        if stock_code and remaining_qty > 0:
+                            stock_codes.append(stock_code)
+                            logger.debug(f"보유종목 추가: {stock_code} (수량: {remaining_qty})")
+                    
+                    logger.info(f"📊 현재 보유종목 {len(stock_codes)}개 조회 완료: {stock_codes}")
+                    return stock_codes
+                else:
+                    logger.info("📊 현재 보유종목이 없습니다.")
+                    return []
             else:
                 logger.warning(f"⚠️ 보유종목 조회 실패 - 응답: {result}")
                 return []
@@ -177,7 +207,10 @@ class OrderHistoryManager:
             holding_stocks = self._get_holding_stocks()
             if not holding_stocks:
                 logger.info("📊 보유종목이 없어 체결내역 수집을 건너뜁니다.")
-                self._save_data()  # 빈 파일이라도 저장
+                # 빈 데이터로 파일 저장 (보유기간 계산을 위해)
+                self.orders_data = []
+                self.stock_index = {}
+                self._save_data()
                 return True
             
             logger.info(f"📊 보유종목 {len(holding_stocks)}개: {holding_stocks}")
@@ -186,16 +219,29 @@ class OrderHistoryManager:
             today = datetime.now()
             if self.last_update:
                 # 기존 데이터가 있으면 마지막 업데이트 날짜 + 1일부터 오늘까지 (역순)
-                last_update_date = datetime.fromisoformat(self.last_update.replace('Z', '+00:00')).date()
-                start_date = last_update_date + timedelta(days=1)
-                # 최대 30일 이전까지만 수집
-                max_start_date = today.date() - timedelta(days=max_days - 1)
-                start_date = max(start_date, max_start_date)
-                logger.info(f"📅 기존 데이터 업데이트: {start_date} ~ {today.date()} (역순)")
+                try:
+                    last_update_date = datetime.fromisoformat(self.last_update.replace('Z', '+00:00')).date()
+                    # 마지막 업데이트가 오늘보다 미래인 경우 오늘부터 시작
+                    if last_update_date >= today.date():
+                        start_date = today.date() - timedelta(days=max_days - 1)
+                        logger.info(f"📅 마지막 업데이트가 미래이므로 신규 수집: {start_date} ~ {today.date()} (역순)")
+                    else:
+                        start_date = last_update_date + timedelta(days=1)
+                        # 최대 30일 이전까지만 수집
+                        max_start_date = today.date() - timedelta(days=max_days - 1)
+                        start_date = max(start_date, max_start_date)
+                        logger.info(f"📅 기존 데이터 업데이트: {start_date} ~ {today.date()} (역순)")
+                except ValueError:
+                    # 날짜 파싱 실패 시 신규 수집
+                    start_date = today.date() - timedelta(days=max_days - 1)
+                    logger.info(f"📅 날짜 파싱 실패로 신규 수집: {start_date} ~ {today.date()} (역순)")
             else:
                 # 새로 수집하는 경우 오늘부터 역순으로 최대 30일
                 start_date = today.date() - timedelta(days=max_days - 1)
                 logger.info(f"📅 신규 데이터 수집: {start_date} ~ {today.date()} (역순)")
+            
+            logger.info(f"🔍 수집 대상 보유종목: {holding_stocks}")
+            logger.info(f"📅 수집 기간: {start_date} ~ {today.date()}")
             
             # 날짜별로 체결내역 수집 (오늘부터 역순으로)
             collected_orders = []
@@ -263,9 +309,31 @@ class OrderHistoryManager:
     def get_holding_period(self, stock_code: str, current_quantity: int) -> int:
         """특정 종목의 보유기간 계산 (일 단위)"""
         try:
-            if stock_code not in self.stock_index:
-                return -1  # 체결일 수집 안됨을 의미
+            # 1차: 원본 코드로 검사
+            if stock_code in self.stock_index:
+                return self._calculate_holding_period(stock_code, current_quantity)
             
+            # 2차: A 프리픽스 변환해서 검사 (양방향)
+            if stock_code.startswith('A'):
+                # A 프리픽스가 있으면 제거해서 검사
+                clean_code = stock_code[1:]
+                if clean_code in self.stock_index:
+                    return self._calculate_holding_period(clean_code, current_quantity)
+            else:
+                # A 프리픽스가 없으면 추가해서 검사
+                a_code = 'A' + stock_code
+                if a_code in self.stock_index:
+                    return self._calculate_holding_period(a_code, current_quantity)
+            
+            return -1  # 체결일 수집 안됨을 의미
+            
+        except Exception as e:
+            logger.error(f"🚨 보유기간 계산 중 오류 (종목: {stock_code}): {e}")
+            return 0
+    
+    def _calculate_holding_period(self, stock_code: str, current_quantity: int) -> int:
+        """실제 보유기간 계산 로직"""
+        try:
             # 해당 종목의 주문 인덱스들 가져오기
             order_indices = self.stock_index[stock_code]
             

@@ -208,55 +208,64 @@ class KiwoomAuth:
         Returns:
             폐기 성공 여부
         """
-        if not self._access_token:
-            api_logger.warning("폐기할 토큰이 없습니다.")
-            return True
+        api_logger.info("토큰 폐기 프로세스를 시작합니다.")
         
-        try:
-            api_logger.info("접근 토큰을 폐기합니다.")
-            
-            headers = {
-                'Content-Type': 'application/json;charset=UTF-8'
-            }
-            
-            data = {
-                'appkey': self.app_key,
-                'secretkey': self.secret_key,
-                'token': self._access_token
-            }
-            
-            response = requests.post(
-                self.revoke_url,
-                headers=headers,
-                json=data,
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            result = response.json()
-            
-            if result.get('return_code') == 0:
-                api_logger.info("토큰 폐기 성공")
+        # 현재 토큰 정보 백업 (API 호출용)
+        current_token = self._access_token
+        
+        # 로컬 토큰 정보 정리 (API 호출 성공 여부와 관계없이)
+        self._access_token = None
+        self._token_expires_at = None
+        
+        # 캐시 파일 삭제 (API 호출 성공 여부와 관계없이)
+        if self.token_cache_file.exists():
+            try:
+                self.token_cache_file.unlink()
+                api_logger.info(f"토큰 캐시 파일이 삭제되었습니다: {self.token_cache_file}")
+            except Exception as e:
+                api_logger.error(f"토큰 캐시 파일 삭제 실패: {e}")
+        
+        # API 서버에 토큰 폐기 요청 (실패해도 로컬 정리는 완료됨)
+        if current_token:  # 원래 토큰이 있었던 경우에만 API 호출
+            try:
+                api_logger.info("키움 API 서버에 토큰 폐기 요청을 전송합니다.")
                 
-                # 로컬 토큰 정보 정리
-                self._access_token = None
-                self._token_expires_at = None
+                headers = {
+                    'Content-Type': 'application/json;charset=UTF-8'
+                }
                 
-                # 캐시 파일 삭제
-                if self.token_cache_file.exists():
-                    self.token_cache_file.unlink()
+                data = {
+                    'appkey': self.app_key,
+                    'secretkey': self.secret_key,
+                    'token': current_token
+                }
                 
-                return True
-            else:
-                api_logger.error(f"토큰 폐기 실패: {result.get('return_msg', '알 수 없는 오류')}")
-                return False
+                response = requests.post(
+                    self.revoke_url,
+                    headers=headers,
+                    json=data,
+                    timeout=30
+                )
                 
-        except requests.exceptions.RequestException as e:
-            api_logger.error(f"토큰 폐기 요청 실패: {e}")
-            return False
-        except Exception as e:
-            api_logger.error(f"토큰 폐기 중 오류 발생: {e}")
-            return False
+                response.raise_for_status()
+                result = response.json()
+                
+                if result.get('return_code') == 0:
+                    api_logger.info("키움 API 서버 토큰 폐기 성공")
+                    return True
+                else:
+                    api_logger.warning(f"키움 API 서버 토큰 폐기 실패: {result.get('return_msg', '알 수 없는 오류')}")
+                    return True  # 로컬 정리는 완료되었으므로 성공으로 처리
+                    
+            except requests.exceptions.RequestException as e:
+                api_logger.warning(f"키움 API 서버 토큰 폐기 요청 실패: {e}")
+                return True  # 로컬 정리는 완료되었으므로 성공으로 처리
+            except Exception as e:
+                api_logger.warning(f"키움 API 서버 토큰 폐기 중 오류 발생: {e}")
+                return True  # 로컬 정리는 완료되었으므로 성공으로 처리
+        else:
+            api_logger.info("로컬 토큰 정보가 없어 API 서버 폐기 요청을 건너뜁니다.")
+            return True
     
     def get_auth_headers(self) -> Dict[str, str]:
         """

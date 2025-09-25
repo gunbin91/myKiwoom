@@ -344,14 +344,25 @@ async function logout() {
         const data = await response.json();
         
         if (data.success) {
+            // 로컬 상태 즉시 업데이트
             isAuthenticated = false;
             updateAuthUI(false);
+            
+            // 대시보드 데이터 초기화
+            if (typeof clearDashboard === 'function') {
+                clearDashboard();
+            }
+            
             showAlert(data.message, 'info');
             
-            // 로그아웃 후 페이지 새로고침
-            setTimeout(() => {
-                location.reload();
-            }, 1000);
+            // 로그아웃 후 인증 상태 재확인 (페이지 새로고침 대신)
+            setTimeout(async () => {
+                try {
+                    await checkAuthStatus();
+                } catch (error) {
+                    console.error('로그아웃 후 인증 상태 확인 실패:', error);
+                }
+            }, 500);
         } else {
             showAlert(data.message, 'danger');
         }
@@ -516,6 +527,29 @@ function setupAutoRefresh() {
             refreshDashboard();
         }
     }, 60000);
+}
+
+/**
+ * 대시보드 데이터 초기화
+ */
+function clearDashboard() {
+    console.log('대시보드 데이터 초기화');
+    
+    // 대시보드 관련 DOM 요소들을 초기화
+    const elementsToClear = [
+        '#connection-status',
+        '#account-info',
+        '#portfolio-summary',
+        '#recent-orders',
+        '#trading-diary'
+    ];
+    
+    elementsToClear.forEach(selector => {
+        const element = document.querySelector(selector);
+        if (element) {
+            element.innerHTML = '<div class="text-muted">데이터를 불러오는 중...</div>';
+        }
+    });
 }
 
 /**

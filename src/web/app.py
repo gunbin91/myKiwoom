@@ -334,17 +334,22 @@ def login():
                 
                 # 체결내역 수집 (최대 30일)
                 get_web_logger().info(f"🔍 {server_type} 서버 매수 체결내역 수집 시작")
+                get_web_logger().info(f"🔍 보유기간 계산을 위한 체결일자 수집을 시작합니다...")
+                
                 collection_success = order_manager.collect_order_history(max_days=30)
                 
                 if collection_success:
                     # 수집된 데이터 요약 정보 로그
                     summary = order_manager.get_data_summary()
                     get_web_logger().info(f"✅ 매수 체결내역 수집 완료: {summary['total_orders']}개 주문, {summary['stock_count']}개 종목")
+                    get_web_logger().info(f"✅ 보유기간 계산을 위한 체결일자 수집이 완료되었습니다.")
                 else:
                     get_web_logger().warning("⚠️ 매수 체결내역 수집 실패 (로그인은 계속 진행)")
+                    get_web_logger().warning("⚠️ 보유기간 계산을 위한 체결일자 수집에 실패했습니다.")
                 
             except Exception as collection_error:
                 get_web_logger().error(f"🚨 체결내역 수집 중 오류: {collection_error}")
+                get_web_logger().error(f"🚨 보유기간 계산을 위한 체결일자 수집 중 오류가 발생했습니다.")
                 import traceback
                 get_web_logger().error(f"   📍 스택 트레이스: {traceback.format_exc()}")
                 # 수집 실패해도 로그인은 계속 진행
@@ -382,10 +387,12 @@ def logout():
         if server_type:
             from src.api.auth import KiwoomAuth
             current_auth = KiwoomAuth(server_type)
-            current_auth.revoke_token()
+            revoke_result = current_auth.revoke_token()
+            get_web_logger().info(f"토큰 폐기 결과: {revoke_result}")
         
+        # 세션 정리
         session.clear()
-        get_web_logger().info("사용자 로그아웃")
+        get_web_logger().info("사용자 로그아웃 완료")
         return jsonify({
             'success': True,
             'message': '로그아웃 성공'
@@ -558,6 +565,7 @@ def get_evaluation():
                         current_quantity = int(stock.get('rmnd_qty', '0'))
                         
                         if stock_code and current_quantity > 0:
+                            # A 프리픽스 유지 (일관성을 위해)
                             holding_days = order_manager.get_holding_period(stock_code, current_quantity)
                             stock['holding_days'] = holding_days
                         else:
@@ -2295,9 +2303,19 @@ def get_auth_status():
         current_auth = KiwoomAuth(server_type)
         get_web_logger().info(f"인증 상태 확인 - {server_type} 서버용 인증 인스턴스 사용")
         
-        # 토큰 유효성 확인 (토큰 파일 기반)
-        is_authenticated = current_auth.is_authenticated()
-        get_web_logger().info(f"토큰 파일 기반 인증 상태: {is_authenticated}")
+        # 세션 인증 상태와 토큰 유효성을 모두 확인
+        session_authenticated = session.get('authenticated', False)
+        token_valid = current_auth.is_token_valid()
+        
+        # 둘 다 True여야만 인증된 것으로 간주
+        is_authenticated = session_authenticated and token_valid
+        
+        get_web_logger().info(f"세션 인증 상태: {session_authenticated}, 토큰 유효성: {token_valid}, 최종 인증 상태: {is_authenticated}")
+        
+        # 인증되지 않은 경우 세션도 정리
+        if not is_authenticated:
+            session.clear()
+            get_web_logger().info("인증 실패로 인해 세션을 정리했습니다.")
         
         token_info = current_auth.get_token_info() if is_authenticated else None
         
