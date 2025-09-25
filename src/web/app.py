@@ -1277,8 +1277,8 @@ def get_daily_trading():
                         else:
                             buy_amount = safe_float(day_data.get('buy_amt', '0'))  # 매도금액이 0이면 원본 사용
                         
-                        # buy_amt와 sell_amt가 모두 0인 객체는 제외
-                        if buy_amount == 0 and sell_amount == 0:
+                        # sell_amt가 0이거나 둘 다 0인 객체는 제외
+                        if sell_amount == 0 or (buy_amount == 0 and sell_amount == 0):
                             continue
                         
                         # ka10170 API로 해당 날짜의 실제 거래 건수 조회
