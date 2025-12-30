@@ -5,8 +5,8 @@
 # =======================================================
 
 # --- 모의 투자 API 설정 (현재 사용 안함) ---
-KIWOOM_APP_KEY_MOCK = "V9mudQMHawpCK_sILj7nmasU9AZI_zr2sgsUFIxbyb4"
-KIWOOM_SECRET_KEY_MOCK = "erjXUeVqBNA5vZLjBjAfy3HkaAOcJEF3G9X37lGUgA0"
+KIWOOM_APP_KEY_MOCK = "ndZG4PSg2kTNOg5eYzKVc9j6QsA_xV38Euz3cK5zySQ"
+KIWOOM_SECRET_KEY_MOCK = "hCruu-p58kO-0QQZsEkbgmgFLQxn0SHBIMwRayzLjNI"
 KIWOOM_DOMAIN_MOCK = "https://mockapi.kiwoom.com"
 
 # --- 실전 투자 API 설정 (현재 모든 기능에서 사용) ---

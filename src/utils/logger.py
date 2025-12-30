@@ -69,7 +69,13 @@ def get_server_logger(server_type: str = None, log_type: str = "system"):
     if log_type == "system":
         log_file = server_logs_dir / "system.log"
     elif log_type == "auto_trading":
-        log_file = server_logs_dir / "auto_trading.log"
+        # Windows 멀티프로세싱에서 동일 파일 로테이션(rename) 충돌(WinError 32)을 피하기 위해
+        # 프로세스별 로그 파일로 분리한다.
+        if os.name == "nt":
+            pid = os.getpid()
+            log_file = server_logs_dir / f"auto_trading_{pid}.log"
+        else:
+            log_file = server_logs_dir / "auto_trading.log"
     else:
         raise ValueError(f"잘못된 로그 타입: {log_type}")
     

@@ -282,7 +282,8 @@ class AutoTradingEngine:
                 top_n=strategy_params.get('top_n', 5),
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20),
                 include_sell_candidates=include_sell_candidates,
-                sell_results=sell_results  # 매도 주문 결과 전달
+                sell_results=sell_results,  # 매도 주문 결과 전달
+                server_type=self.server_type
             )
             
             self._get_logger().info(f"📋 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")

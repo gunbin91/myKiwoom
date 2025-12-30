@@ -30,7 +30,7 @@ KIWOOM_ORDER_URL = f"{KIWOOM_DOMAIN}/api/dostk/ordr"
 
 # 웹 애플리케이션 설정
 WEB_HOST = "0.0.0.0"  # 모든 IP에서 접근 가능하도록 변경
-WEB_PORT = 5001
+WEB_PORT = 7000
 WEB_DEBUG = True
 
 # 로깅 설정

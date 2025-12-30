@@ -5,6 +5,7 @@
 import sys
 import os
 import io
+import socket
 
 # 환경 변수 설정
 os.environ['PYTHONIOENCODING'] = 'utf-8'
@@ -14,10 +15,14 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import json
 from datetime import datetime, timedelta
+import time
+from flask import g
+import math
 from src.config.settings import WEB_HOST, WEB_PORT, WEB_DEBUG, SECRET_KEY, SESSION_TIMEOUT
 from src.config.server_config import set_server_type, get_current_server_config
 from src.utils import get_web_logger
 # 캐시 모듈 제거됨
+from src.utils.deeplearning_server_config import load_deeplearning_server_config, save_deeplearning_server_config
 
 def safe_float(value, default=0.0):
     """안전한 float 변환 함수"""
@@ -27,6 +32,61 @@ def safe_float(value, default=0.0):
         return float(value)
     except (ValueError, TypeError):
         return default
+
+
+def _pick_available_port(host: str, start_port: int = 7000, end_port: int = 7999) -> int:
+    """
+    start_port ~ end_port 범위에서 사용 가능한 포트를 찾아 반환.
+    - host가 0.0.0.0 인 경우에도 로컬 체크는 127.0.0.1로 수행 (윈도우에서 바인딩 체크 안정화)
+    """
+    bind_host = host
+    if host in ("0.0.0.0", "::", "", None):
+        bind_host = "127.0.0.1"
+
+    for port in range(int(start_port), int(end_port) + 1):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((bind_host, port))
+            return port
+        except OSError:
+            continue
+
+    raise RuntimeError(f"사용 가능한 포트를 찾을 수 없습니다. ({start_port}~{end_port})")
+
+
+def _sanitize_json_value(obj):
+    """
+    JSON 직렬화 안전화:
+    - NaN/Inf -> None (JSON의 null)
+    - dict/list/tuple 재귀 처리
+    기존 로직/데이터 구조는 유지하고 "응답 직전"에만 적용한다.
+    """
+    try:
+        if obj is None:
+            return None
+        if isinstance(obj, float):
+            return obj if math.isfinite(obj) else None
+        if isinstance(obj, dict):
+            return {k: _sanitize_json_value(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_sanitize_json_value(v) for v in obj]
+        if isinstance(obj, tuple):
+            return [_sanitize_json_value(v) for v in obj]
+
+        # numpy float 등(있을 경우) 처리
+        try:
+            import numpy as np  # type: ignore
+            if isinstance(obj, (np.floating,)):
+                fv = float(obj)
+                return fv if math.isfinite(fv) else None
+        except Exception:
+            pass
+
+        return obj
+    except Exception:
+        # 안전하게 실패 시 원본 반환
+        return obj
 from src.api import kiwoom_auth, kiwoom_account, kiwoom_quote, kiwoom_order, kiwoom_chart, mock_account, real_account, mock_quote, real_quote, mock_order, real_order, mock_chart, real_chart
 from src.auto_trading.config_manager import mock_config_manager, real_config_manager
 from src.auto_trading.engine import mock_engine, real_engine
@@ -68,6 +128,50 @@ log.addFilter(AutoTradingStatusLogFilter())
 
 # 서버 선택 상태 관리
 from src.utils.server_manager import get_current_server, set_current_server, get_server_info
+
+# -------------------------------------------------------------------
+# 요청 단위 server_type 해석 (동시 mock/real 백프로세스 고려)
+# - 우선순위: request(server_type) > session(server_type) > 전역 선택(get_current_server)
+# -------------------------------------------------------------------
+def _normalize_server_type(server_type):
+    return server_type if server_type in ['mock', 'real'] else None
+
+def get_request_server_type():
+    """현재 요청이 대상으로 하는 서버 타입 반환"""
+    # 1) querystring 우선
+    server_type = _normalize_server_type(request.args.get('server_type'))
+
+    # 2) JSON body (POST 등)
+    if not server_type and request.is_json:
+        try:
+            data = request.get_json(silent=True) or {}
+            server_type = _normalize_server_type(data.get('server_type'))
+        except Exception:
+            server_type = None
+
+    # 3) 세션
+    if not server_type:
+        server_type = _normalize_server_type(session.get('server_type'))
+
+    # 4) 전역 선택(파일 기반)
+    if not server_type:
+        server_type = _normalize_server_type(get_current_server())
+
+    return server_type or 'mock'
+
+def clear_auth_session():
+    """인증 관련 세션만 정리 (서버 선택 정보는 유지)"""
+    session.pop('authenticated', None)
+    session.pop('login_time', None)
+
+def get_config_manager_for(server_type: str):
+    return mock_config_manager if server_type == 'mock' else real_config_manager
+
+def get_engine_for(server_type: str):
+    return mock_engine if server_type == 'mock' else real_engine
+
+def get_scheduler_for(server_type: str):
+    return mock_scheduler if server_type == 'mock' else real_scheduler
 
 # 현재 서버에 맞는 config_manager와 engine 가져오기
 def get_current_config_manager():
@@ -188,6 +292,48 @@ def create_error_response(error_code, error_message, context=""):
 def before_request():
     """요청 전 처리"""
     session.permanent = True
+    g._req_start_ts = time.time()
+
+    # API 요청 접수 로그 (너무 자주 호출되는 엔드포인트는 제외)
+    try:
+        path = request.path or ""
+        if path.startswith("/api/"):
+            if path in ("/api/auto-trading/status",):
+                return
+            server_type = None
+            try:
+                server_type = get_request_server_type()
+            except Exception:
+                server_type = None
+            qs = request.query_string.decode("utf-8", errors="replace") if request.query_string else ""
+            get_web_logger().info(
+                f"[API] {request.method} {path}"
+                + (f"?{qs}" if qs else "")
+                + f" from={request.remote_addr} server_type={server_type}"
+            )
+    except Exception:
+        # 로깅 실패는 요청 처리를 막지 않음
+        pass
+
+
+@app.after_request
+def after_request(response):
+    """요청 후 처리(응답/처리시간 로깅)"""
+    try:
+        path = request.path or ""
+        if path.startswith("/api/"):
+            if path in ("/api/auto-trading/status",):
+                return response
+            elapsed_ms = None
+            if hasattr(g, "_req_start_ts"):
+                elapsed_ms = int((time.time() - g._req_start_ts) * 1000)
+            get_web_logger().info(
+                f"[API] {request.method} {path} -> {response.status_code}"
+                + (f" {elapsed_ms}ms" if elapsed_ms is not None else "")
+            )
+    except Exception:
+        pass
+    return response
 
 
 @app.route('/')
@@ -282,6 +428,57 @@ def get_server_status():
         }), 500
 
 
+@app.route('/api/deeplearning/config', methods=['GET'])
+def get_deeplearning_config():
+    """원격 분석 서버(kiwoomDeepLearning) 설정 조회"""
+    cfg = load_deeplearning_server_config()
+    return jsonify({
+        'success': True,
+        'data': {
+            'scheme': cfg.scheme,
+            'host': cfg.host,
+            'port': cfg.port,
+            'base_url': cfg.base_url
+        }
+    })
+
+
+@app.route('/api/deeplearning/config', methods=['POST'])
+def set_deeplearning_config():
+    """원격 분석 서버(kiwoomDeepLearning) 설정 저장"""
+    data = request.get_json() or {}
+    cfg = save_deeplearning_server_config(data)
+    return jsonify({
+        'success': True,
+        'message': '분석 서버 설정이 저장되었습니다.',
+        'data': {
+            'scheme': cfg.scheme,
+            'host': cfg.host,
+            'port': cfg.port,
+            'base_url': cfg.base_url
+        }
+    })
+
+
+@app.route('/api/deeplearning/health', methods=['GET'])
+def deeplearning_health():
+    """원격 분석 서버 연결 테스트"""
+    try:
+        from src.utils.deeplearning_client import DeepLearningClient
+        cfg = load_deeplearning_server_config()
+        client = DeepLearningClient(base_url=cfg.base_url)
+        result = client.health()
+        return jsonify({
+            'success': True,
+            'data': result
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'분석 서버 연결 실패: {str(e)}'
+        }), 502
+
+
 @app.route('/portfolio')
 def portfolio():
     """포트폴리오 페이지"""
@@ -317,7 +514,7 @@ def login():
     """OAuth 인증 로그인"""
     try:
         # 현재 서버 타입에 맞는 인증 인스턴스 사용
-        server_type = get_current_server()
+        server_type = get_request_server_type()
         get_web_logger().info(f"로그인 시도 - 현재 서버: {server_type}")
         
         from src.api.auth import KiwoomAuth
@@ -356,6 +553,7 @@ def login():
             
             # 로그인 완료
             session['authenticated'] = True
+            session['server_type'] = server_type
             session['login_time'] = datetime.now().isoformat()
             get_web_logger().info("사용자 로그인 성공")
             return jsonify({
@@ -408,7 +606,7 @@ def logout():
 def check_auth():
     """인증 상태 체크 데코레이터"""
     session_authenticated = session.get('authenticated', False)
-    server_type = get_current_server()  # 전역 설정에서 서버 타입 가져오기
+    server_type = get_request_server_type()
     
     # 현재 서버 타입에 맞는 인증 인스턴스 사용
     from src.api.auth import KiwoomAuth
@@ -2198,7 +2396,8 @@ def get_investor_chart():
 def get_auto_trading_config():
     """자동매매 설정 조회"""
     try:
-        config = get_current_config_manager().load_config()
+        server_type = get_request_server_type()
+        config = get_config_manager_for(server_type).load_config()
         return jsonify({
             'success': True,
             'data': config
@@ -2215,8 +2414,9 @@ def get_auto_trading_config():
 def save_auto_trading_config():
     """자동매매 설정 저장"""
     try:
+        server_type = get_request_server_type()
         config = request.get_json()
-        if get_current_config_manager().save_config(config):
+        if get_config_manager_for(server_type).save_config(config):
             return jsonify({
                 'success': True,
                 'message': '설정이 저장되었습니다.'
@@ -2238,12 +2438,17 @@ def save_auto_trading_config():
 def get_auto_trading_status():
     """자동매매 상태 조회"""
     try:
-        config = get_current_config_manager().load_config()
-        last_execution = get_current_config_manager().get_last_execution_time()
-        today_executed = get_current_config_manager().is_today_executed()
+        server_type = get_request_server_type()
+        config_manager = get_config_manager_for(server_type)
+        engine = get_engine_for(server_type)
+        scheduler = get_scheduler_for(server_type)
+
+        config = config_manager.load_config()
+        last_execution = config_manager.get_last_execution_time()
+        today_executed = config_manager.is_today_executed()
         
         # 실행 상태 조회
-        execution_status = get_current_engine().get_execution_status()
+        execution_status = engine.get_execution_status()
         
         return jsonify({
             'success': True,
@@ -2254,7 +2459,7 @@ def get_auto_trading_status():
                 'is_running': execution_status['is_running'],
                 'current_status': execution_status['current_status'],
                 'progress_percentage': execution_status['progress_percentage'],
-                'last_check_time': mock_scheduler.get_last_check_time()
+                'last_check_time': scheduler.get_last_check_time()
             }
         })
     except Exception as e:
@@ -2271,7 +2476,8 @@ def execute_auto_trading():
     try:
         from datetime import datetime
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🚀 자동매매 수동 실행 요청")
-        result = get_current_engine().execute_strategy(manual_execution=True)
+        server_type = get_request_server_type()
+        result = get_engine_for(server_type).execute_strategy(manual_execution=True)
         
         if result['success']:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ 자동매매 실행 성공: {result['message']}")
@@ -2295,7 +2501,7 @@ def get_auth_status():
     """키움 API 인증 상태 조회"""
     try:
         # 현재 서버 타입에 맞는 인증 상태 확인
-        server_type = get_current_server()
+        server_type = get_request_server_type()
         get_web_logger().info(f"인증 상태 확인 - 현재 서버: {server_type}")
         
         # 현재 서버에 맞는 인증 인스턴스 사용
@@ -2314,7 +2520,7 @@ def get_auth_status():
         
         # 인증되지 않은 경우 세션도 정리
         if not is_authenticated:
-            session.clear()
+            clear_auth_session()
             get_web_logger().info("인증 실패로 인해 세션을 정리했습니다.")
         
         token_info = current_auth.get_token_info() if is_authenticated else None
@@ -2343,12 +2549,23 @@ def get_auth_status():
 def get_analysis_result():
     """분석 결과 조회 (테스트용)"""
     try:
-        data = request.get_json()
+        server_type = get_request_server_type()
+        engine = get_engine_for(server_type)
+
+        data = request.get_json() or {}
         force_realtime = data.get('force_realtime', True)  # 기본값: 실시간 분석
         
         # 키움 API 인증 상태 확인
         try:
-            if not kiwoom_auth.is_authenticated():
+            from src.api.auth import KiwoomAuth
+            current_auth = KiwoomAuth(server_type)
+
+            session_authenticated = session.get('authenticated', False)
+            token_valid = current_auth.is_token_valid()
+            is_authenticated = session_authenticated and token_valid
+
+            if not is_authenticated:
+                clear_auth_session()
                 return jsonify({
                     'success': False,
                     'message': '키움 API 인증이 필요합니다. 먼저 인증을 완료해주세요.',
@@ -2371,7 +2588,7 @@ def get_analysis_result():
         
         # 분석 실행 (test_mode=True로 호출)
         try:
-            trading_data = get_current_engine().execute_strategy(test_mode=True)
+            trading_data = engine.execute_strategy(test_mode=True)
             if not trading_data.get('success'):
                 return jsonify({
                     'success': False,
@@ -2420,9 +2637,6 @@ def get_analysis_result():
         try:
             # 매도 대상 선별 (보유종목 기준)
             from src.utils.order_history_manager import OrderHistoryManager
-            from src.utils.server_manager import get_current_server
-            
-            server_type = get_current_server()
             order_history_manager = OrderHistoryManager(server_type)
             
             # 보유 종목 조회 - 올바른 구조로 수정
@@ -2513,11 +2727,12 @@ def get_analysis_result():
                 clean_sell_candidates.append(clean_stock_code)
                 get_web_logger().debug(f"매도 예정 종목코드 정리: {stock_code} → {clean_stock_code}")
             
-            buy_candidates = get_current_engine().analyzer.get_top_stocks(
+            buy_candidates = engine.analyzer.get_top_stocks(
                 analysis_result,
                 top_n=strategy_params.get('top_n', 5),
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20),
-                include_sell_candidates=clean_sell_candidates  # A 프리픽스 제거된 매도 예정 종목을 매수 대상에 포함
+                include_sell_candidates=clean_sell_candidates,  # A 프리픽스 제거된 매도 예정 종목을 매수 대상에 포함
+                server_type=server_type
             )
             
             get_web_logger().info(f"📋 분석결과확인 테스트: 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
@@ -2588,7 +2803,9 @@ def get_analysis_result():
                 'available_cash': available_cash
             }
         }
-        
+
+        # NaN/Inf가 포함되면 브라우저 JSON 파싱이 깨지므로, 응답 직전 정리
+        result = _sanitize_json_value(result)
         return jsonify(result)
         
     except Exception as e:
@@ -2604,6 +2821,7 @@ def get_analysis_result():
 def execute_auto_trading_with_candidates():
     """팝업에서 매매실행 버튼 클릭 시 호출"""
     try:
+        server_type = get_request_server_type()
         data = request.get_json()
         analysis_result = data.get('analysis_result')
         manual_execution = data.get('manual_execution', True)
@@ -2615,7 +2833,7 @@ def execute_auto_trading_with_candidates():
             }), 400
         
         # 자동매매 실행 (analysis_result를 파라미터로 전달)
-        result = get_current_engine().execute_strategy_with_candidates(
+        result = get_engine_for(server_type).execute_strategy_with_candidates(
             analysis_result=analysis_result,
             manual_execution=manual_execution
         )
@@ -2633,7 +2851,8 @@ def execute_auto_trading_with_candidates():
 def stop_auto_trading():
     """자동매매 긴급 중지"""
     try:
-        result = get_current_engine().stop_trading()
+        server_type = get_request_server_type()
+        result = get_engine_for(server_type).stop_trading()
         return jsonify(result)
     except Exception as e:
         get_web_logger().error(f"자동매매 중지 실패: {e}")
@@ -2647,8 +2866,9 @@ def stop_auto_trading():
 def get_auto_trading_history():
     """자동매매 실행 이력 조회"""
     try:
+        server_type = get_request_server_type()
         days = request.args.get('days', 7, type=int)
-        history = get_current_config_manager().get_execution_history(days)
+        history = get_config_manager_for(server_type).get_execution_history(days)
         return jsonify({
             'success': True,
             'data': history
@@ -2920,5 +3140,15 @@ if __name__ == '__main__':
     # 스케줄러 시작
     start_schedulers()
     
-    get_web_logger().info(f"웹 서버 시작: http://{WEB_HOST}:{WEB_PORT}")
-    socketio.run(app, host=WEB_HOST, port=WEB_PORT, debug=WEB_DEBUG)
+    # 포트 충돌 시 7000~7999 범위에서 자동 선택 (브라우저 unsafe port 이슈 회피)
+    try:
+        run_port = _pick_available_port(WEB_HOST, start_port=WEB_PORT, end_port=7999)
+    except Exception as e:
+        get_web_logger().error(f"웹 서버 포트 선택 실패: {e}")
+        raise
+
+    if run_port != WEB_PORT:
+        get_web_logger().warning(f"기본 포트 {WEB_PORT}가 사용 중이라 {run_port}로 변경하여 실행합니다.")
+
+    get_web_logger().info(f"웹 서버 시작: http://{WEB_HOST}:{run_port}")
+    socketio.run(app, host=WEB_HOST, port=run_port, debug=WEB_DEBUG)

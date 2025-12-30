@@ -14,6 +14,9 @@ import joblib
 # 환경 변수 설정
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
+# 원격 분석 서버 사용 시(기본), 로컬 kiwoomDeepLearning import/경로/모델 체크 로그는 노이즈가 되므로 비활성화
+USE_LOCAL_KIWOOM_DEEPLEARNING = os.environ.get("MYKIWOOM_USE_LOCAL_KIWOOM_DEEPLEARNING", "0") == "1"
+
 # kiwoomDeepLearning 프로젝트 경로 설정
 # 프로젝트 루트에서 kiwoomDeepLearning 찾기 (동일 레벨 디렉토리)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -24,36 +27,42 @@ DEEP_LEARNING_PATH = os.path.abspath(DEEP_LEARNING_PATH)
 if os.name == 'nt':  # Windows
     os.environ['PYTHONPATH'] = os.environ.get('PYTHONPATH', '') + os.pathsep + DEEP_LEARNING_PATH
 
-print(f"프로젝트 루트: {PROJECT_ROOT}")
-print(f"kiwoomDeepLearning 경로: {DEEP_LEARNING_PATH}")
+if USE_LOCAL_KIWOOM_DEEPLEARNING:
+    print(f"프로젝트 루트: {PROJECT_ROOT}")
+    print(f"kiwoomDeepLearning 경로: {DEEP_LEARNING_PATH}")
 
-if os.path.exists(DEEP_LEARNING_PATH):
-    sys.path.append(DEEP_LEARNING_PATH)
-    print(f"✅ kiwoomDeepLearning 경로 추가됨: {DEEP_LEARNING_PATH}")
-    
-    # kiwoomDeepLearning의 가상환경 site-packages 경로 추가
-    venv_site_packages = os.path.join(DEEP_LEARNING_PATH, 'venv', 'lib', 'python3.12', 'site-packages')
-    if os.path.exists(venv_site_packages):
-        sys.path.insert(0, venv_site_packages)
-        print(f"✅ kiwoomDeepLearning 가상환경 경로 추가됨: {venv_site_packages}")
+    if os.path.exists(DEEP_LEARNING_PATH):
+        sys.path.append(DEEP_LEARNING_PATH)
+        print(f"✅ kiwoomDeepLearning 경로 추가됨: {DEEP_LEARNING_PATH}")
+
+        # kiwoomDeepLearning의 가상환경 site-packages 경로 추가 (로컬 사용 시에만)
+        venv_site_packages = os.path.join(DEEP_LEARNING_PATH, 'venv', 'lib', 'python3.12', 'site-packages')
+        if os.path.exists(venv_site_packages):
+            sys.path.insert(0, venv_site_packages)
+            print(f"✅ kiwoomDeepLearning 가상환경 경로 추가됨: {venv_site_packages}")
+        else:
+            print(f"⚠️ kiwoomDeepLearning 가상환경 경로를 찾을 수 없습니다: {venv_site_packages}")
     else:
-        print(f"⚠️ kiwoomDeepLearning 가상환경 경로를 찾을 수 없습니다: {venv_site_packages}")
-else:
-    print(f"❌ kiwoomDeepLearning 경로를 찾을 수 없습니다: {DEEP_LEARNING_PATH}")
+        print(f"❌ kiwoomDeepLearning 경로를 찾을 수 없습니다: {DEEP_LEARNING_PATH}")
 
 try:
-    # kiwoomDeepLearning 모듈들 임포트
-    from ensemble import calculate_final_score
-    from ml_model import predict_with_ml_model
-    from data_fetcher import fetch_stock_list
-    from scoring import calculate_factor_scores
-    from smart_cache import get_cache
-    from logger import log_info, log_warning, log_error
-    print("✅ kiwoomDeepLearning 모듈 import 성공")
+    if USE_LOCAL_KIWOOM_DEEPLEARNING:
+        # kiwoomDeepLearning 모듈들 임포트 (로컬 분석 시에만)
+        from ensemble import calculate_final_score
+        from ml_model import predict_with_ml_model
+        from data_fetcher import fetch_stock_list
+        from scoring import calculate_factor_scores
+        from smart_cache import get_cache
+        from logger import log_info, log_warning, log_error
+        print("✅ kiwoomDeepLearning 모듈 import 성공")
+    else:
+        # 원격 분석 사용 시: 더미로 두고 불필요한 ImportError/print 노이즈 방지
+        raise ImportError("local kiwoomDeepLearning import disabled (remote mode)")
 except ImportError as e:
-    print(f"Warning: kiwoomDeepLearning 모듈을 불러올 수 없습니다: {e}")
-    print(f"경로 확인: {DEEP_LEARNING_PATH}")
-    print(f"현재 sys.path: {sys.path[:3]}...")  # 처음 3개만 출력
+    if USE_LOCAL_KIWOOM_DEEPLEARNING:
+        print(f"Warning: kiwoomDeepLearning 모듈을 불러올 수 없습니다: {e}")
+        print(f"경로 확인: {DEEP_LEARNING_PATH}")
+        print(f"현재 sys.path: {sys.path[:3]}...")  # 처음 3개만 출력
     
     # 더미 함수들 정의 (개발 중 오류 방지)
     def calculate_final_score(df):
@@ -86,14 +95,17 @@ class DeepLearningAnalyzer:
     """kiwoomDeepLearning을 활용한 종목 분석 클래스"""
     
     def __init__(self):
+        # 원격 분석 서버 사용 (WSL/별도 프로세스)
+        # - 로컬 kiwoomDeepLearning 디렉토리 구조 변경/모델 변경에 덜 민감하게 만들기 위함
+        self.use_remote_server = True
         self.model_path = os.path.join(DEEP_LEARNING_PATH, 'data', 'stock_prediction_model_rf_upgraded.joblib')
         self.weights_path = os.path.join(DEEP_LEARNING_PATH, 'data', 'optimal_weights.json')
         self.cache = get_cache()
-        
-        print(f"모델 파일 경로: {self.model_path}")
-        print(f"가중치 파일 경로: {self.weights_path}")
-        print(f"모델 파일 존재: {os.path.exists(self.model_path)}")
-        print(f"가중치 파일 존재: {os.path.exists(self.weights_path)}")
+        if USE_LOCAL_KIWOOM_DEEPLEARNING:
+            print(f"모델 파일 경로: {self.model_path}")
+            print(f"가중치 파일 경로: {self.weights_path}")
+            print(f"모델 파일 존재: {os.path.exists(self.model_path)}")
+            print(f"가중치 파일 존재: {os.path.exists(self.weights_path)}")
         
     def is_available(self):
         """kiwoomDeepLearning 모듈이 사용 가능한지 확인"""
@@ -110,6 +122,26 @@ class DeepLearningAnalyzer:
         Returns:
             dict: 분석 결과
         """
+        # 0) 원격 분석 서버 우선 사용
+        if self.use_remote_server:
+            try:
+                from src.utils.deeplearning_client import DeepLearningClient
+                # 원격 분석은 오래 걸릴 수 있으므로 timeout_seconds를 넉넉히 둠
+                client = DeepLearningClient(timeout_seconds=1800)
+                # analysis_date 미지정 시 서버가 '오늘' 기준으로 실행
+                remote_result = client.run_analysis(analysis_date=analysis_date)
+                # remote_result는 myKiwoom이 기대하는 포맷(success/data/analysis_result)을 그대로 반환하도록 계약
+                return remote_result
+            except Exception as e:
+                # 원격 실패 시 로컬로 fallback 하면(윈도우) 모델 파일 미존재로 더 혼란스러워질 수 있어,
+                # 원격 실패를 그대로 반환
+                log_error(f"원격 분석 서버 호출 실패: {e}")
+                return {
+                    'success': False,
+                    'message': f'원격 분석 서버 호출 실패: {str(e)}'
+                }
+
+        # 1) 로컬 분석 (기존 방식)
         if not self.is_available():
             error_message = 'kiwoomDeepLearning 모듈이 사용 불가능합니다. 모델 파일을 확인해주세요.'
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ {error_message}")
@@ -310,7 +342,7 @@ class DeepLearningAnalyzer:
             }
     
     
-    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20, include_sell_candidates=None, sell_results=None):
+    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20, include_sell_candidates=None, sell_results=None, server_type=None):
         """
         매수 대상 종목 선정 (보유 종목 제외, 매도 예정 종목은 상위 매수고려대상에 추가)
         
@@ -335,7 +367,7 @@ class DeepLearningAnalyzer:
             
             # 1. 보유 종목 조회 (실패해도 계속 진행)
             try:
-                held_stocks = self._get_held_stocks()
+                held_stocks = self._get_held_stocks(server_type=server_type)
                 if held_stocks:
                     exclude_stocks.update(held_stocks)
                     log_info(f"📋 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
@@ -390,14 +422,15 @@ class DeepLearningAnalyzer:
             log_error(f"매수 대상 선정 중 오류 발생: {e}")
             return []
     
-    def _get_held_stocks(self):
+    def _get_held_stocks(self, server_type=None):
         """보유 종목 조회"""
         try:
             from src.api.account import KiwoomAccount
-            from src.utils.server_manager import get_current_server
             
             # 현재 서버 타입에 맞는 API 인스턴스 사용
-            server_type = get_current_server()
+            if server_type not in ['mock', 'real']:
+                from src.utils.server_manager import get_current_server
+                server_type = get_current_server()
             kiwoom_account = KiwoomAccount(server_type)
             
             # 인증 상태 확인

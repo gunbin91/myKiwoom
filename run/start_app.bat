@@ -36,7 +36,9 @@ pip install -r requirements.txt
 
 REM 자동매매에 필요한 추가 패키지 설치
 echo 자동매매 추가 패키지 설치 중...
-pip install joblib pandas numpy scikit-learn pyarrow fastparquet
+REM fastparquet는 Windows/Python 3.12 환경에서 소스 빌드가 필요해 실패하는 경우가 많습니다.
+REM pyarrow가 설치되어 있으면 parquet 처리는 대부분 가능하므로 fastparquet는 기본 설치에서 제외합니다.
+pip install joblib pandas numpy scikit-learn pyarrow
 
 REM ==========================================================
 REM pandas_ta posix module import fix for Windows
@@ -45,9 +47,9 @@ echo "Fixing pandas_ta posix import issue..."
 SET "VENV_SITE_PACKAGES=%CD%\venv\Lib\site-packages"
 SET "ALLIGATOR_FILE=%VENV_SITE_PACKAGES%\pandas_ta\overlap\alligator.py"
 IF EXIST "%ALLIGATOR_FILE%" (
-    powershell -Command "(Get-Content \"%ALLIGATOR_FILE%\") | Where-Object {$_ -notmatch \"from posix import pread\"} | Set-Content \"%ALLIGATOR_FILE%\""
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-Content -LiteralPath \"%ALLIGATOR_FILE%\") | Where-Object {$_ -notmatch \"from posix import pread\"} | Set-Content -LiteralPath \"%ALLIGATOR_FILE%\" -Encoding UTF8" 1>nul 2>nul
     IF %ERRORLEVEL% NEQ 0 (
-        echo "Failed to fix pandas_ta posix import issue."
+        echo "pandas_ta posix import issue fix skipped (non-fatal)."
     ) ELSE (
         echo "pandas_ta posix import issue fixed."
     )
@@ -68,8 +70,9 @@ set PYTHONPATH=%PYTHONPATH%;%CD%\src
 echo ==========================================
 echo 설정 완료! 웹 서버를 시작합니다...
 echo ==========================================
-echo 브라우저에서 http://127.0.0.1:5001 으로 접속하세요.
-echo 자동매매 페이지: http://127.0.0.1:5001/auto-trading
+echo 브라우저에서 http://127.0.0.1:7000 으로 접속하세요.
+echo (7000이 사용중이면 7000~7999 중 사용 가능한 포트로 자동 변경됩니다. 콘솔 로그를 확인하세요.)
+echo 자동매매 페이지: http://127.0.0.1:7000/auto-trading
 echo.
 echo 서버를 중지하려면 Ctrl+C를 누르세요.
 echo ==========================================
