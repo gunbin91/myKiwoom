@@ -389,6 +389,7 @@
             <thead>
               <tr>
                 <th>종목명</th>
+                <th>구분</th>
                 <th>매수평균</th>
                 <th>매도평균</th>
                 <th>수량</th>
@@ -397,7 +398,7 @@
             </thead>
             <tbody id="trading-diary-tbody">
               <tr>
-                <td colspan="5" class="text-center text-muted">
+                <td colspan="6" class="text-center text-muted">
                   데이터를 불러오는 중...
                 </td>
               </tr>
@@ -719,34 +720,100 @@
           const tbody = document.getElementById("trading-diary-tbody");
           tbody.innerHTML = "";
 
-          data.data.tdy_trde_diary.forEach((trade) => {
+          const toNumber = (v) => {
+            if (v === null || v === undefined) return 0;
+            const s = String(v).replace(/[^0-9.+-]/g, "");
+            const n = parseFloat(s);
+            return Number.isFinite(n) ? n : 0;
+          };
+
+          const appendRow = (trade, side) => {
             const row = document.createElement("tr");
+            const isBuy = side === "buy";
+
+            let buyAmt = toNumber(trade.buy_amt);
+            let sellAmt = toNumber(trade.sell_amt);
+            const cmsnAlmTax = toNumber(trade.cmsn_alm_tax);
+
+            // ka10170 문서 기준 키:
+            // - buy_avg_pric(매수평균가), buy_qty(매수수량)
+            // - sel_avg_pric(매도평균가), sell_qty(매도수량)
+            // - pl_amt(손익금액), sell_amt/buy_amt, cmsn_alm_tax(수수료_제세금)
+            let buyAvg = toNumber(trade.buy_avg_pric);
+            let sellAvg = toNumber(trade.sel_avg_pric);
+            const buyQty = toNumber(trade.buy_qty);
+            const sellQty = toNumber(trade.sell_qty);
+            let plAmt = toNumber(trade.pl_amt);
+
+            const qty = isBuy ? buyQty : sellQty;
+            if (qty <= 0) return; // 0수량(0원) 행 제외
+
+            // 금액 필드 누락 대비: 평균가*수량으로 금액 복원
+            if (sellAmt <= 0 && sellAvg > 0 && sellQty > 0) {
+              sellAmt = sellAvg * sellQty;
+            }
+            if (buyAmt <= 0 && buyAvg > 0 && buyQty > 0) {
+              buyAmt = buyAvg * buyQty;
+            }
+
+            // 응답 누락 대비 fallback:
+            // - 평균단가가 0이면 금액/수량으로 역산
+            // - 손익이 0이면 (매도금액 - 매수금액 - 수수료_제세금)으로 역산
+            if (buyAvg <= 0) {
+              // 매도행에서 buy_avg_pric/buy_amt가 비는 케이스가 있어 매도금액/손익/수수료로 매수금액(원가)부터 복원
+              if (!isBuy && buyAmt <= 0 && sellAmt > 0) {
+                buyAmt = sellAmt - plAmt - cmsnAlmTax;
+              }
+
+              if (buyAmt > 0 && buyQty > 0) buyAvg = buyAmt / buyQty;
+              // 매도행에서 buy_qty가 0으로 오는 경우가 있어 sell_qty로도 한 번 더 시도
+              else if (buyAmt > 0 && sellQty > 0) buyAvg = buyAmt / sellQty;
+            }
+            if (!isBuy && sellAvg <= 0 && sellAmt > 0 && sellQty > 0) {
+              sellAvg = sellAmt / sellQty;
+            }
+            if (!isBuy && plAmt === 0 && sellAmt > 0 && buyAmt >= 0) {
+              plAmt = sellAmt - buyAmt - cmsnAlmTax;
+            }
+
+            const profitClass = !isBuy
+              ? (plAmt > 0 ? "text-up" : plAmt < 0 ? "text-down" : "text-neutral")
+              : "text-neutral";
+            const profitValue = !isBuy ? plAmt : 0;
+
             row.innerHTML = `
                         <td>${trade.stk_nm || "-"}</td>
-                        <td>${formatNumber(trade.buy_avg_pric || "0")}원</td>
-                        <td>${formatNumber(trade.sell_avg_pric || "0")}원</td>
-                        <td>${formatNumber(trade.cntr_qty || "0")}</td>
-                        <td class="${
-                          parseFloat(trade.pl_amt || "0") > 0
-                            ? "text-up"
-                            : parseFloat(trade.pl_amt || "0") < 0
-                            ? "text-down"
-                            : "text-neutral"
-                        }">
-                            ${formatNumber(trade.pl_amt || "0")}원
+                        <td>${isBuy ? '<span class="text-primary">매수</span>' : '<span class="text-danger">매도</span>'}</td>
+                        <td>${formatNumber(buyAvg || "0")}원</td>
+                        <td>${formatNumber((!isBuy ? sellAvg : 0) || "0")}원</td>
+                        <td>${formatNumber(qty || "0")}</td>
+                        <td class="${profitClass}">
+                            ${formatNumber(profitValue || "0")}원
                         </td>
                     `;
             tbody.appendChild(row);
+          };
+
+          data.data.tdy_trde_diary.forEach((trade) => {
+            // 매수/매도 모두 표시 (구분 컬럼 추가)
+            appendRow(trade, "buy");
+            appendRow(trade, "sell");
           });
+
+          // 표시할 행이 없는 경우
+          if (!tbody.children.length) {
+            tbody.innerHTML =
+              '<tr><td colspan="6" class="text-center text-muted">당일 매매 내역이 없습니다.</td></tr>';
+          }
         } else {
           document.getElementById("trading-diary-tbody").innerHTML =
-            '<tr><td colspan="5" class="text-center text-muted">당일 매매 내역이 없습니다.</td></tr>';
+            '<tr><td colspan="6" class="text-center text-muted">당일 매매 내역이 없습니다.</td></tr>';
         }
       })
       .catch((error) => {
         console.error("매매일지 조회 실패:", error);
         document.getElementById("trading-diary-tbody").innerHTML =
-          '<tr><td colspan="5" class="text-center text-danger">데이터 조회 실패</td></tr>';
+          '<tr><td colspan="6" class="text-center text-danger">데이터 조회 실패</td></tr>';
       });
   }
 

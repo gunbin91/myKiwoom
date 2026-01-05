@@ -1400,7 +1400,14 @@ def get_trading_diary():
         return error_response
     
     try:
-        result = get_current_account().get_today_trading_diary()
+        # ka10170(당일매매일지요청) 파라미터 고정:
+        # - ottks_tp: "2"(당일매도 전체)로 호출해 매수/매도/손익 필드 누락을 방지하고 데이터 일관성 확보
+        # - ch_crd_tp: "0"(전체)
+        result = get_current_account().get_today_trading_diary(
+            base_date="",
+            odd_lot_type="2",
+            cash_credit_type="0"
+        )
         if result:
             return jsonify({
                 'success': True,
@@ -1460,37 +1467,72 @@ def get_daily_trading():
                     trade_date_obj = datetime.strptime(trade_date, '%Y%m%d')
                     
                     if start_date_obj <= trade_date_obj <= end_date_obj:
-                        # ka10074 API 응답 데이터
-                        sell_amount = safe_float(day_data.get('sell_amt', '0'))
-                        commission = safe_float(day_data.get('tdy_trde_cmsn', '0'))
+                        # ka10074 API 응답 데이터 (세금은 일자 요약에서만 제공되어 우선 유지)
                         tax = safe_float(day_data.get('tdy_trde_tax', '0'))
-                        profit_amount = safe_float(day_data.get('tdy_sel_pl', '0'))
-                        
-                        # ka10074의 buy_amt가 0원인 문제 해결: 역산 계산
-                        # 실제 매수금액 = 매도금액 - 실현손익 - 수수료 - 세금
-                        if sell_amount > 0:
-                            # ka10170 API와 일관성을 위해 ka10170 데이터 사용
-                            # ka10074의 손익/수수료/세금 대신 ka10170 데이터 사용
-                            buy_amount = sell_amount - profit_amount - commission - tax
-                        else:
-                            buy_amount = safe_float(day_data.get('buy_amt', '0'))  # 매도금액이 0이면 원본 사용
-                        
-                        # sell_amt가 0이거나 둘 다 0인 객체는 제외
-                        if sell_amount == 0 or (buy_amount == 0 and sell_amount == 0):
-                            continue
-                        
-                        # ka10170 API로 해당 날짜의 실제 거래 건수 조회
+
+                        # ka10170 기반으로 '매도 체결'만 집계 (상세팝업과 동일 기준)
+                        sell_amount = 0.0
+                        total_commission_tax = 0.0
+                        profit_amount = 0.0
                         trade_count = 0
+
                         try:
                             ka10170_result = get_current_account().get_daily_trading_diary(
                                 base_dt=trade_date,
                                 ottks_tp="2",  # 당일매도 전체
                                 ch_crd_tp="0"  # 전체
                             )
+
                             if ka10170_result and ka10170_result.get('success') is not False and 'tdy_trde_diary' in ka10170_result:
-                                trade_count = len(ka10170_result['tdy_trde_diary'])
-                        except:
-                            trade_count = 1  # API 호출 실패 시 기본값 1
+                                for individual_trade in ka10170_result['tdy_trde_diary']:
+                                    sell_amt_i = safe_float(individual_trade.get('sell_amt', '0'))
+                                    sell_qty_i = safe_float(individual_trade.get('sell_qty', '0'))
+
+                                    # 매수/0원 행 섞임 제외: 매도 체결(수량/금액 > 0)만 집계
+                                    if sell_amt_i <= 0 or sell_qty_i <= 0:
+                                        continue
+
+                                    trade_count += 1
+                                    sell_amount += sell_amt_i
+                                    total_commission_tax += safe_float(individual_trade.get('cmsn_alm_tax', '0'))
+                                    profit_amount += safe_float(individual_trade.get('pl_amt', '0'))
+                        except Exception:
+                            # API 호출 실패 시 ka10074 기반으로만 표시(기존 동작에 가까움)
+                            sell_amount = safe_float(day_data.get('sell_amt', '0'))
+                            commission = safe_float(day_data.get('tdy_trde_cmsn', '0'))
+                            tax = safe_float(day_data.get('tdy_trde_tax', '0'))
+                            profit_amount = safe_float(day_data.get('tdy_sel_pl', '0'))
+                            buy_amount = sell_amount - profit_amount - commission - tax if sell_amount > 0 else safe_float(day_data.get('buy_amt', '0'))
+                            if sell_amount == 0 or (buy_amount == 0 and sell_amount == 0):
+                                continue
+
+                            # 수익률 계산
+                            return_rate = (profit_amount / buy_amount) * 100 if buy_amount > 0 else 0.0
+
+                            daily_trade = {
+                                'trade_date': trade_date,
+                                'trade_count': 1,
+                                'buy_amount': buy_amount,
+                                'sell_amount': sell_amount,
+                                'commission': commission,
+                                'tax': tax,
+                                'profit_amount': profit_amount,
+                                'return_rate': return_rate
+                            }
+                            daily_trades.append(daily_trade)
+                            continue
+
+                        # 매도 체결이 없는 날은 제외
+                        if sell_amount <= 0 or trade_count <= 0:
+                            continue
+
+                        # ka10170은 수수료+세금 합산(cmsn_alm_tax)만 제공 → ka10074의 tax를 우선 사용해 분리
+                        if tax < 0:
+                            tax = 0.0
+                        commission = max(0.0, total_commission_tax - tax)
+
+                        # 매수금액(원가) 역산: 매도금액 - 손익 - (수수료+세금)
+                        buy_amount = sell_amount - profit_amount - total_commission_tax
                         
                         # 수익률 계산 (매수금액이 0보다 클 때만)
                         if buy_amount > 0:
@@ -1514,7 +1556,7 @@ def get_daily_trading():
                 # 날짜순 정렬
                 daily_trades.sort(key=lambda x: x['trade_date'])
             
-            # 총 거래 건수와 승률 계산 (ka10170 API 개별 거래 데이터 사용)
+            # 총 거래 건수와 승률 계산 (ka10170 API 개별 거래 데이터 사용, '매도 체결'만)
             total_trade_count = 0
             total_win_count = 0
             
@@ -1530,6 +1572,10 @@ def get_daily_trading():
                     if ka10170_result and ka10170_result.get('success') is not False and 'tdy_trde_diary' in ka10170_result:
                         ka10170_trades = ka10170_result['tdy_trde_diary']
                         for individual_trade in ka10170_trades:
+                            sell_amt_i = safe_float(individual_trade.get('sell_amt', '0'))
+                            sell_qty_i = safe_float(individual_trade.get('sell_qty', '0'))
+                            if sell_amt_i <= 0 or sell_qty_i <= 0:
+                                continue
                             pl_amt = safe_float(individual_trade.get('pl_amt', '0'))
                             total_trade_count += 1
                             if pl_amt > 0:
@@ -1734,6 +1780,10 @@ def get_daily_trading_detail(trade_date):
                 prft_rt = safe_float(trade.get('prft_rt', '0'))
                 sell_qty = safe_float(trade.get('sell_qty', '0'))
                 sel_avg_pric = safe_float(trade.get('sel_avg_pric', '0'))
+
+                # 매수/0원 행 섞임 제외: 매도 체결(수량/금액 > 0)만 표시
+                if sell_amt <= 0 or sell_qty <= 0:
+                    continue
                 
                 # 매수금액 계산: 매도금액 - 손익 - 수수료_세금
                 buy_amt = sell_amt - pl_amt - cmsn_alm_tax
