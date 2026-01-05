@@ -20,15 +20,15 @@
 
   <!-- 스케줄러 체크 카드 -->
   <div class="col-xl-3 col-lg-3 col-md-6 col-sm-6 mb-4">
-    <div class="card bg-warning text-white">
+    <div class="card bg-danger text-white">
       <div class="card-body">
         <div class="d-flex justify-content-between">
           <div>
-            <h6 class="card-title">스케줄러 체크</h6>
-            <h6 class="mb-0" id="scheduler-check">-</h6>
+            <h6 class="card-title">장중 손절 감시</h6>
+            <h6 class="mb-0" id="intraday-stop-status">OFF</h6>
           </div>
           <div class="align-self-center">
-            <i class="fas fa-sync-alt fa-2x"></i>
+            <i class="fas fa-shield-alt fa-2x"></i>
           </div>
         </div>
       </div>
@@ -282,6 +282,45 @@
                 />
                 <div class="form-text">기본값: 0.015% (키움증권 기준)</div>
               </div>
+            </div>
+          </div>
+
+          <hr />
+
+          <!-- 장중 손절 감시 (자동매매와 별개) -->
+          <div class="mb-3">
+            <h6 class="mb-2">
+              <i class="fas fa-shield-alt me-2"></i>장중 손절 감시
+            </h6>
+            <div class="form-check form-switch">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="intraday-stop-enabled"
+              />
+              <label class="form-check-label" for="intraday-stop-enabled">
+                활성화 (평가손익률 기준)
+              </label>
+            </div>
+            <div class="form-text">
+              자동매매 ON/OFF와 무관하게, 보유종목의 <strong>평가손익률</strong>이 기준 이하가 되면
+              <strong>전량 시장가 매도</strong>합니다.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label for="intraday-stop-threshold" class="form-label"
+              >손절 기준(%)</label
+            >
+            <input
+              type="number"
+              class="form-control"
+              id="intraday-stop-threshold"
+              step="0.1"
+              value="-7.0"
+            />
+            <div class="form-text">
+              예: <strong>-7</strong> 입력 시 평가손익률이 -7% 이하로 하락하면 매도합니다.
             </div>
           </div>
 
@@ -855,6 +894,12 @@
             config.strategy_params?.buy_universe_rank || 20;
           document.getElementById("transaction-fee-rate").value =
             config.strategy_params?.transaction_fee_rate || 0.015;
+
+          // 장중 손절 감시 설정 로드
+          document.getElementById("intraday-stop-enabled").checked =
+            config.intraday_stop_loss?.enabled ?? false;
+          document.getElementById("intraday-stop-threshold").value =
+            config.intraday_stop_loss?.threshold_pct ?? -7.0;
         }
       })
       .catch((error) => {
@@ -878,6 +923,11 @@
         auto_trading_enabled: document.getElementById("auto-trading-enabled")
           .checked,
         schedule_time: scheduleTime,
+        intraday_stop_loss: {
+          enabled: document.getElementById("intraday-stop-enabled").checked,
+          threshold_pct:
+            parseFloat(document.getElementById("intraday-stop-threshold").value) || -7.0,
+        },
         strategy_params: {
           reserve_cash:
             parseInt(document.getElementById("reserve-cash").value) || 0,
@@ -930,6 +980,8 @@
           const status = data.data;
           const statusElement = document.getElementById("auto-trading-status");
           const statusCard = statusElement.closest(".card");
+          const intradayElement = document.getElementById("intraday-stop-status");
+          const intradayCard = intradayElement?.closest(".card");
 
           if (status.enabled) {
             statusElement.innerHTML = `
@@ -946,12 +998,30 @@
             statusCard.className = "card bg-secondary text-white";
           }
 
+          // 장중 손절 감시 상태 (스케줄러 체크 카드 대체)
+          if (intradayElement && intradayCard) {
+            if (status.intraday_stop_loss_enabled) {
+              const th = status.intraday_stop_loss_threshold_pct ?? -7.0;
+              intradayElement.innerHTML = `
+                        <span>ON</span>
+                        <div class="loading-dots">
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                        </div>
+                        <small class="ms-2">(${th}%)</small>
+                    `;
+              intradayCard.className = "card bg-danger text-white";
+            } else {
+              intradayElement.innerHTML = "OFF";
+              intradayCard.className = "card bg-secondary text-white";
+            }
+          }
+
           document.getElementById("last-execution").textContent =
             status.last_execution || "-";
           document.getElementById("today-execution").textContent =
             status.today_executed ? "실행됨" : "미실행";
-          document.getElementById("scheduler-check").textContent =
-            status.last_check_time || "-";
 
           // 실행 진행 상황 업데이트
           updateExecutionProgress(status);

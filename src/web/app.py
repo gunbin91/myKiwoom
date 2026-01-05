@@ -2496,6 +2496,9 @@ def get_auto_trading_status():
         config = config_manager.load_config()
         last_execution = config_manager.get_last_execution_time()
         today_executed = config_manager.is_today_executed()
+        intraday_cfg = config.get('intraday_stop_loss', {}) or {}
+        intraday_enabled = bool(intraday_cfg.get('enabled', False))
+        intraday_threshold = intraday_cfg.get('threshold_pct', -7.0)
         
         # 실행 상태 조회
         execution_status = engine.get_execution_status()
@@ -2504,6 +2507,8 @@ def get_auto_trading_status():
             'success': True,
             'data': {
                 'enabled': config.get('auto_trading_enabled', False),
+                'intraday_stop_loss_enabled': intraday_enabled,
+                'intraday_stop_loss_threshold_pct': intraday_threshold,
                 'last_execution': last_execution,
                 'today_executed': today_executed,
                 'is_running': execution_status['is_running'],

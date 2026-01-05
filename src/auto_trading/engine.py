@@ -479,6 +479,94 @@ class AutoTradingEngine:
                 'success': False,
                 'message': f'계좌 정보 조회 실패: {str(e)}'
             }
+
+    def execute_intraday_stop_loss(self, threshold_pct: float = -7.0, skip_stock_codes=None):
+        """
+        장중 손절 감시 실행 (자동매매와 별개)
+
+        - 보유종목의 평가손익률(%)이 threshold_pct 이하로 하락하면 전량 시장가 매도
+        - skip_stock_codes: 중복 매도 방지용(쿨다운) 제외 목록
+        """
+        try:
+            now = datetime.now()
+            # 장중만 동작 (주말/비거래시간 제외)
+            if now.weekday() >= 5:
+                return {'success': True, 'message': '주말은 손절 감시를 실행하지 않습니다.', 'sell_results': None}
+            if now.hour < 9 or now.hour > 15:
+                return {'success': True, 'message': '거래 시간이 아니므로 손절 감시를 실행하지 않습니다.', 'sell_results': None}
+
+            try:
+                threshold_pct = float(threshold_pct)
+            except Exception:
+                threshold_pct = -7.0
+
+            skip_set = set(skip_stock_codes or [])
+
+            balance_result = self.account.get_account_balance_detail()
+            if not balance_result:
+                return {'success': False, 'message': '보유 종목 정보를 가져올 수 없습니다.', 'sell_results': None}
+
+            holdings = balance_result.get('acnt_evlt_remn_indv_tot', []) or []
+            if not holdings:
+                return {'success': True, 'message': '보유 종목이 없습니다.', 'sell_results': None}
+
+            sell_candidates = []
+            for stock in holdings:
+                try:
+                    stock_code = stock.get('stk_cd', '') or ''
+                    stock_name = stock.get('stk_nm', '') or ''
+                    quantity = int(stock.get('rmnd_qty', 0) or 0)
+                    avg_price = float(stock.get('pur_pric', 0) or 0)
+                    current_price = float(stock.get('cur_prc', 0) or 0)
+
+                    clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
+
+                    if not clean_stock_code or quantity <= 0 or avg_price <= 0 or current_price <= 0:
+                        continue
+                    if clean_stock_code in skip_set:
+                        continue
+
+                    profit_rate = ((current_price - avg_price) / avg_price) * 100
+                    if profit_rate <= threshold_pct:
+                        sell_candidates.append({
+                            '종목코드': clean_stock_code,
+                            '종목명': stock_name,
+                            '보유수량': quantity,
+                            '평균단가': avg_price,
+                            '현재가': current_price,
+                            '수익률': profit_rate,
+                            '매도사유': f"장중 손절 감시 ({profit_rate:.1f}% <= {threshold_pct:.1f}%)",
+                            '매도예상금액': quantity * current_price
+                        })
+                except Exception:
+                    continue
+
+            if not sell_candidates:
+                return {'success': True, 'message': '손절 조건을 만족하는 종목이 없습니다.', 'sell_results': None}
+
+            self._get_logger().warning(
+                f"🛡️ 장중 손절 감시 조건 충족: {len(sell_candidates)}개 종목 (기준: {threshold_pct:.1f}%)"
+            )
+
+            sell_results = self._execute_sell_orders(sell_candidates, account_info=None, strategy_params=None)
+            success_count = sell_results.get('success_count', 0)
+            failed_count = sell_results.get('failed_count', 0)
+
+            if success_count > 0:
+                return {
+                    'success': True,
+                    'message': f'장중 손절 감시 매도 {success_count}건 성공, {failed_count}건 실패',
+                    'sell_results': sell_results
+                }
+            return {
+                'success': False,
+                'message': f'장중 손절 감시 매도 성공 0건, {failed_count}건 실패',
+                'sell_results': sell_results
+            }
+
+        except Exception as e:
+            self._get_logger().error(f"장중 손절 감시 실행 실패: {e}")
+            return {'success': False, 'message': f'장중 손절 감시 실행 실패: {str(e)}', 'sell_results': None}
     
     def _execute_buy_orders(self, buy_candidates, account_info, strategy_params):
         """매수 주문 실행 (실시간 시장가 기준)"""

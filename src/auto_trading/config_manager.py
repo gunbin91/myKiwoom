@@ -31,6 +31,12 @@ class AutoTradingConfigManager:
             self.default_config = {
                 "auto_trading_enabled": False,
                 "schedule_time": "01:30",  # 모의투자는 24시간 가능
+                # 장중 손절 감시(자동매매와 별개)
+                # - 평가손익률(%)이 threshold_pct 이하로 하락 시 전량 시장가 매도
+                "intraday_stop_loss": {
+                    "enabled": False,
+                    "threshold_pct": -7.0
+                },
                 "strategy_params": {
                     "reserve_cash": 9000000,  # 매매 제외 예수금
                     "max_hold_period": 15,    # 최대 보유 기간
@@ -45,6 +51,11 @@ class AutoTradingConfigManager:
             self.default_config = {
                 "auto_trading_enabled": False,
                 "schedule_time": "08:30",  # 실전투자는 거래시간
+                # 장중 손절 감시(자동매매와 별개)
+                "intraday_stop_loss": {
+                    "enabled": False,
+                    "threshold_pct": -7.0
+                },
                 "strategy_params": {
                     "reserve_cash": 10000000,  # 매매 제외 예수금
                     "max_hold_period": 10,     # 최대 보유 기간 (더 보수적)
@@ -97,12 +108,17 @@ class AutoTradingConfigManager:
         try:
             if not self.trading_result_file.exists():
                 return False
-            
-            today = datetime.now().strftime('%Y-%m-%d')
+
+            today_str = datetime.now().strftime('%Y-%m-%d')
             with open(self.trading_result_file, 'r', encoding='utf-8') as f:
                 for line in f:
-                    if line.strip().startswith(today):
-                        return True
+                    line = line.strip()
+                    # 로그 포맷 기준: "⏰ 실행 시간: 2026-01-05 15:04:02"
+                    if line.startswith('⏰ 실행 시간:'):
+                        time_str = line.replace('⏰ 실행 시간:', '').strip()
+                        # 안전하게 날짜만 비교
+                        if time_str.startswith(today_str):
+                            return True
             return False
         except Exception as e:
             print(f"실행 이력 확인 실패: {e}")
