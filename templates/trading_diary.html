@@ -155,6 +155,18 @@
   <li class="nav-item" role="presentation">
     <button
       class="nav-link"
+      id="profit-chart-tab"
+      data-bs-toggle="tab"
+      data-bs-target="#profit-chart"
+      type="button"
+      role="tab"
+    >
+      <i class="fas fa-chart-column me-1"></i>일별 손익 그래프
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button
+      class="nav-link"
       id="monthly-tab"
       data-bs-toggle="tab"
       data-bs-target="#monthly"
@@ -214,6 +226,31 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 일별 손익 그래프 탭 -->
+  <div class="tab-pane fade" id="profit-chart" role="tabpanel">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+          <i class="fas fa-chart-column me-2"></i>일별 손익금액 그래프
+        </h5>
+        <small class="text-muted">일별 손익금액(profit_amount) 기준</small>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="profit-chart-container">
+              <canvas id="daily-profit-chart" height="260"></canvas>
+            </div>
+            <div class="form-text mt-2">
+              수익(+)은 <span class="text-up fw-semibold">빨강</span>, 손실(-)은
+              <span class="text-down fw-semibold">파랑</span>으로 표시됩니다.
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -329,11 +366,22 @@
     align-self: center !important;
     margin-left: auto;
   }
+
+  /* 손익 그래프 컨테이너 */
+  .profit-chart-container {
+    position: relative;
+    width: 100%;
+    min-height: 320px;
+  }
 </style>
+<!-- Chart.js (매매일지 페이지에서만 사용) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
   // 매매일지 전용 JavaScript
   let dailyTradesData = [];
   let monthlyTradesData = [];
+  let dailyProfitChart = null;
+  let currentDailyDisplayedData = [];
 
   document.addEventListener("DOMContentLoaded", function () {
     // 서버 정보 즉시 업데이트
@@ -354,6 +402,14 @@
 
     // 5분마다 자동 새로고침 (API 호출 빈도 감소)
     setInterval(loadTradingDiary, 300000);
+
+    // 탭 전환 시 차트 리사이즈 (hidden 상태에서 생성된 캔버스 대응)
+    const profitTab = document.getElementById("profit-chart-tab");
+    if (profitTab) {
+      profitTab.addEventListener("shown.bs.tab", function () {
+        if (dailyProfitChart) dailyProfitChart.resize();
+      });
+    }
   });
 
   function updateServerInfoFromTemplate() {
@@ -399,7 +455,9 @@
         if (data.success && data.data.daily_trades) {
           dailyTradesData = data.data.daily_trades;
           updateTradingSummary(data.data);
-          updateDailyTradesTable(dailyTradesData);
+          currentDailyDisplayedData = dailyTradesData.slice();
+          updateDailyTradesTable(currentDailyDisplayedData);
+          renderDailyProfitChart(currentDailyDisplayedData);
         } else if (data.authenticated === false) {
           isAuthenticated = false;
           updateAuthUI(false);
@@ -410,12 +468,16 @@
           if (data.message) {
             message = data.message;
           }
+          currentDailyDisplayedData = [];
+          renderDailyProfitChart(currentDailyDisplayedData);
           document.getElementById("daily-trades-tbody").innerHTML =
             `<tr><td colspan="9" class="text-center text-muted">${message}</td></tr>`;
         }
       })
       .catch((error) => {
         console.error("일별 매매일지 조회 실패:", error);
+        currentDailyDisplayedData = [];
+        renderDailyProfitChart(currentDailyDisplayedData);
         document.getElementById("daily-trades-tbody").innerHTML =
           '<tr><td colspan="9" class="text-center text-danger">데이터 조회 실패</td></tr>';
       });
@@ -506,6 +568,12 @@
   function updateDailyTradesTable(trades) {
     const tbody = document.getElementById("daily-trades-tbody");
     tbody.innerHTML = "";
+
+    if (!trades || trades.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="9" class="text-center text-muted">표시할 데이터가 없습니다.</td></tr>';
+      return;
+    }
 
     trades.forEach((trade) => {
       const row = document.createElement("tr");
@@ -724,7 +792,10 @@
       });
     }
 
-    updateDailyTradesTable(filteredData);
+    // NOTE: 일별 요약(테이블/그래프)은 동일 데이터 기준으로 동기화
+    currentDailyDisplayedData = filteredData.slice();
+    updateDailyTradesTable(currentDailyDisplayedData);
+    renderDailyProfitChart(currentDailyDisplayedData);
   }
 
   function sortDailyTrades() {
@@ -752,7 +823,9 @@
       }
     });
 
-    updateDailyTradesTable(dailyTradesData);
+    currentDailyDisplayedData = dailyTradesData.slice();
+    updateDailyTradesTable(currentDailyDisplayedData);
+    renderDailyProfitChart(currentDailyDisplayedData);
   }
 
   function sortMonthlyTrades() {
@@ -831,6 +904,105 @@
     ]);
 
     return [headers, ...rows].map((row) => row.join(",")).join("\n");
+  }
+
+  // ------------------------------
+  // 일별 손익 그래프 (Chart.js)
+  // ------------------------------
+  function _safeNumber(v, fallback = 0) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function _formatYYYYMMDD(dateStr) {
+    if (!dateStr) return "-";
+    const s = String(dateStr);
+    if (s.length === 8) return `${s.substring(0, 4)}-${s.substring(4, 6)}-${s.substring(6, 8)}`;
+    return s;
+  }
+
+  function renderDailyProfitChart(trades) {
+    const canvas = document.getElementById("daily-profit-chart");
+    if (!canvas || typeof Chart === "undefined") return;
+
+    const rows = (trades || []).slice().sort((a, b) => {
+      const ad = String(a.trade_date || "");
+      const bd = String(b.trade_date || "");
+      return ad.localeCompare(bd);
+    });
+
+    const labels = rows.map((t) => _formatYYYYMMDD(t.trade_date));
+    const values = rows.map((t) => _safeNumber(t.profit_amount, 0));
+    const colors = values.map((v) =>
+      v >= 0 ? "rgba(244, 67, 54, 0.65)" : "rgba(33, 150, 243, 0.65)"
+    );
+    const borderColors = values.map((v) =>
+      v >= 0 ? "rgba(244, 67, 54, 0.95)" : "rgba(33, 150, 243, 0.95)"
+    );
+
+    const data = {
+      labels,
+      datasets: [
+        {
+          label: "손익금액",
+          data: values,
+          backgroundColor: colors,
+          borderColor: borderColors,
+          borderWidth: 1,
+          borderRadius: 6,
+          maxBarThickness: 32,
+        },
+      ],
+    };
+
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function (ctx) {
+              const v = _safeNumber(ctx.parsed.y, 0);
+              const sign = v > 0 ? "+" : "";
+              return `손익: ${sign}${formatNumber(v)}원`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
+          grid: { display: false },
+        },
+        y: {
+          ticks: {
+            callback: function (value) {
+              return `${formatNumber(value)}원`;
+            },
+          },
+          grid: {
+            color: function (context) {
+              const v = context.tick && context.tick.value;
+              return v === 0 ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.08)";
+            },
+          },
+        },
+      },
+    };
+
+    if (dailyProfitChart) {
+      dailyProfitChart.data = data;
+      dailyProfitChart.update();
+      return;
+    }
+
+    const ctx = canvas.getContext("2d");
+    dailyProfitChart = new Chart(ctx, {
+      type: "bar",
+      data,
+      options,
+    });
   }
 </script>
 {% endblock %}
