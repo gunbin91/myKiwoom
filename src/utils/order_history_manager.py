@@ -336,37 +336,35 @@ class OrderHistoryManager:
         try:
             # 해당 종목의 주문 인덱스들 가져오기
             order_indices = self.stock_index[stock_code]
-            
-            # 현재 수량을 기준으로 가장 오래된 매수일 찾기
-            remaining_qty = current_quantity
-            oldest_date = None
-            
-            # 날짜순으로 정렬된 주문들 확인 (오래된 것부터)
+
+            # 자동매매는 전량 매수/전량 매도 전제를 두는 경우가 많으므로,
+            # 현재 보유기간은 '가장 최근(마지막) 매수 체결일' 기준으로 계산한다.
+            # (당일 매도 후 재매수 시, 과거 매수일부터로 잡히는 문제를 방지)
+            latest_date = None
+            latest_time = ""
+
             for idx in order_indices:
                 if idx >= len(self.orders_data):
                     continue
-                    
                 order = self.orders_data[idx]
-                if remaining_qty <= 0:
-                    break
-                
-                if remaining_qty >= order['quantity']:
-                    remaining_qty -= order['quantity']
-                    oldest_date = order['date']
-                else:
-                    # 부분 매수인 경우
-                    oldest_date = order['date']
-                    break
-            
+                d = order.get('date')
+                t = order.get('time') or ""
+                if not d:
+                    continue
+
+                if (latest_date is None) or (d > latest_date) or (d == latest_date and t > latest_time):
+                    latest_date = d
+                    latest_time = t
+
             # 보유기간 계산
-            if oldest_date:
+            if latest_date:
                 try:
-                    purchase_date = datetime.strptime(oldest_date, '%Y%m%d').date()
+                    purchase_date = datetime.strptime(latest_date, '%Y%m%d').date()
                     today = datetime.now().date()
                     holding_days = (today - purchase_date).days
                     return max(0, holding_days)
                 except ValueError:
-                    logger.error(f"🚨 날짜 형식 오류: {oldest_date}")
+                    logger.error(f"🚨 날짜 형식 오류: {latest_date}")
                     return 0
             
             return 0

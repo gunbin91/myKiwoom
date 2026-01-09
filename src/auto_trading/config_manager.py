@@ -44,7 +44,21 @@ class AutoTradingConfigManager:
                     "stop_loss_pct": 3.0,     # 손절률
                     "top_n": 5,               # 매수 종목 수
                     "buy_universe_rank": 20,  # 매수 대상 범위
-                    "transaction_fee_rate": 0.015  # 거래 수수료율 (%)
+                    "transaction_fee_rate": 0.015,  # 거래 수수료율 (%)
+
+                    # 매수 주문 방식
+                    # - "market": 시장가(기존 동작)
+                    # - "limit_ask1": 매도1호가(최우선 매도호가) 기준 지정가 매수
+                    "buy_order_method": "market",
+
+                    # limit_ask1 사용 시, 현재가 대비 과도하게 높은 매도1호가로 매수되는 것을 방지
+                    # (예: 1.0이면 현재가 대비 +1% 초과 시 가드 발동)
+                    "limit_buy_max_premium_pct": 1.0,
+
+                    # 가드 발동 시 처리
+                    # - "skip": 매수 주문을 건너뜀(고가매수 방지 우선)
+                    # - "market_fallback": 시장가로 폴백(체결 우선, 고가매수 리스크 존재)
+                    "limit_buy_guard_action": "skip"
                 }
             }
         else:  # real
@@ -63,7 +77,16 @@ class AutoTradingConfigManager:
                     "stop_loss_pct": 2.0,      # 손절률 (더 보수적)
                     "top_n": 3,                # 매수 종목 수 (더 보수적)
                     "buy_universe_rank": 15,   # 매수 대상 범위 (더 보수적)
-                    "transaction_fee_rate": 0.015  # 거래 수수료율 (%)
+                    "transaction_fee_rate": 0.015,  # 거래 수수료율 (%)
+
+                    # 매수 주문 방식
+                    "buy_order_method": "market",
+
+                    # limit_ask1 사용 시, 현재가 대비 과도하게 높은 매도1호가로 매수되는 것을 방지
+                    "limit_buy_max_premium_pct": 1.0,
+
+                    # 가드 발동 시 처리
+                    "limit_buy_guard_action": "skip"
                 }
             }
     
@@ -132,6 +155,33 @@ class AutoTradingConfigManager:
         try:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             server_name = "모의투자" if self.server_type == "mock" else "실전투자"
+
+            # 실행 상세 JSON 저장(화면에서 바로 보기 용도)
+            try:
+                detail_dir = self.trading_result_file.parent / "execution_details"
+                detail_dir.mkdir(parents=True, exist_ok=True)
+                safe_ts = timestamp.replace(":", "-").replace(" ", "_")
+                detail_filename = f"execution_detail_{safe_ts}.json"
+                detail_path = detail_dir / detail_filename
+                detail_payload = {
+                    "timestamp": timestamp,
+                    "server_type": self.server_type,
+                    "execution_type": execution_type,
+                    "status": status,
+                    "message": message,
+                    "buy_count": buy_count,
+                    "sell_count": sell_count,
+                    "strategy_params": strategy_params or {},
+                    "buy_results": buy_results or {},
+                    "sell_results": sell_results or {},
+                    "buy_candidates": buy_candidates or [],
+                    "sell_candidates": sell_candidates or [],
+                }
+                with open(detail_path, "w", encoding="utf-8") as f:
+                    json.dump(detail_payload, f, ensure_ascii=False, indent=2)
+            except Exception as json_err:
+                detail_filename = None
+                print(f"실행 상세 JSON 저장 실패: {json_err}")
             
             # 기본 정보
             log_entry = f"\n{'='*100}\n"
@@ -142,6 +192,8 @@ class AutoTradingConfigManager:
             log_entry += f"📈 매수 시도: {buy_count}건\n"
             log_entry += f"📉 매도 시도: {sell_count}건\n"
             log_entry += f"💬 메시지: {message}\n"
+            if detail_filename:
+                log_entry += f"🧾 상세파일: {detail_filename}\n"
             
             # 계좌 정보 (실행 전/후 예수금 비교)
             if account_info:
@@ -302,12 +354,29 @@ class AutoTradingConfigManager:
             from datetime import datetime
             import os
             import glob
+            import platform
             
             # 현재 날짜
             today = datetime.now().strftime('%Y-%m-%d')
             
             # 오늘 날짜의 로그 파일 경로
             today_log_file = self.trading_result_file.parent / f"trading_result_{today}.log"
+
+            # Windows에서는 심볼릭 링크 생성이 관리자 권한을 요구(WinError 1314)할 수 있으므로,
+            # 링크 기반 로테이션을 사용하지 않고, 날짜별 파일 + trading_result.log 둘 다에 기록한다.
+            is_windows = (os.name == 'nt') or (platform.system().lower() == 'windows')
+
+            if is_windows:
+                # 날짜별 파일에 기록
+                with open(today_log_file, 'a', encoding='utf-8') as f:
+                    f.write(log_entry)
+                # trading_result.log(하위 호환)에도 같이 기록
+                with open(self.trading_result_file, 'a', encoding='utf-8') as f:
+                    f.write(log_entry)
+
+                # 오래된 로그 파일 정리만 수행
+                self._cleanup_old_logs()
+                return
             
             # 기존 trading_result.log가 있고 오늘 날짜가 아니면 백업
             if self.trading_result_file.exists():
@@ -412,6 +481,7 @@ class AutoTradingConfigManager:
                     sell_count = 0
                     message = ""
                     execution_type = "자동"
+                    details_file = None
                     total_deposit = 0
                     available_amount = 0
                     holdings_count = 0
@@ -457,6 +527,8 @@ class AutoTradingConfigManager:
                             sell_count = int(sell_str)
                         elif '💬 메시지:' in line:
                             message = line.replace('💬 메시지:', '').strip()
+                        elif '🧾 상세파일:' in line:
+                            details_file = line.replace('🧾 상세파일:', '').strip()
                         elif '🔄 실행 유형:' in line:
                             execution_type = line.replace('🔄 실행 유형:', '').strip()
                         elif '- 총 예수금:' in line and current_section == "account":
@@ -498,6 +570,7 @@ class AutoTradingConfigManager:
                             'sell_count': sell_count,
                             'message': message,
                             'execution_type': execution_type,
+                            'details_file': details_file,
                             'total_deposit': total_deposit,
                             'available_amount': available_amount,
                             'holdings_count': holdings_count,

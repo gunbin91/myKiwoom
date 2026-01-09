@@ -36,12 +36,20 @@ class KiwoomQuote:
             current_auth = KiwoomAuth(self.server_type)
             headers = current_auth.get_auth_headers()
             headers['api-id'] = api_id
+
+            # API ID에 따라 올바른 엔드포인트 선택
+            # - ka10001(주식기본정보요청) 등: /api/dostk/stkinfo
+            # - ka10004(주식호가요청): /api/dostk/mrkcond (가이드 기준)
+            if api_id == 'ka10004':
+                url = f"{self.server_config.domain}/api/dostk/mrkcond"
+            else:
+                url = self.base_url
             
             # API 요청 지연
             time.sleep(API_REQUEST_DELAY)
             
             response = requests.post(
-                self.base_url,
+                url,
                 headers=headers,
                 json=data,
                 timeout=30
@@ -55,7 +63,7 @@ class KiwoomQuote:
             else:
                 error_msg = result.get('return_msg', '알 수 없는 오류')
                 error_code = result.get('return_code', 'UNKNOWN')
-                api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg}")
+                api_logger.error(f"API {api_id} 호출 실패: [{error_code}]{error_msg} (URL: {url})")
                 
                 # 오류 정보를 포함한 결과 반환
                 return {

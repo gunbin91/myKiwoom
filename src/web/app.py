@@ -14,6 +14,7 @@ from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import json
+from pathlib import Path
 from datetime import datetime, timedelta
 import time
 from flask import g
@@ -2936,6 +2937,34 @@ def get_auto_trading_history():
         })
 
 
+@app.route('/api/auto-trading/execution-detail')
+def get_auto_trading_execution_detail():
+    """자동매매 실행 상세(JSON) 조회"""
+    try:
+        server_type = get_request_server_type()
+        filename = request.args.get('file', '').strip()
+        if not filename:
+            return jsonify({'success': False, 'message': 'file 파라미터가 필요합니다.'}), 400
+
+        # 디렉토리 트래버설 방지: 파일명만 허용
+        if '/' in filename or '\\' in filename or '..' in filename:
+            return jsonify({'success': False, 'message': '잘못된 file 파라미터입니다.'}), 400
+
+        base_dir = Path(__file__).parent.parent.parent / "logs" / server_type / "execution_details"
+        target = base_dir / filename
+        if not target.exists():
+            return jsonify({'success': False, 'message': '상세파일을 찾을 수 없습니다.'}), 404
+
+        with open(target, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        return jsonify({'success': True, 'data': data})
+
+    except Exception as e:
+        get_web_logger().error(f"실행 상세 조회 실패: {e}")
+        return jsonify({'success': False, 'message': f'실행 상세 조회 실패: {str(e)}'}), 500
+
+
 @socketio.on('connect')
 def handle_connect():
     """웹소켓 연결 처리"""
@@ -2946,11 +2975,12 @@ def handle_connect():
 
 
 @socketio.on('disconnect')
-def handle_disconnect():
+def handle_disconnect(sid=None):
     """웹소켓 연결 해제 처리"""
     global is_connected
     is_connected = False
-    get_web_logger().info(f"클라이언트 연결 해제: {request.sid}")
+    disconnected_sid = getattr(request, 'sid', None) or sid
+    get_web_logger().info(f"클라이언트 연결 해제: {disconnected_sid}")
 
 
 @socketio.on('subscribe_stock')
@@ -3046,8 +3076,9 @@ def execute_api_test():
                 'message': 'API ID가 필요합니다.'
             })
         
-        # 현재 계좌 인스턴스 가져오기
+        # 현재 계좌/시세 인스턴스 가져오기
         account = get_current_account()
+        quote = get_current_quote()
         
         # API ID에 따라 적절한 메서드 호출
         result = None
@@ -3156,6 +3187,13 @@ def execute_api_test():
                 params.get('uv', ''),
                 params.get('trde_qty', '')
             )
+        # -----------------------
+        # 시세(quote) API 테스트
+        # -----------------------
+        elif api_id == 'ka10001':
+            result = quote.get_stock_basic_info(params.get('stk_cd', ''))
+        elif api_id == 'ka10004':
+            result = quote.get_stock_quote(params.get('stk_cd', ''))
         else:
             return jsonify({
                 'success': False,

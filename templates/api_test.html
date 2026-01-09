@@ -68,6 +68,10 @@ content %}
                 <option value="ka10170">ka10170 - 당일매매일지요청</option>
                 <option value="kt00015">kt00015 - 위탁종합거래내역요청</option>
               </optgroup>
+              <optgroup label="시세/호가">
+                <option value="ka10001">ka10001 - 주식기본정보요청</option>
+                <option value="ka10004">ka10004 - 주식호가요청</option>
+              </optgroup>
               <optgroup label="주문 관련">
                 <option value="kt00007">
                   kt00007 - 계좌별주문체결내역상세요청
@@ -112,6 +116,57 @@ content %}
               disabled
             >
               <i class="fas fa-undo me-2"></i>파라미터 초기화
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 자동매매 매수 설정(테스트 페이지에서도 조정) -->
+      <div class="card mt-3">
+        <div class="card-header">
+          <h5 class="mb-0">
+            <i class="fas fa-sliders-h me-2"></i>자동매매 매수 설정
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label for="api-test-buy-order-method" class="form-label">매수 주문 방식</label>
+            <select class="form-select" id="api-test-buy-order-method">
+              <option value="market">시장가(기존)</option>
+              <option value="limit_ask1">매도1호가 지정가(추천)</option>
+            </select>
+            <div class="form-text">
+              자동매매 설정과 동일한 설정값입니다. (여기서 저장하면 자동매매에도 반영)
+            </div>
+          </div>
+
+          <div class="mb-3" id="api-test-limit-buy-guard-section">
+            <div class="row">
+              <div class="col-6">
+                <label for="api-test-limit-buy-max-premium-pct" class="form-label">가드 기준(%)</label>
+                <input
+                  type="number"
+                  class="form-control"
+                  id="api-test-limit-buy-max-premium-pct"
+                  min="0"
+                  step="0.1"
+                  value="1.0"
+                />
+                <div class="form-text">현재가 대비 매도1호가 허용(%)</div>
+              </div>
+              <div class="col-6">
+                <label for="api-test-limit-buy-guard-action" class="form-label">가드 발동 시 처리</label>
+                <select class="form-select" id="api-test-limit-buy-guard-action">
+                  <option value="skip">매수 스킵</option>
+                  <option value="market_fallback">시장가 폴백</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="d-grid">
+            <button class="btn btn-outline-primary" type="button" onclick="ApiTest_saveBuySettings()">
+              <i class="fas fa-save me-2"></i>매수 설정 저장
             </button>
           </div>
         </div>
@@ -279,6 +334,34 @@ content %}
           ],
           default: "KRX",
           description: "조회할 거래소를 선택합니다.",
+        },
+      ],
+    },
+    ka10001: {
+      name: "주식기본정보요청",
+      description: "종목의 현재가/기본정보를 조회합니다.",
+      params: [
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: true,
+          default: "005930",
+          description: "예: 005930",
+        },
+      ],
+    },
+    ka10004: {
+      name: "주식호가요청",
+      description: "종목의 호가/잔량(매도1호가 등)을 조회합니다.",
+      params: [
+        {
+          name: "stk_cd",
+          label: "종목코드",
+          type: "text",
+          required: true,
+          default: "005930",
+          description: "예: 005930",
         },
       ],
     },
@@ -1265,6 +1348,74 @@ content %}
       }
     }, duration);
   }
+
+  // -------------------------
+  // 자동매매 매수 설정(테스트)
+  // -------------------------
+  function ApiTest_updateBuyGuardUI() {
+    const method = document.getElementById("api-test-buy-order-method")?.value || "market";
+    const guardSection = document.getElementById("api-test-limit-buy-guard-section");
+    const maxPremiumEl = document.getElementById("api-test-limit-buy-max-premium-pct");
+    const guardActionEl = document.getElementById("api-test-limit-buy-guard-action");
+
+    const enable = method === "limit_ask1";
+    if (guardSection) guardSection.style.opacity = enable ? "1" : "0.5";
+    if (maxPremiumEl) maxPremiumEl.disabled = !enable;
+    if (guardActionEl) guardActionEl.disabled = !enable;
+  }
+
+  function ApiTest_loadBuySettings() {
+    fetch("/api/auto-trading/config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.success) return;
+        const cfg = data.data || {};
+        const sp = cfg.strategy_params || {};
+
+        document.getElementById("api-test-buy-order-method").value = sp.buy_order_method || "market";
+        document.getElementById("api-test-limit-buy-max-premium-pct").value = sp.limit_buy_max_premium_pct ?? 1.0;
+        document.getElementById("api-test-limit-buy-guard-action").value = sp.limit_buy_guard_action || "skip";
+        ApiTest_updateBuyGuardUI();
+      })
+      .catch(() => {});
+  }
+
+  function ApiTest_saveBuySettings() {
+    fetch("/api/auto-trading/config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.success) throw new Error(data.message || "설정 조회 실패");
+        const cfg = data.data || {};
+        cfg.strategy_params = cfg.strategy_params || {};
+
+        cfg.strategy_params.buy_order_method = document.getElementById("api-test-buy-order-method").value || "market";
+        cfg.strategy_params.limit_buy_max_premium_pct =
+          parseFloat(document.getElementById("api-test-limit-buy-max-premium-pct").value) ?? 1.0;
+        cfg.strategy_params.limit_buy_guard_action =
+          document.getElementById("api-test-limit-buy-guard-action").value || "skip";
+
+        return fetch("/api/auto-trading/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cfg),
+        });
+      })
+      .then((r) => r.json())
+      .then((resp) => {
+        if (resp.success) {
+          showAlert("✅ 자동매매 매수 설정이 저장되었습니다.", "success", 4000);
+        } else {
+          showAlert(resp.message || "❌ 저장 실패", "danger", 7000);
+        }
+      })
+      .catch((e) => showAlert(`❌ 저장 실패: ${e.message}`, "danger", 7000));
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const el = document.getElementById("api-test-buy-order-method");
+    if (el) el.addEventListener("change", ApiTest_updateBuyGuardUI);
+    ApiTest_loadBuySettings();
+  });
 
   function copyResult() {
     const resultText = document.getElementById("test-results").textContent;

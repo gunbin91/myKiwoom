@@ -169,6 +169,13 @@ class AutoTradingEngine:
                 self._get_logger().info("✅ 매수 체결 확인 완료")
             else:
                 self._get_logger().warning("⚠️ 매수 체결 확인 시간 초과, 계속 진행합니다.")
+                # 미체결 잔량에 대해: 가드 허용% 상한 내에서 매도2호가로 재시도(정책은 limit_buy_guard_action 사용)
+                try:
+                    unfilled_failures = self._retry_unfilled_buy_orders_with_ask2(buy_orders, strategy_params, max_total_wait=20)
+                    if unfilled_failures:
+                        buy_results['unfilled_failures'] = unfilled_failures
+                except Exception as retry_err:
+                    self._get_logger().warning(f"미체결 매수 재시도 처리 중 오류(무시하고 진행): {retry_err}")
         
         return {
             'sell_results': sell_results,
@@ -383,6 +390,13 @@ class AutoTradingEngine:
                 else:
                     message = f"[자동] 매수 실패: {buy_results.get('total_attempts', 0)}개 종목 중 {buy_count}건 성공"
                     status = "failed"
+
+                # 최종 미체결(잔량) 요약을 메시지에 포함(사용자 편의)
+                unfilled = buy_results.get('unfilled_failures', []) or []
+                if unfilled:
+                    preview = ", ".join([f"{x.get('stock_code')}({x.get('unfilled_qty')}주)" for x in unfilled[:3]])
+                    suffix = f"{preview}" + (f" 외 {len(unfilled) - 3}개" if len(unfilled) > 3 else "")
+                    message = f"{message} | 미체결: {suffix}"
                 
                 # 실행 결과 로그 기록
                 self.config_manager.log_execution(
@@ -569,12 +583,13 @@ class AutoTradingEngine:
             return {'success': False, 'message': f'장중 손절 감시 실행 실패: {str(e)}', 'sell_results': None}
     
     def _execute_buy_orders(self, buy_candidates, account_info, strategy_params):
-        """매수 주문 실행 (실시간 시장가 기준)"""
+        """매수 주문 실행 (시장가/호가 기반 지정가 옵션 지원)"""
         success_count = 0
         failed_count = 0
         total_buy_amount = 0
         total_buy_quantity = 0
         buy_details = []
+        buy_orders = []  # 매수 주문 정보 저장 (체결 확인용)
         reserve_cash = strategy_params.get('reserve_cash', 1000000)
         transaction_fee_rate = strategy_params.get('transaction_fee_rate', 0.015)
         
@@ -604,6 +619,10 @@ class AutoTradingEngine:
             self._get_logger().info(f"📊 매수 대상 종목 수: {len(buy_candidates)}개")
             self._get_logger().info(f"📊 종목당 투자 금액: {investment_per_stock:,}원")
             
+            buy_order_method = (strategy_params.get('buy_order_method', 'market') or 'market').strip()
+            limit_buy_max_premium_pct = float(strategy_params.get('limit_buy_max_premium_pct', 1.0) or 1.0)
+            limit_buy_guard_action = (strategy_params.get('limit_buy_guard_action', 'skip') or 'skip').strip()
+
             for candidate in buy_candidates:
                 try:
                     stock_code = candidate.get('종목코드', '')
@@ -639,7 +658,58 @@ class AutoTradingEngine:
                         continue
                     
                     # 매수 주문 실행 (재시도 로직 포함)
-                    self._get_logger().info(f"📈 {stock_name}({stock_code}) 매수 주문: {quantity}주 @ {realtime_price:,}원 (투자금액: {investment_per_stock:,}원)")
+                    # 주문 방식 선택: market(기존) / limit_ask1(매도1호가 지정가)
+                    order_type_to_send = '3'  # 기본 시장가
+                    order_price_to_send = 0
+
+                    if buy_order_method == 'limit_ask1':
+                        hoga = self._get_best_ask_price(stock_code)
+                        best_ask_price = int(hoga.get('price', 0) or 0) if hoga.get('success') else 0
+
+                        if best_ask_price <= 0:
+                            if limit_buy_guard_action == 'market_fallback':
+                                self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 매도1호가 조회 실패 → 시장가로 폴백")
+                                order_type_to_send = '3'
+                                order_price_to_send = 0
+                            else:
+                                self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 매도1호가 조회 실패 → 매수 스킵")
+                                continue
+                        else:
+                            # 현재가 대비 과도한 프리미엄 방지
+                            if realtime_price > 0:
+                                premium_pct = ((best_ask_price - realtime_price) / realtime_price) * 100
+                                if premium_pct > limit_buy_max_premium_pct:
+                                    msg = (f"🛑 {stock_name}({stock_code}) 가드 발동: "
+                                           f"매도1호가 {best_ask_price:,}원이 현재가 {realtime_price:,}원 대비 "
+                                           f"+{premium_pct:.2f}% (허용 {limit_buy_max_premium_pct:.2f}%)")
+                                    if limit_buy_guard_action == 'market_fallback':
+                                        self._get_logger().warning(msg + " → 시장가로 폴백")
+                                        order_type_to_send = '3'
+                                        order_price_to_send = 0
+                                    else:
+                                        self._get_logger().warning(msg + " → 매수 스킵")
+                                        continue
+                                else:
+                                    order_type_to_send = '0'
+                                    order_price_to_send = best_ask_price
+                            else:
+                                # 현재가가 없으면 보수적으로 스킵(또는 폴백)
+                                if limit_buy_guard_action == 'market_fallback':
+                                    self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 현재가 부족 → 시장가로 폴백")
+                                    order_type_to_send = '3'
+                                    order_price_to_send = 0
+                                else:
+                                    self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 현재가 부족 → 매수 스킵")
+                                    continue
+
+                    if order_type_to_send == '0':
+                        self._get_logger().info(
+                            f"📈 {stock_name}({stock_code}) 지정가 매수 주문: {quantity}주 @ {order_price_to_send:,}원 (매도1호가)"
+                        )
+                    else:
+                        self._get_logger().info(
+                            f"📈 {stock_name}({stock_code}) 시장가 매수 주문: {quantity}주 (참고 현재가: {realtime_price:,}원)"
+                        )
                     
                     # 매수 주문 재시도 (최대 2회)
                     max_retries = 2
@@ -653,8 +723,8 @@ class AutoTradingEngine:
                         order_result = self.order.buy_stock(
                             stock_code=order_stock_code,  # 변환된 종목코드 사용
                             quantity=quantity,
-                            price=0,  # 시장가는 가격을 0으로 설정
-                            order_type='3'  # 시장가
+                            price=order_price_to_send,
+                            order_type=order_type_to_send
                         )
                         
                         if order_result and order_result.get('success') is not False:
@@ -669,11 +739,22 @@ class AutoTradingEngine:
                                 'stock_name': stock_name,
                                 'stock_code': stock_code,
                                 'quantity': quantity,
-                                'price': realtime_price,
-                                'amount': quantity * realtime_price,
+                                'price': order_price_to_send if order_type_to_send == '0' else realtime_price,
+                                'amount': quantity * (order_price_to_send if order_type_to_send == '0' else realtime_price),
                                 'status': '성공',
                                 'error_message': '',
                                 'reason': buy_reason
+                            })
+
+                            # 매수 주문 정보 저장 (체결 확인용)
+                            buy_orders.append({
+                                'stock_code': stock_code,
+                                'stock_name': stock_name,
+                                'quantity': quantity,
+                                'price': order_price_to_send if order_type_to_send == '0' else realtime_price,
+                                'reason': buy_reason,
+                                'order_type': order_type_to_send,
+                                'ord_no': order_result.get('ord_no') if isinstance(order_result, dict) else None
                             })
                             
                             self._get_logger().info(f"✅ {stock_name} 매수 주문 성공")
@@ -738,7 +819,8 @@ class AutoTradingEngine:
                 'total_attempts': success_count + failed_count,
                 'total_buy_amount': total_buy_amount,
                 'total_buy_quantity': total_buy_quantity,
-                'details': buy_details
+                'details': buy_details,
+                'buy_orders': buy_orders
             }
             
         except Exception as e:
@@ -750,7 +832,8 @@ class AutoTradingEngine:
                 'total_attempts': 0,
                 'total_buy_amount': 0,
                 'total_buy_quantity': 0,
-                'details': []
+                'details': [],
+                'buy_orders': []
             }
     
     def _wait_for_sell_execution(self, sell_orders, max_wait_time=30):
@@ -810,6 +893,234 @@ class AutoTradingEngine:
         
         self._get_logger().warning(f"⚠️ 매도 체결 확인 시간 초과 ({max_wait_time}초), 계속 진행합니다.")
         return False
+
+    def _wait_for_buy_execution(self, buy_orders, max_wait_time=30):
+        """매수 주문 체결 대기 및 확인 (매도 체결 확인과 동일 패턴)"""
+        import time
+        from datetime import datetime, timedelta
+
+        if not buy_orders:
+            return True
+
+        self._get_logger().info(f"📋 {len(buy_orders)}건의 매수 주문 체결을 확인하는 중...")
+
+        start_time = datetime.now()
+        max_wait = timedelta(seconds=max_wait_time)
+
+        while datetime.now() - start_time < max_wait:
+            try:
+                # 오늘 날짜로 체결내역 조회
+                today = datetime.now().strftime('%Y%m%d')
+                execution_result = self.order.get_order_history(
+                    start_date=today,
+                    end_date=today,
+                    order_type="2"  # 매수만
+                )
+
+                if execution_result and execution_result.get('acnt_ord_cntr_prps_dtl'):
+                    executed_orders = execution_result['acnt_ord_cntr_prps_dtl']
+
+                    # 매수 주문 중 체결된 것들 확인
+                    executed_count = 0
+                    for buy_order in buy_orders:
+                        stock_code = buy_order.get('stock_code', '')
+                        order_qty = buy_order.get('quantity', 0)
+
+                        for execution in executed_orders:
+                            execution_stock_code = execution.get('stk_cd', '')
+                            # 계좌 API에서 받은 종목코드(A005930)에서 A 제거하여 비교
+                            if (execution_stock_code.replace('A', '') == stock_code.replace('A', '') and
+                                int(execution.get('cntr_qty', 0)) >= order_qty):
+                                executed_count += 1
+                                self._get_logger().info(f"✅ {stock_code} 매수 체결 확인: {execution.get('cntr_qty')}주")
+                                break
+
+                    if executed_count >= len(buy_orders):
+                        self._get_logger().info(f"✅ 모든 매수 주문 체결 확인 완료: {executed_count}/{len(buy_orders)}건")
+                        return True
+                    else:
+                        self._get_logger().info(f"⏳ 매수 체결 대기 중: {executed_count}/{len(buy_orders)}건 체결")
+
+                # 3초 대기 후 재확인
+                time.sleep(3)
+
+            except Exception as e:
+                self._get_logger().warning(f"매수 체결 확인 중 오류: {e}")
+                time.sleep(3)
+
+        self._get_logger().warning(f"⚠️ 매수 체결 확인 시간 초과 ({max_wait_time}초), 계속 진행합니다.")
+        return False
+
+    def _get_unexecuted_buy_qty_by_ord_no(self, order_no: str) -> int:
+        """미체결 조회(ka10075)로 주문번호 기준 미체결 잔량 조회"""
+        try:
+            if not order_no:
+                return 0
+
+            # trade_type은 브로커/문서별로 값 의미가 다를 수 있어 전체 조회 후 주문번호로 필터링
+            result = self.account.get_unexecuted_orders(all_stock_type="0", trade_type="0", exchange="KRX")
+            if not result or result.get('success') is False:
+                return 0
+
+            oso_list = result.get('oso', []) or []
+            for row in oso_list:
+                if str(row.get('ord_no', '')).strip() == str(order_no).strip():
+                    try:
+                        return int(row.get('oso_qty', 0) or 0)
+                    except Exception:
+                        return 0
+            return 0
+        except Exception as e:
+            self._get_logger().warning(f"미체결 잔량 조회 실패(ord_no={order_no}): {e}")
+            return 0
+
+    def _retry_unfilled_buy_orders_with_ask2(self, buy_orders, strategy_params, max_total_wait=20):
+        """
+        미체결(잔량)인 매수 주문에 대해:
+        - max_price(현재가*(1+허용%)) 이내에서 매도2~10호가로 단계적으로 상향 재주문
+          - 재주문 전 항상 '현재 주문 잔량만' 취소하여, 미체결 주문이 여러 개 남지 않게 한다.
+        - max_price 초과/호가조회 실패면: strategy_params.limit_buy_guard_action 사용
+          - skip: 마지막 주문(현재 미체결)을 그대로 둔다.
+          - market_fallback: 잔량 취소 후 시장가로 재주문한다.
+
+        주의: 사용자가 요청한 정책에 따라 '마지막 시도' 주문만 남길 수 있으며,
+        재시도 과정에서 여러 주문이 남지 않도록 항상 취소 확인 후 진행한다.
+        """
+        if not buy_orders:
+            return []
+
+        buy_order_method = (strategy_params.get('buy_order_method', 'market') or 'market').strip()
+        if buy_order_method != 'limit_ask1':
+            return []
+
+        limit_buy_max_premium_pct = float(strategy_params.get('limit_buy_max_premium_pct', 1.0) or 1.0)
+        limit_buy_guard_action = (strategy_params.get('limit_buy_guard_action', 'skip') or 'skip').strip()
+
+        start_time = datetime.now()
+        retry_orders = []  # 재주문 체결 확인용(선택)
+        unfilled_failures = []  # 최종 미체결/실패 요약(사용자 노출용)
+
+        def _get_ask_price_by_level(quote_data: dict, level: int) -> int:
+            if level == 1:
+                return self._parse_int_field(quote_data.get('sel_fpr_bid', 0), default=0)
+            return self._parse_int_field(quote_data.get(f"sel_{level}th_pre_bid", 0), default=0)
+
+        for bo in buy_orders:
+            if (datetime.now() - start_time).total_seconds() > max_total_wait:
+                break
+
+            current_order_no = bo.get('ord_no') or ''
+            stock_code = bo.get('stock_code') or ''
+            stock_name = bo.get('stock_name') or stock_code
+            if not current_order_no or not stock_code:
+                continue
+
+            # 현재 미체결 잔량 확인(0이면 종료)
+            unfilled_qty = self._get_unexecuted_buy_qty_by_ord_no(current_order_no)
+            if unfilled_qty <= 0:
+                continue
+
+            # 현재가 재조회 + max_price 산정 (재시도 상한)
+            rt = self._get_realtime_price(stock_code)
+            current_price = int(rt.get('price', 0) or 0) if rt.get('success') else 0
+            if current_price <= 0:
+                self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 현재가 조회 실패 → 미체결 처리 생략(주문 유지)")
+                continue
+
+            max_price = int(current_price * (1 + limit_buy_max_premium_pct / 100))
+
+            # 매도2~10호가까지 단계적으로 올리며 재시도
+            escalated = False
+            for level in range(2, 11):
+                if (datetime.now() - start_time).total_seconds() > max_total_wait:
+                    break
+
+                # 현재 주문의 잔량 재확인
+                unfilled_qty = self._get_unexecuted_buy_qty_by_ord_no(current_order_no)
+                if unfilled_qty <= 0:
+                    break  # 이미 체결됨
+
+                quote = self.quote.get_stock_quote(stock_code) or {}
+                ask_price = _get_ask_price_by_level(quote, level)
+
+                if ask_price <= 0:
+                    continue
+
+                if ask_price > max_price:
+                    # 상한 초과: 정책 적용 (마지막 주문만 남기기)
+                    if limit_buy_guard_action == 'market_fallback':
+                        self._get_logger().warning(
+                            f"🛑 {stock_name}({stock_code}) max_price 초과: 매도{level}호가 {ask_price:,} > max {max_price:,} "
+                            f"→ 잔량 취소 후 시장가 폴백(잔량:{unfilled_qty})"
+                        )
+                        cancel_res = self.order.cancel_order(order_no=current_order_no, stock_code=stock_code, quantity=unfilled_qty)
+                        if cancel_res and cancel_res.get('success') is not False:
+                            mr = self.order.buy_stock(stock_code=stock_code, quantity=unfilled_qty, price=0, order_type='3')
+                            if mr and mr.get('success') is not False:
+                                current_order_no = mr.get('ord_no') or current_order_no
+                                retry_orders.append({'stock_code': stock_code, 'quantity': unfilled_qty, 'ord_no': current_order_no})
+                        # 폴백 후에는 더 이상 호가 상향 재시도 안 함
+                    else:
+                        self._get_logger().warning(
+                            f"🛑 {stock_name}({stock_code}) max_price 초과: 매도{level}호가 {ask_price:,} > max {max_price:,} "
+                            f"→ 마지막 주문 유지(잔량:{unfilled_qty})"
+                        )
+                    escalated = True
+                    break
+
+                # 잔량 취소 후, 해당 호가로 재주문 (이전 주문이 남지 않도록)
+                self._get_logger().info(
+                    f"🔁 {stock_name}({stock_code}) 미체결 잔량 {unfilled_qty}주 재시도: "
+                    f"기존 주문 취소 → 매도{level}호가 {ask_price:,}원 지정가 재주문 (max:{max_price:,})"
+                )
+
+                cancel_res = self.order.cancel_order(order_no=current_order_no, stock_code=stock_code, quantity=unfilled_qty)
+                if not (cancel_res and cancel_res.get('success') is not False):
+                    # 취소 실패하면 중복 미체결이 생길 수 있어 재시도 중단
+                    self._get_logger().warning(
+                        f"⚠️ {stock_name}({stock_code}) 잔량 취소 실패(ord_no={current_order_no}) → 중복 주문 방지 위해 재시도 중단"
+                    )
+                    escalated = True
+                    break
+
+                nr = self.order.buy_stock(stock_code=stock_code, quantity=unfilled_qty, price=ask_price, order_type='0')
+                if nr and nr.get('success') is not False:
+                    current_order_no = nr.get('ord_no') or current_order_no
+                    retry_orders.append({'stock_code': stock_code, 'quantity': unfilled_qty, 'ord_no': current_order_no})
+                    escalated = True
+                else:
+                    # 재주문 실패 시 더 진행하지 않음(마지막 주문 없음/취소되어 버림 가능)
+                    self._get_logger().warning(
+                        f"⚠️ {stock_name}({stock_code}) 매도{level}호가 재주문 실패 → 추가 재시도 중단 (잔량:{unfilled_qty})"
+                    )
+                    escalated = True
+                    break
+
+                # 너무 빠르게 연속 호출하지 않도록 짧게 대기 후 다음 단계 판단
+                time.sleep(0.6)
+
+            # 최종 잔량 로그(실패 종목으로 남기기)
+            final_unfilled = self._get_unexecuted_buy_qty_by_ord_no(current_order_no)
+            if final_unfilled > 0:
+                self._get_logger().warning(
+                    f"❌ {stock_name}({stock_code}) 미체결 잔량 남음: {final_unfilled}주 (최종 ord_no={current_order_no})"
+                )
+                unfilled_failures.append({
+                    'stock_name': stock_name,
+                    'stock_code': stock_code,
+                    'unfilled_qty': final_unfilled,
+                    'ord_no': current_order_no,
+                    'max_price': max_price,
+                    'guard_action': limit_buy_guard_action
+                })
+            elif escalated:
+                self._get_logger().info(f"✅ {stock_name}({stock_code}) 재시도 후 미체결 잔량 없음(체결 확인)")
+
+        if retry_orders:
+            # 재주문이 있었다면 짧게 체결 확인(선택적)
+            self._wait_for_buy_execution(retry_orders, max_wait_time=15)
+
+        return unfilled_failures
 
     def _execute_sell_orders(self, sell_candidates, account_info, strategy_params):
         """매도 주문 실행 (백테스팅 로직과 일치)"""
@@ -1116,6 +1427,39 @@ class AutoTradingEngine:
                 'price': 0,
                 'message': f'가격 조회 중 예외 발생: {str(e)}'
             }
+
+    def _parse_int_field(self, value, default=0):
+        """키움 API 응답의 숫자 필드를 안전하게 int로 변환"""
+        try:
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return int(value)
+            s = str(value).strip()
+            if not s:
+                return default
+            # +, - 기호 / 쉼표 제거
+            s = s.replace('+', '').replace('-', '').replace(',', '')
+            return int(s) if s.isdigit() else default
+        except Exception:
+            return default
+
+    def _get_best_ask_price(self, stock_code):
+        """
+        주식호가요청(ka10004) 기반 매도1호가(최우선 매도호가, sel_fpr_bid) 조회
+        """
+        try:
+            quote = self.quote.get_stock_quote(stock_code)
+            if not quote or quote.get('success') is False:
+                return {'success': False, 'price': 0, 'message': '호가 조회 실패'}
+
+            best_ask = self._parse_int_field(quote.get('sel_fpr_bid', 0), default=0)
+            if best_ask <= 0:
+                return {'success': False, 'price': 0, 'message': '유효하지 않은 매도1호가'}
+
+            return {'success': True, 'price': best_ask, 'raw': quote, 'message': '매도1호가 조회 성공'}
+        except Exception as e:
+            return {'success': False, 'price': 0, 'message': f'호가 조회 중 예외: {str(e)}'}
     
     def _get_holding_period(self, stock_code, current_quantity):
         """보유기간 계산 (OrderHistoryManager 사용) - A 프리픽스 유무와 관계없이 매칭"""

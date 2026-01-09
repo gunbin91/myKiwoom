@@ -287,6 +287,55 @@
 
           <hr />
 
+          <!-- 매수 주문 방식/안전장치 -->
+          <div class="mb-3">
+            <h6 class="mb-2">
+              <i class="fas fa-shield-alt me-2"></i>매수 주문 방식(고가매수 방지)
+            </h6>
+            <label for="buy-order-method" class="form-label">매수 주문 방식</label>
+            <select class="form-select" id="buy-order-method">
+              <option value="market">시장가(기존)</option>
+              <option value="limit_ask1">매도1호가 지정가(추천)</option>
+            </select>
+            <div class="form-text">
+              시장가 매수는 호가가 비정상적으로 벌어진 순간 <strong>고가 체결</strong> 위험이 있습니다.
+              매도1호가 지정가는 보통 <strong>즉시 체결 가능성이 높으면서</strong> 고가 튐을 줄이는 편입니다.
+            </div>
+          </div>
+
+          <div class="mb-3" id="limit-buy-guard-section">
+            <div class="row">
+              <div class="col-6">
+                <label for="limit-buy-max-premium-pct" class="form-label"
+                  >가드 기준: 현재가 대비 매도1호가 허용(%)</label
+                >
+                <input
+                  type="number"
+                  class="form-control"
+                  id="limit-buy-max-premium-pct"
+                  min="0"
+                  step="0.1"
+                  value="1.0"
+                />
+                <div class="form-text">
+                  예: 1.0이면 매도1호가가 현재가보다 <strong>+1%</strong> 초과 시 가드가 발동합니다.
+                </div>
+              </div>
+              <div class="col-6">
+                <label for="limit-buy-guard-action" class="form-label">가드 발동 시 처리</label>
+                <select class="form-select" id="limit-buy-guard-action">
+                  <option value="skip">매수 스킵(고가매수 방지 우선)</option>
+                  <option value="market_fallback">시장가로 폴백(체결 우선)</option>
+                </select>
+                <div class="form-text">
+                  “시장가로 폴백”은 체결은 잘 되지만, 고가 체결 위험이 다시 생길 수 있습니다.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <hr />
+
           <!-- 장중 손절 감시 (자동매매와 별개) -->
           <div class="mb-3">
             <h6 class="mb-2">
@@ -808,7 +857,26 @@
     // 시간 변경 시 다음 실행 시간 업데이트
     document.getElementById("schedule-hour").addEventListener("change", updateNextExecutionInfo);
     document.getElementById("schedule-minute").addEventListener("change", updateNextExecutionInfo);
+
+    // 매수 주문 방식 변경 시 UI 토글
+    const methodEl = document.getElementById("buy-order-method");
+    if (methodEl) {
+      methodEl.addEventListener("change", updateBuyOrderGuardUI);
+    }
   });
+
+  function updateBuyOrderGuardUI() {
+    const method = document.getElementById("buy-order-method")?.value || "market";
+    const guardSection = document.getElementById("limit-buy-guard-section");
+    const maxPremiumEl = document.getElementById("limit-buy-max-premium-pct");
+    const guardActionEl = document.getElementById("limit-buy-guard-action");
+
+    // limit_ask1일 때만 가드 섹션 활성화(시장가면 의미 없음)
+    const enable = method === "limit_ask1";
+    if (guardSection) guardSection.style.opacity = enable ? "1" : "0.5";
+    if (maxPremiumEl) maxPremiumEl.disabled = !enable;
+    if (guardActionEl) guardActionEl.disabled = !enable;
+  }
 
   function updateServerInfoFromTemplate() {
     // 템플릿에서 전달받은 서버 정보로 즉시 업데이트
@@ -895,6 +963,15 @@
           document.getElementById("transaction-fee-rate").value =
             config.strategy_params?.transaction_fee_rate || 0.015;
 
+          // 매수 주문 방식/가드 설정 로드
+          document.getElementById("buy-order-method").value =
+            config.strategy_params?.buy_order_method || "market";
+          document.getElementById("limit-buy-max-premium-pct").value =
+            config.strategy_params?.limit_buy_max_premium_pct ?? 1.0;
+          document.getElementById("limit-buy-guard-action").value =
+            config.strategy_params?.limit_buy_guard_action || "skip";
+          updateBuyOrderGuardUI();
+
           // 장중 손절 감시 설정 로드
           document.getElementById("intraday-stop-enabled").checked =
             config.intraday_stop_loss?.enabled ?? false;
@@ -942,6 +1019,12 @@
             parseInt(document.getElementById("buy-universe-rank").value) || 20,
           transaction_fee_rate:
             parseFloat(document.getElementById("transaction-fee-rate").value) || 0.015,
+
+          // 신규: 매수 주문 방식/가드 설정
+          buy_order_method: document.getElementById("buy-order-method").value || "market",
+          limit_buy_max_premium_pct:
+            parseFloat(document.getElementById("limit-buy-max-premium-pct").value) ?? 1.0,
+          limit_buy_guard_action: document.getElementById("limit-buy-guard-action").value || "skip",
         },
       };
 
@@ -1139,7 +1222,75 @@
       // 모달 표시
       const modal = new bootstrap.Modal(document.getElementById('executionDetailModal'));
       modal.show();
+
+      // 상세 JSON(미체결/실패 리스트 등) 로드해서 UI에 표시
+      if (executionData.details_file) {
+        loadExecutionDetailJson(executionData.details_file);
+      }
     }
+  }
+
+  function loadExecutionDetailJson(detailsFile) {
+    const container = document.getElementById("execution-extra-details");
+    if (!container) return;
+    container.innerHTML = `<div class="text-muted">상세 정보를 불러오는 중...</div>`;
+
+    fetch(`/api/auto-trading/execution-detail?file=${encodeURIComponent(detailsFile)}`)
+      .then((r) => r.json())
+      .then((resp) => {
+        if (!resp.success) throw new Error(resp.message || "상세 조회 실패");
+        const data = resp.data || {};
+        const buy = data.buy_results || {};
+        const unfilled = buy.unfilled_failures || [];
+
+        if (!unfilled.length) {
+          container.innerHTML = `
+            <div class="alert alert-success">
+              <i class="fas fa-check-circle me-2"></i>최종 미체결(잔량) 종목이 없습니다.
+            </div>
+          `;
+          return;
+        }
+
+        const rows = unfilled.map((x, idx) => `
+          <tr>
+            <td>${idx + 1}</td>
+            <td>${x.stock_name || "-"}</td>
+            <td>${x.stock_code || "-"}</td>
+            <td>${x.unfilled_qty || 0}주</td>
+            <td>${x.ord_no || "-"}</td>
+            <td>${x.max_price ? x.max_price.toLocaleString() + "원" : "-"}</td>
+            <td>${x.guard_action || "-"}</td>
+          </tr>
+        `).join("");
+
+        container.innerHTML = `
+          <div class="mt-3">
+            <h6><i class="fas fa-exclamation-triangle me-2 text-warning"></i>최종 미체결(잔량) 종목</h6>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead class="table-warning">
+                  <tr>
+                    <th>#</th>
+                    <th>종목명</th>
+                    <th>종목코드</th>
+                    <th>미체결</th>
+                    <th>주문번호</th>
+                    <th>max_price</th>
+                    <th>정책</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      })
+      .catch((e) => {
+        container.innerHTML = `<div class="alert alert-danger">상세 정보를 불러오지 못했습니다: ${e.message}</div>`;
+      });
   }
 
   // 실행이력 상세 내용 생성
@@ -1243,11 +1394,10 @@
       <div class="row mt-3">
         <div class="col-12">
           <h6><i class="fas fa-list me-2"></i>상세 내역</h6>
-          <div class="alert alert-info">
+          <div id="execution-extra-details"></div>
+          <div class="alert alert-info mt-2">
             <i class="fas fa-info-circle me-2"></i>
-            상세한 매수/매도 내역은 로그 파일에서 확인할 수 있습니다.
-            <br>
-            <small class="text-muted">로그 파일 위치: logs/mock/trading_result.log</small>
+            (참고) 상세한 매수/매도 내역 전체는 로그 파일에서도 확인할 수 있습니다.
           </div>
         </div>
       </div>
