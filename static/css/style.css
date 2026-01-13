@@ -219,6 +219,32 @@ body {
   border-radius: 0 0 10px 10px;
 }
 
+/* 실행이력 상세(자동매매) 섹션 타이틀: 밝은/어두운 배경 모두에서 가독성 확보 */
+.execution-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 10px 0 8px 0;
+  border-radius: 8px;
+  background: #f1f3f5;
+  color: #212529;
+  border: 1px solid #e9ecef;
+  font-weight: 700;
+}
+
+.execution-section-title i {
+  opacity: 0.9;
+}
+
+@media (prefers-color-scheme: dark) {
+  .execution-section-title {
+    background: #343a40;
+    color: #ffffff;
+    border-color: #404040;
+  }
+}
+
 /* 슬라이드 라디오버튼 스타일 */
 .order-type-toggle {
   position: relative;

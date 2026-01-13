@@ -59,54 +59,136 @@ class AutoTradingEngine:
 
     def _prepare_trading_data(self):
         """체결내역 수집 + 추천종목 분석 (공통)"""
+        trace = []
+        def _trace(stage: str, message: str = "", data=None):
+            try:
+                trace.append({
+                    "ts": datetime.now().isoformat(timespec="seconds"),
+                    "stage": stage,
+                    "message": message,
+                    "data": data or {},
+                })
+            except Exception:
+                pass
+
         # 1. 체결내역 수집
         self.current_status = "체결내역 수집 중"
         self.progress_percentage = 10
         self._get_logger().info("🔍 매수 체결내역 수집 시작")
+        _trace("collect_order_history:start")
         
         try:
             collection_success = self.order_history_manager.collect_order_history(max_days=30)
             if collection_success:
                 summary = self.order_history_manager.get_data_summary()
                 self._get_logger().info(f"✅ 매수 체결내역 수집 완료: {summary['total_orders']}개 주문, {summary['stock_count']}개 종목")
+                _trace("collect_order_history:success", data=summary)
             else:
                 self._get_logger().warning("⚠️ 매수 체결내역 수집 실패 (자동매매는 계속 진행)")
+                _trace("collect_order_history:failed")
         except Exception as collection_error:
             self._get_logger().error(f"🚨 체결내역 수집 중 오류: {collection_error}")
+            _trace("collect_order_history:error", message=str(collection_error))
         
         # 2. 계좌 정보 조회
         self.current_status = "계좌 정보 조회 중"
         self.progress_percentage = 15
+        _trace("account_info:start")
         account_info = self._get_account_info()
+        _trace("account_info:done", data={"success": bool(account_info and account_info.get("success", False))})
         
         # 3. 추천종목 분석
         self.current_status = "추천종목 분석 중"
         self.progress_percentage = 25
+        _trace("analysis:start")
         analysis_result = self.analyzer.get_stock_analysis(force_realtime=True)
+        _trace("analysis:done", data={"success": bool(analysis_result and analysis_result.get("success", False))})
         
         # 4. 설정 로드
         config = self.config_manager.load_config()
         strategy_params = config.get('strategy_params', {})
+        _trace("config:loaded", data={
+            "top_n": strategy_params.get("top_n"),
+            "buy_universe_rank": strategy_params.get("buy_universe_rank"),
+            "buy_order_method": strategy_params.get("buy_order_method"),
+        })
+
+        # 분석 메타(실행 당시 컨텍스트) 스냅샷
+        analysis_meta = {}
+        try:
+            from src.utils.deeplearning_server_config import load_deeplearning_server_config
+            cfg = load_deeplearning_server_config()
+            analysis_meta["deeplearning_base_url"] = cfg.base_url
+        except Exception:
+            pass
+        try:
+            data = (analysis_result or {}).get("data", {}) or {}
+            analysis_meta.update({
+                "analysis_date": data.get("analysis_date"),
+                "total_stocks": data.get("total_stocks"),
+            })
+        except Exception:
+            pass
+        analysis_meta.update({
+            "top_n": strategy_params.get("top_n"),
+            "buy_universe_rank": strategy_params.get("buy_universe_rank"),
+        })
+
+        # 분석서버 원본 Top 60 스냅샷(사용자 확인용)
+        analysis_top60 = []
+        try:
+            raw = (analysis_result or {}).get("data", {}).get("analysis_result", []) or []
+            if isinstance(raw, list) and raw:
+                def _rank_key(x):
+                    try:
+                        return int((x or {}).get("최종순위", 999999))
+                    except Exception:
+                        return 999999
+                raw_sorted = sorted([r for r in raw if isinstance(r, dict)], key=_rank_key)
+                analysis_top60 = raw_sorted[:60]
+        except Exception:
+            analysis_top60 = []
         
         return {
             'analysis_result': analysis_result,
             'account_info': account_info,
-            'strategy_params': strategy_params
+            'strategy_params': strategy_params,
+            'analysis_meta': analysis_meta,
+            'analysis_top60': analysis_top60,
+            'execution_trace': trace,
         }
 
-    def _execute_trading_orders(self, analysis_result, account_info, strategy_params):
+    def _execute_trading_orders(self, analysis_result, account_info, strategy_params, execution_trace=None):
         """공통 매매 로직 (순차적 실행)"""
+        trace = execution_trace if isinstance(execution_trace, list) else []
+        def _trace(stage: str, message: str = "", data=None):
+            try:
+                trace.append({
+                    "ts": datetime.now().isoformat(timespec="seconds"),
+                    "stage": stage,
+                    "message": message,
+                    "data": data or {},
+                })
+            except Exception:
+                pass
         
         # 1. 매도 대상 선별 (보유종목 기준)
         self.current_status = "매도 대상 선별 중"
         self.progress_percentage = 60
+        _trace("sell_candidates:start")
         sell_candidates = self._get_sell_candidates(account_info, strategy_params)
+        _trace("sell_candidates:done", data={"count": len(sell_candidates)})
         
         # 2. 매도 실행
         self.current_status = "매도 주문 실행 중"
         self.progress_percentage = 65
         self._get_logger().info("📉 매도 주문을 실행하는 중...")
+        _trace("sell_orders:start", data={"count": len(sell_candidates)})
         sell_results = self._execute_sell_orders(sell_candidates, account_info, strategy_params)
+        _trace("sell_orders:done", data={
+            "success_count": sell_results.get("success_count"),
+            "failed_count": sell_results.get("failed_count"),
+        })
         sell_count = sell_results['success_count']
         sell_orders = sell_results.get('sell_orders', [])
         
@@ -115,45 +197,62 @@ class AutoTradingEngine:
             self.current_status = "매도 체결 확인 중"
             self.progress_percentage = 70
             self._get_logger().info("⏳ 매도 주문 체결을 확인하는 중...")
+            _trace("sell_execution_wait:start", data={"orders": len(sell_orders)})
             
             execution_confirmed = self._wait_for_sell_execution(sell_orders, max_wait_time=30)
             
             if execution_confirmed:
                 self._get_logger().info("✅ 매도 체결 확인 완료")
+                _trace("sell_execution_wait:confirmed")
             else:
                 self._get_logger().warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
+                _trace("sell_execution_wait:timeout")
         
         # 4. 예수금 재조회 (매도로 확보된 현금 반영)
         if sell_count > 0:
             self.current_status = "매도 후 계좌 정보 조회 중"
             self.progress_percentage = 75
             self._get_logger().info("💰 매도 후 계좌 정보를 재조회하는 중...")
+            _trace("account_info_after_sell:start")
             
             updated_account_info = self._get_account_info()
             if updated_account_info:
                 account_info = updated_account_info
                 self._get_logger().info("✅ 매도 후 계좌 정보 업데이트 완료")
+                _trace("account_info_after_sell:done", data={"success": True})
             else:
                 self._get_logger().warning("⚠️ 매도 후 계좌 정보 조회 실패, 기존 정보 사용")
+                _trace("account_info_after_sell:done", data={"success": False})
         
         # 5. 매수 대상 선별 (매도 후 확보된 현금 + 매도된 종목 재매수 가능)
         self.current_status = "매수 대상 선별 중"
         self.progress_percentage = 80
         self._get_logger().info("📊 매수 대상을 선정하는 중...")
+        _trace("buy_candidates:start")
         
-        buy_candidates = self._get_buy_candidates(
+        buy_selected, excluded_candidates, excluded_summary, buy_candidate_meta = self._get_buy_candidates(
             analysis_result, 
             account_info, 
             strategy_params,
             sell_candidates,  # 매도된 종목들을 매수 대상에 포함
             sell_results  # 매도 주문 결과 전달
         )
+        _trace("buy_candidates:done", data={
+            "selected": len(buy_selected),
+            "excluded_total": (excluded_summary or {}).get("total_excluded"),
+            "excluded_reasons": (excluded_summary or {}).get("reason_counts", {}),
+        })
         
         # 6. 매수 실행
         self.current_status = "매수 주문 실행 중"
         self.progress_percentage = 85
         self._get_logger().info("📈 매수 주문을 실행하는 중...")
-        buy_results = self._execute_buy_orders(buy_candidates, account_info, strategy_params)
+        _trace("buy_orders:start", data={"count": len(buy_selected)})
+        buy_results = self._execute_buy_orders(buy_selected, account_info, strategy_params)
+        _trace("buy_orders:done", data={
+            "success_count": buy_results.get("success_count"),
+            "failed_count": buy_results.get("failed_count"),
+        })
         buy_count = buy_results['success_count']
         buy_orders = buy_results.get('buy_orders', [])
         
@@ -162,20 +261,28 @@ class AutoTradingEngine:
             self.current_status = "매수 체결 확인 중"
             self.progress_percentage = 90
             self._get_logger().info("⏳ 매수 주문 체결을 확인하는 중...")
+            _trace("buy_execution_wait:start", data={"orders": len(buy_orders)})
             
             execution_confirmed = self._wait_for_buy_execution(buy_orders, max_wait_time=30)
             
             if execution_confirmed:
                 self._get_logger().info("✅ 매수 체결 확인 완료")
+                _trace("buy_execution_wait:confirmed")
             else:
                 self._get_logger().warning("⚠️ 매수 체결 확인 시간 초과, 계속 진행합니다.")
+                _trace("buy_execution_wait:timeout")
                 # 미체결 잔량에 대해: 가드 허용% 상한 내에서 매도2호가로 재시도(정책은 limit_buy_guard_action 사용)
                 try:
+                    _trace("buy_unfilled_retry:start")
                     unfilled_failures = self._retry_unfilled_buy_orders_with_ask2(buy_orders, strategy_params, max_total_wait=20)
                     if unfilled_failures:
                         buy_results['unfilled_failures'] = unfilled_failures
+                        _trace("buy_unfilled_retry:done", data={"unfilled_count": len(unfilled_failures)})
+                    else:
+                        _trace("buy_unfilled_retry:done", data={"unfilled_count": 0})
                 except Exception as retry_err:
                     self._get_logger().warning(f"미체결 매수 재시도 처리 중 오류(무시하고 진행): {retry_err}")
+                    _trace("buy_unfilled_retry:error", message=str(retry_err))
         
         return {
             'sell_results': sell_results,
@@ -183,7 +290,11 @@ class AutoTradingEngine:
             'sell_count': sell_count,
             'buy_count': buy_count,
             'sell_candidates': sell_candidates,
-            'buy_candidates': buy_candidates
+            'buy_candidates': buy_selected,
+            'excluded_candidates': excluded_candidates,
+            'excluded_summary': excluded_summary,
+            'buy_candidate_meta': buy_candidate_meta,
+            'execution_trace': trace,
         }
 
     def _get_sell_candidates(self, account_info, strategy_params):
@@ -284,21 +395,28 @@ class AutoTradingEngine:
                 include_sell_candidates = [candidate['종목코드'] for candidate in sell_candidates]
                 self._get_logger().info(f"📋 매도된 종목 {len(include_sell_candidates)}개를 매수 대상에 포함합니다.")
             
-            buy_candidates = self.analyzer.get_top_stocks(
+            pick = self.analyzer.get_top_stocks(
                 analysis_result,
                 top_n=strategy_params.get('top_n', 5),
                 buy_universe_rank=strategy_params.get('buy_universe_rank', 20),
                 include_sell_candidates=include_sell_candidates,
                 sell_results=sell_results,  # 매도 주문 결과 전달
-                server_type=self.server_type
+                server_type=self.server_type,
+                return_meta=True,
+                excluded_limit=200,
             )
-            
-            self._get_logger().info(f"📋 매수 대상 {len(buy_candidates)}개 종목이 선정되었습니다.")
-            return buy_candidates
+
+            selected = pick.get("selected", []) if isinstance(pick, dict) else []
+            excluded_candidates = pick.get("excluded_candidates", []) if isinstance(pick, dict) else []
+            excluded_summary = pick.get("excluded_summary", {}) if isinstance(pick, dict) else {}
+            meta = pick.get("meta", {}) if isinstance(pick, dict) else {}
+
+            self._get_logger().info(f"📋 매수 대상 {len(selected)}개 종목이 선정되었습니다.")
+            return selected, excluded_candidates, excluded_summary, meta
             
         except Exception as e:
             self._get_logger().error(f"매수 대상 선별 중 오류 발생: {e}")
-            return []
+            return [], [], {"reason_counts": {"exception": 1}, "total_excluded": 0}, {"error": str(e)}
     
     def can_execute(self, manual_execution=False):
         """실행 가능 여부 확인"""
@@ -374,7 +492,8 @@ class AutoTradingEngine:
                 trading_results = self._execute_trading_orders(
                     trading_data['analysis_result'],
                     trading_data['account_info'],
-                    trading_data['strategy_params']
+                    trading_data['strategy_params'],
+                    execution_trace=trading_data.get("execution_trace"),
                 )
                 
                 # 실행 결과 로그 기록
@@ -410,7 +529,12 @@ class AutoTradingEngine:
                     execution_type="자동",
                     buy_results=buy_results,
                     sell_results=sell_results,
-                    account_info=trading_data['account_info']
+                    account_info=trading_data['account_info'],
+                    analysis_meta=trading_data.get("analysis_meta"),
+                    analysis_top60=trading_data.get("analysis_top60"),
+                    excluded_candidates=trading_results.get("excluded_candidates"),
+                    excluded_summary=trading_results.get("excluded_summary"),
+                    execution_trace=trading_results.get("execution_trace"),
                 )
                 
                 return {
@@ -565,6 +689,58 @@ class AutoTradingEngine:
             sell_results = self._execute_sell_orders(sell_candidates, account_info=None, strategy_params=None)
             success_count = sell_results.get('success_count', 0)
             failed_count = sell_results.get('failed_count', 0)
+
+            # ✅ 장중 손절 감시 결과도 실행 이력/상세로 기록 (사후 분석 용이)
+            # - 자동매매 실행 이력 테이블/상세 팝업에서 확인 가능
+            # - 실패해도(로그 기록 오류 등) 손절 감시 자체는 계속 진행
+            try:
+                status = "success" if success_count > 0 else "failed"
+                message = f"[장중손절] 매도 {success_count}건 성공, {failed_count}건 실패 (기준 {threshold_pct:.1f}%)"
+
+                # 가능한 범위에서 계좌 정보도 스냅샷(실패해도 무시)
+                account_info = None
+                try:
+                    account_info = self._get_account_info()
+                except Exception:
+                    account_info = None
+
+                self.config_manager.log_execution(
+                    status=status,
+                    buy_count=0,
+                    sell_count=success_count,
+                    message=message,
+                    strategy_params={
+                        "intraday_stop_loss": {
+                            "threshold_pct": float(threshold_pct),
+                        }
+                    },
+                    buy_candidates=[],
+                    sell_candidates=sell_candidates,
+                    execution_type="장중손절감시",
+                    buy_results={},
+                    sell_results=sell_results,
+                    account_info=account_info if (account_info and account_info.get("success")) else None,
+                    analysis_meta={
+                        "source": "execute_intraday_stop_loss",
+                        "threshold_pct": float(threshold_pct),
+                        "skip_stock_codes_count": len(set(skip_stock_codes or [])),
+                    },
+                    execution_trace=[
+                        {
+                            "ts": datetime.now().isoformat(timespec="seconds"),
+                            "stage": "intraday_stop_loss",
+                            "message": "intraday stop loss executed",
+                            "data": {
+                                "threshold_pct": float(threshold_pct),
+                                "candidates": len(sell_candidates),
+                                "success_count": int(success_count),
+                                "failed_count": int(failed_count),
+                            },
+                        }
+                    ],
+                )
+            except Exception as log_err:
+                self._get_logger().warning(f"⚠️ 장중 손절 감시 이력 저장 실패(무시하고 진행): {log_err}")
 
             if success_count > 0:
                 return {
@@ -1512,21 +1688,51 @@ class AutoTradingEngine:
                     'success': False,
                     'message': '토큰 발급 실패'
                 }
+
+            # 0.5 체결내역 수집(보유기간 갱신) - 수동 실행에서도 최신 보유기간 기준으로 판단하도록 보강
+            # - 실패해도 수동실행 자체는 계속 진행(보유기간은 기존 캐시/파일 기반으로 계산될 수 있음)
+            try:
+                self.current_status = "체결내역 수집(보유기간 갱신) 중"
+                self.progress_percentage = 10
+                self._get_logger().info("🔄 [수동] 보유기간 갱신을 위한 매수 체결내역 수집 시작")
+                self.order_history_manager.collect_order_history(max_days=30)
+                summary = self.order_history_manager.get_data_summary()
+                self._get_logger().info(
+                    f"✅ [수동] 매수 체결내역 수집 완료: {summary.get('total_orders', 0)}개 주문, {summary.get('stock_count', 0)}개 종목"
+                )
+            except Exception as e:
+                self._get_logger().warning(f"⚠️ [수동] 체결내역 수집 실패(보유기간은 기존 데이터로 계산될 수 있음): {e}")
             
             # 1. 계좌 정보 조회
             self.current_status = "계좌 정보 조회 중"
-            self.progress_percentage = 15
+            self.progress_percentage = 20
             account_info = self._get_account_info()
             
             # 2. 설정 로드
             config = self.config_manager.load_config()
             strategy_params = config.get('strategy_params', {})
+
+            # 분석서버 원본 Top 60 스냅샷(사용자 확인용)
+            analysis_top60 = []
+            try:
+                raw = (analysis_result or {}).get("data", {}).get("analysis_result", []) or []
+                if isinstance(raw, list) and raw:
+                    def _rank_key(x):
+                        try:
+                            return int((x or {}).get("최종순위", 999999))
+                        except Exception:
+                            return 999999
+                    raw_sorted = sorted([r for r in raw if isinstance(r, dict)], key=_rank_key)
+                    analysis_top60 = raw_sorted[:60]
+            except Exception:
+                analysis_top60 = []
             
             # 3. 공통 매매 로직 실행
             trading_results = self._execute_trading_orders(
                 analysis_result,
                 account_info,
-                strategy_params
+                strategy_params,
+                execution_trace=[],
             )
             
             # 4. 실행 결과 로그 기록
@@ -1555,7 +1761,17 @@ class AutoTradingEngine:
                 execution_type="수동",
                 buy_results=buy_results,
                 sell_results=sell_results,
-                account_info=account_info
+                account_info=account_info,
+                analysis_meta={
+                    "analysis_date": (analysis_result or {}).get("data", {}).get("analysis_date"),
+                    "total_stocks": (analysis_result or {}).get("data", {}).get("total_stocks"),
+                    "top_n": strategy_params.get("top_n"),
+                    "buy_universe_rank": strategy_params.get("buy_universe_rank"),
+                },
+                analysis_top60=analysis_top60,
+                excluded_candidates=trading_results.get("excluded_candidates"),
+                excluded_summary=trading_results.get("excluded_summary"),
+                execution_trace=trading_results.get("execution_trace"),
             )
             
             return {

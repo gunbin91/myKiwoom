@@ -147,10 +147,27 @@ class AutoTradingConfigManager:
             print(f"실행 이력 확인 실패: {e}")
             return False
     
-    def log_execution(self, status, buy_count=0, sell_count=0, message="", 
-                     strategy_params=None, buy_candidates=None, sell_candidates=None, 
-                     execution_type="자동", error_details=None, 
-                     buy_results=None, sell_results=None, account_info=None):
+    def log_execution(
+        self,
+        status,
+        buy_count=0,
+        sell_count=0,
+        message="",
+        strategy_params=None,
+        buy_candidates=None,
+        sell_candidates=None,
+        execution_type="자동",
+        error_details=None,
+        buy_results=None,
+        sell_results=None,
+        account_info=None,
+        # --- v2 확장 필드 (하위호환 유지: optional) ---
+        analysis_meta=None,
+        excluded_candidates=None,
+        excluded_summary=None,
+        execution_trace=None,
+        analysis_top60=None,
+    ):
         """자동매매 실행 결과 상세 기록"""
         try:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -164,6 +181,7 @@ class AutoTradingConfigManager:
                 detail_filename = f"execution_detail_{safe_ts}.json"
                 detail_path = detail_dir / detail_filename
                 detail_payload = {
+                    "schema_version": 2,
                     "timestamp": timestamp,
                     "server_type": self.server_type,
                     "execution_type": execution_type,
@@ -176,6 +194,11 @@ class AutoTradingConfigManager:
                     "sell_results": sell_results or {},
                     "buy_candidates": buy_candidates or [],
                     "sell_candidates": sell_candidates or [],
+                    "analysis_meta": analysis_meta or {},
+                    "analysis_top60": analysis_top60 or [],
+                    "excluded_summary": excluded_summary or {},
+                    "excluded_candidates": excluded_candidates or [],
+                    "execution_trace": execution_trace or [],
                 }
                 with open(detail_path, "w", encoding="utf-8") as f:
                     json.dump(detail_payload, f, ensure_ascii=False, indent=2)

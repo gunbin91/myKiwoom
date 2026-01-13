@@ -631,17 +631,19 @@
             <table class="table table-sm table-hover" id="top-stocks-table">
               <thead class="table-light">
                 <tr>
-                  <th>순위</th>
+                  <th>최종순위</th>
                   <th>종목명</th>
                   <th>종목코드</th>
                   <th>현재가</th>
+                  <th>시가총액</th>
+                  <th>RF상승확률</th>
+                  <th>LGBM상승확률</th>
                   <th>최종점수</th>
-                  <th>상승확률</th>
                 </tr>
               </thead>
               <tbody id="top-stocks-tbody">
                 <tr>
-                  <td colspan="6" class="text-center text-muted">
+                  <td colspan="8" class="text-center text-muted">
                     분석 결과를 불러오는 중...
                   </td>
                 </tr>
@@ -686,17 +688,19 @@
             <table class="table table-sm table-hover" id="buy-candidates-table">
               <thead class="table-success">
                 <tr>
-                  <th>순위</th>
+                  <th>최종순위</th>
                   <th>종목명</th>
                   <th>종목코드</th>
                   <th>현재가</th>
+                  <th>시가총액</th>
+                  <th>RF상승확률</th>
+                  <th>LGBM상승확률</th>
                   <th>최종점수</th>
-                  <th>상승확률</th>
                 </tr>
               </thead>
               <tbody id="buy-candidates-tbody">
                 <tr>
-                  <td colspan="6" class="text-center text-muted">
+                  <td colspan="8" class="text-center text-muted">
                     매수 대상을 불러오는 중...
                   </td>
                 </tr>
@@ -1241,52 +1245,270 @@
         if (!resp.success) throw new Error(resp.message || "상세 조회 실패");
         const data = resp.data || {};
         const buy = data.buy_results || {};
+        const sell = data.sell_results || {};
         const unfilled = buy.unfilled_failures || [];
+        const buyDetails = buy.details || [];
+        const sellDetails = sell.details || [];
+        const excludedCandidates = data.excluded_candidates || [];
+        const excludedSummary = data.excluded_summary || {};
+        const analysisMeta = data.analysis_meta || {};
+        const analysisTop60 = data.analysis_top60 || [];
+        const trace = data.execution_trace || [];
 
+        const formatNumber = (num) => {
+          if (num === null || num === undefined || num === "" || Number.isNaN(Number(num))) return "-";
+          const n = Number(num);
+          return new Intl.NumberFormat("ko-KR").format(n);
+        };
+
+        const escapeHtml = (unsafe) => {
+          return String(unsafe ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+        };
+
+        const htmlParts = [];
+
+        // 0) 분석 메타
+        const metaRows = Object.entries(analysisMeta).map(([k, v]) => `
+          <tr><td class="text-muted" style="width: 220px;"><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>
+        `).join("");
+        if (metaRows) {
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-database"></i>분석/컨텍스트 스냅샷</div>
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <tbody>${metaRows}</tbody>
+              </table>
+            </div>
+          `);
+        }
+
+        // 0.5) 분석서버 원본 Top 60 (사용자 확인용)
+        if (analysisTop60.length) {
+          const sorted = [...analysisTop60].sort((a, b) => {
+            const ra = Number(a?.최종순위 ?? 999999);
+            const rb = Number(b?.최종순위 ?? 999999);
+            return ra - rb;
+          });
+          const rows = sorted.map((x) => {
+            const rank = x?.최종순위 ?? "-";
+            const rfProba = (x?.rf_pred_proba != null ? x.rf_pred_proba : x?.ml_pred_proba);
+            return `
+              <tr>
+                <td>${escapeHtml(rank)}</td>
+                <td>${escapeHtml(x?.종목명 || "-")}</td>
+                <td>${escapeHtml(x?.종목코드 || "-")}</td>
+                <td>${x?.시가총액 != null ? formatNumber(x.시가총액) : "-"}</td>
+                <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
+                <td>${x?.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
+                <td>${x?.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
+              </tr>
+            `;
+          }).join("");
+
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-list-ol"></i>분석서버 원본 Top 60</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>최종순위</th><th>종목명</th><th>종목코드</th><th>시가총액</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          `);
+        }
+
+        // 1) 매수 상세
+        if (buyDetails.length) {
+          const rows = buyDetails.map((x, idx) => `
+            <tr>
+              <td>${idx + 1}</td>
+              <td>${escapeHtml(x.stock_name || "-")}</td>
+              <td>${escapeHtml(x.stock_code || "-")}</td>
+              <td>${escapeHtml(x.status || "-")}</td>
+              <td>${formatNumber(x.quantity)}주</td>
+              <td>${formatNumber(x.price)}원</td>
+              <td>${formatNumber(x.amount)}원</td>
+              <td>${escapeHtml(x.reason || "-")}</td>
+              <td class="text-muted">${escapeHtml(x.error_message || "")}</td>
+            </tr>
+          `).join("");
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-arrow-up"></i>매수 상세 내역 (${buyDetails.length}건)</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>#</th><th>종목명</th><th>코드</th><th>상태</th><th>수량</th><th>가격</th><th>금액</th><th>사유</th><th>오류</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          `);
+        }
+
+        // 2) 매도 상세
+        if (sellDetails.length) {
+          const rows = sellDetails.map((x, idx) => `
+            <tr>
+              <td>${idx + 1}</td>
+              <td>${escapeHtml(x.stock_name || "-")}</td>
+              <td>${escapeHtml(x.stock_code || "-")}</td>
+              <td>${escapeHtml(x.status || "-")}</td>
+              <td>${formatNumber(x.quantity)}주</td>
+              <td>${formatNumber(x.price)}원</td>
+              <td>${formatNumber(x.amount)}원</td>
+              <td>${escapeHtml(x.reason || "-")}</td>
+              <td class="text-muted">${escapeHtml(x.error_message || "")}</td>
+            </tr>
+          `).join("");
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-arrow-down"></i>매도 상세 내역 (${sellDetails.length}건)</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>#</th><th>종목명</th><th>코드</th><th>상태</th><th>수량</th><th>가격</th><th>금액</th><th>사유</th><th>오류</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          `);
+        }
+
+        // 3) 최종 미체결(잔량)
         if (!unfilled.length) {
-          container.innerHTML = `
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-check-circle"></i>최종 미체결(잔량)</div>
             <div class="alert alert-success">
               <i class="fas fa-check-circle me-2"></i>최종 미체결(잔량) 종목이 없습니다.
             </div>
-          `;
-          return;
-        }
-
-        const rows = unfilled.map((x, idx) => `
-          <tr>
-            <td>${idx + 1}</td>
-            <td>${x.stock_name || "-"}</td>
-            <td>${x.stock_code || "-"}</td>
-            <td>${x.unfilled_qty || 0}주</td>
-            <td>${x.ord_no || "-"}</td>
-            <td>${x.max_price ? x.max_price.toLocaleString() + "원" : "-"}</td>
-            <td>${x.guard_action || "-"}</td>
-          </tr>
-        `).join("");
-
-        container.innerHTML = `
-          <div class="mt-3">
-            <h6><i class="fas fa-exclamation-triangle me-2 text-warning"></i>최종 미체결(잔량) 종목</h6>
+          `);
+        } else {
+          const rows = unfilled.map((x, idx) => `
+            <tr>
+              <td>${idx + 1}</td>
+              <td>${escapeHtml(x.stock_name || "-")}</td>
+              <td>${escapeHtml(x.stock_code || "-")}</td>
+              <td>${formatNumber(x.unfilled_qty || 0)}주</td>
+              <td>${escapeHtml(x.ord_no || "-")}</td>
+              <td>${x.max_price ? formatNumber(x.max_price) + "원" : "-"}</td>
+              <td>${escapeHtml(x.guard_action || "-")}</td>
+            </tr>
+          `).join("");
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-exclamation-triangle"></i>최종 미체결(잔량) 종목 (${unfilled.length}건)</div>
             <div class="table-responsive">
               <table class="table table-sm table-hover">
                 <thead class="table-warning">
                   <tr>
-                    <th>#</th>
-                    <th>종목명</th>
-                    <th>종목코드</th>
-                    <th>미체결</th>
-                    <th>주문번호</th>
-                    <th>max_price</th>
-                    <th>정책</th>
+                    <th>#</th><th>종목명</th><th>종목코드</th><th>미체결</th><th>주문번호</th><th>max_price</th><th>정책</th>
                   </tr>
                 </thead>
-                <tbody>
-                  ${rows}
-                </tbody>
+                <tbody>${rows}</tbody>
               </table>
             </div>
-          </div>
-        `;
+          `);
+        }
+
+        // 4) 제외 후보(사유)
+        if (excludedCandidates.length) {
+          const limit = 200;
+          // 최종순위 기준으로 정렬해서 표시(과거 실행상세도 UI에서 정렬 효과)
+          const sorted = [...excludedCandidates].sort((a, b) => {
+            const ra = Number(a?.최종순위 ?? 999999);
+            const rb = Number(b?.최종순위 ?? 999999);
+            if (!Number.isFinite(ra) && !Number.isFinite(rb)) return 0;
+            if (!Number.isFinite(ra)) return 1;
+            if (!Number.isFinite(rb)) return -1;
+            return ra - rb;
+          });
+          const sliced = sorted.slice(0, limit);
+          const rows = sliced.map((x, idx) => {
+            const rank = (x.최종순위 !== undefined && x.최종순위 !== null && x.최종순위 !== "" && x.최종순위 !== "-")
+              ? x.최종순위
+              : (idx + 1);
+            const rfProba = (x.rf_pred_proba != null ? x.rf_pred_proba : x.ml_pred_proba);
+            return `
+            <tr>
+              <td>${escapeHtml(rank)}</td>
+              <td>${escapeHtml(x.종목명 || "-")}</td>
+              <td>${escapeHtml(x.종목코드 || "-")}</td>
+              <td>${x.시가총액 != null ? formatNumber(x.시가총액) : "-"}</td>
+              <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
+              <td>${x.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
+              <td>${x.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
+              <td><span class="badge bg-secondary">${escapeHtml(x.reason || "-")}</span></td>
+            </tr>
+          `}).join("");
+          const reasonCounts = excludedSummary.reason_counts || {};
+          const reasonText = Object.keys(reasonCounts).length
+            ? Object.entries(reasonCounts).map(([k, v]) => `${k}: ${v}`).join(", ")
+            : "-";
+
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-filter"></i>제외된 후보(사유) (${excludedCandidates.length}건)</div>
+            <div class="text-muted mb-2">사유 요약: ${escapeHtml(reasonText)}</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>최종순위</th><th>종목명</th><th>코드</th><th>시가총액</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th><th>사유</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+            ${excludedCandidates.length > limit ? `<div class="text-muted">※ 표시 제한: ${limit}건까지만 보여줍니다.</div>` : ""}
+          `);
+        }
+
+        // 5) 실행 타임라인
+        if (trace.length) {
+          const rows = trace.map((x, idx) => `
+            <tr>
+              <td>${idx + 1}</td>
+              <td>${escapeHtml(x.ts || "-")}</td>
+              <td>${escapeHtml(x.stage || "-")}</td>
+              <td>${escapeHtml(x.message || "")}</td>
+              <td class="text-muted"><code>${escapeHtml(JSON.stringify(x.data || {}))}</code></td>
+            </tr>
+          `).join("");
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-stream"></i>실행 타임라인 (${trace.length}개 이벤트)</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>#</th><th>시각</th><th>단계</th><th>메시지</th><th>데이터</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          `);
+        }
+
+        // 6) 원본 JSON(다운로드/복사 목적)
+        const raw = escapeHtml(JSON.stringify(data, null, 2));
+        htmlParts.push(`
+          <div class="execution-section-title"><i class="fas fa-code"></i>원본 데이터</div>
+          <details>
+            <summary class="text-muted">원본 JSON 펼치기</summary>
+            <pre class="p-3 border rounded small bg-body-tertiary text-body" style="white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto;">${raw}</pre>
+          </details>
+        `);
+
+        container.innerHTML = htmlParts.join("\n");
       })
       .catch((e) => {
         container.innerHTML = `<div class="alert alert-danger">상세 정보를 불러오지 못했습니다: ${e.message}</div>`;
@@ -1307,7 +1529,7 @@
     return `
       <div class="row">
         <div class="col-md-6">
-          <h6><i class="fas fa-info-circle me-2"></i>기본 정보</h6>
+          <div class="execution-section-title"><i class="fas fa-info-circle"></i>기본 정보</div>
           <table class="table table-sm">
             <tr>
               <td><strong>실행 시간:</strong></td>
@@ -1328,7 +1550,7 @@
           </table>
         </div>
         <div class="col-md-6">
-          <h6><i class="fas fa-wallet me-2"></i>계좌 정보</h6>
+          <div class="execution-section-title"><i class="fas fa-wallet"></i>계좌 정보</div>
           <table class="table table-sm">
             <tr>
               <td><strong>총 예수금:</strong></td>
@@ -1348,7 +1570,7 @@
       
       <div class="row mt-3">
         <div class="col-md-6">
-          <h6><i class="fas fa-chart-line me-2"></i>매수 결과</h6>
+          <div class="execution-section-title"><i class="fas fa-arrow-up"></i>매수 결과</div>
           <table class="table table-sm">
             <tr>
               <td><strong>총 시도:</strong></td>
@@ -1369,7 +1591,7 @@
           </table>
         </div>
         <div class="col-md-6">
-          <h6><i class="fas fa-chart-line me-2"></i>매도 결과</h6>
+          <div class="execution-section-title"><i class="fas fa-arrow-down"></i>매도 결과</div>
           <table class="table table-sm">
             <tr>
               <td><strong>총 시도:</strong></td>
@@ -1393,7 +1615,7 @@
       
       <div class="row mt-3">
         <div class="col-12">
-          <h6><i class="fas fa-list me-2"></i>상세 내역</h6>
+          <div class="execution-section-title"><i class="fas fa-list"></i>상세 내역</div>
           <div id="execution-extra-details"></div>
           <div class="alert alert-info mt-2">
             <i class="fas fa-info-circle me-2"></i>
@@ -1619,29 +1841,35 @@
     topStocksTbody.innerHTML = "";
 
     if (data.top_stocks && data.top_stocks.length > 0) {
-      data.top_stocks.forEach((stock) => {
+      data.top_stocks.forEach((stock, idx) => {
+        const rank = stock.최종순위 ?? (idx + 1);
+        const rfProba = (stock.rf_pred_proba != null ? stock.rf_pred_proba : stock.ml_pred_proba);
         const row = document.createElement("tr");
         row.innerHTML = `
-                <td>${stock.최종순위 || "-"}</td>
+                <td>${rank ?? "-"}</td>
                 <td>${stock.종목명 || "-"}</td>
                 <td>${stock.종목코드 || "-"}</td>
                 <td>${
                   stock.현재가 ? stock.현재가.toLocaleString() + "원" : "-"
                 }</td>
                 <td>${
+                  stock.시가총액 != null ? Number(stock.시가총액).toLocaleString() : "-"
+                }</td>
+                <td>${
                   stock.final_score ? stock.final_score.toFixed(2) : "-"
                 }</td>
                 <td>${
-                  stock.ml_pred_proba
-                    ? (stock.ml_pred_proba * 100).toFixed(1) + "%"
-                    : "-"
+                  rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"
+                }</td>
+                <td>${
+                  stock.lgbm_pred_proba != null ? (Number(stock.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"
                 }</td>
             `;
         topStocksTbody.appendChild(row);
       });
     } else {
       topStocksTbody.innerHTML =
-        '<tr><td colspan="6" class="text-center text-muted">상위 종목이 없습니다.</td></tr>';
+        '<tr><td colspan="8" class="text-center text-muted">상위 종목이 없습니다.</td></tr>';
     }
 
     // 매도 대상 종목 업데이트
@@ -1691,29 +1919,35 @@
     buyCandidatesTbody.innerHTML = "";
 
     if (data.buy_candidates && data.buy_candidates.length > 0) {
-      data.buy_candidates.forEach((stock) => {
+      data.buy_candidates.forEach((stock, idx) => {
+        const rank = stock.최종순위 ?? (idx + 1);
+        const rfProba = (stock.rf_pred_proba != null ? stock.rf_pred_proba : stock.ml_pred_proba);
         const row = document.createElement("tr");
         row.innerHTML = `
-                <td>${stock.최종순위 || "-"}</td>
+                <td>${rank ?? "-"}</td>
                 <td>${stock.종목명 || "-"}</td>
                 <td>${stock.종목코드 || "-"}</td>
                 <td>${
                   stock.현재가 ? stock.현재가.toLocaleString() + "원" : "-"
                 }</td>
                 <td>${
+                  stock.시가총액 != null ? Number(stock.시가총액).toLocaleString() : "-"
+                }</td>
+                <td>${
                   stock.final_score ? stock.final_score.toFixed(2) : "-"
                 }</td>
                 <td>${
-                  stock.ml_pred_proba
-                    ? (stock.ml_pred_proba * 100).toFixed(1) + "%"
-                    : "-"
+                  rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"
+                }</td>
+                <td>${
+                  stock.lgbm_pred_proba != null ? (Number(stock.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"
                 }</td>
             `;
         buyCandidatesTbody.appendChild(row);
       });
     } else {
       buyCandidatesTbody.innerHTML =
-        '<tr><td colspan="6" class="text-center text-muted">매수 대상이 없습니다.</td></tr>';
+        '<tr><td colspan="8" class="text-center text-muted">매수 대상이 없습니다.</td></tr>';
     }
 
   }

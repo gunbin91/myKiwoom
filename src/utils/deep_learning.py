@@ -342,7 +342,17 @@ class DeepLearningAnalyzer:
             }
     
     
-    def get_top_stocks(self, analysis_result, top_n=5, buy_universe_rank=20, include_sell_candidates=None, sell_results=None, server_type=None):
+    def get_top_stocks(
+        self,
+        analysis_result,
+        top_n=5,
+        buy_universe_rank=20,
+        include_sell_candidates=None,
+        sell_results=None,
+        server_type=None,
+        return_meta: bool = False,
+        excluded_limit: int = 200,
+    ):
         """
         매수 대상 종목 선정 (보유 종목 제외, 매도 예정 종목은 상위 매수고려대상에 추가)
         
@@ -357,11 +367,52 @@ class DeepLearningAnalyzer:
             list: 매수 대상 종목 리스트
         """
         if not analysis_result.get('success'):
-            return []
+            return [] if not return_meta else {
+                "selected": [],
+                "excluded_candidates": [],
+                "excluded_summary": {"reason_counts": {}, "total_excluded": 0},
+                "meta": {"message": "analysis_result.success == False"},
+            }
         
         try:
-            result_df = pd.DataFrame(analysis_result['data']['analysis_result'])
+            def _norm_code(v) -> str:
+                """
+                종목코드 정규화:
+                - 'A' 프리픽스 제거
+                - 숫자만 있으면 6자리 zfill (선행 0 보존)
+                - 문자 포함(예: 우선주 코드 '00088K')은 대문자로 유지
+                """
+                s = str(v or "").strip()
+                if s.startswith("A") and len(s) > 1:
+                    s = s[1:]
+                s = s.strip()
+                if s.isdigit():
+                    return s.zfill(6)
+                return s.upper()
+
+            raw_records = analysis_result.get('data', {}).get('analysis_result', [])
+            result_df = pd.DataFrame(raw_records)
+
+            # 필수 컬럼이 없으면 방어적으로 처리
+            required_cols = ['종목코드']
+            for c in required_cols:
+                if c not in result_df.columns:
+                    if not return_meta:
+                        return []
+                    return {
+                        "selected": [],
+                        "excluded_candidates": [],
+                        "excluded_summary": {"reason_counts": {"missing_required_columns": 1}, "total_excluded": 0},
+                        "meta": {"missing_columns": required_cols, "columns": list(result_df.columns)},
+                    }
             
+            # 종목코드 정규화 컬럼 추가(내부 매칭용)
+            try:
+                result_df["__norm_code"] = result_df["종목코드"].apply(_norm_code)
+            except Exception:
+                # 최후의 방어
+                result_df["__norm_code"] = result_df["종목코드"].astype(str).map(_norm_code)
+
             # 제외할 종목 목록 준비 (보유 종목만 제외)
             exclude_stocks = set()
             
@@ -369,7 +420,7 @@ class DeepLearningAnalyzer:
             try:
                 held_stocks = self._get_held_stocks(server_type=server_type)
                 if held_stocks:
-                    exclude_stocks.update(held_stocks)
+                    exclude_stocks.update({_norm_code(x) for x in held_stocks})
                     log_info(f"📋 보유 종목 {len(held_stocks)}개를 매수 대상에서 제외합니다.")
                 else:
                     log_info("📋 보유 종목이 없거나 조회에 실패했습니다.")
@@ -387,40 +438,156 @@ class DeepLearningAnalyzer:
                     for detail in sell_results['details']:
                         if detail.get('status') == '성공':
                             stock_code = detail.get('stock_code', '')
-                            clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
-                            successful_sell_stocks.add(clean_stock_code)
+                            successful_sell_stocks.add(_norm_code(stock_code))
                     
                     for stock_code in include_sell_candidates:
-                        clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
-                        if clean_stock_code in successful_sell_stocks and clean_stock_code in final_exclude_stocks:
-                            final_exclude_stocks.remove(clean_stock_code)
-                            log_info(f"📉 매도 성공 종목 {clean_stock_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
-                        elif clean_stock_code in final_exclude_stocks:
-                            log_info(f"📉 매도 실패 종목 {clean_stock_code}는 보유종목에 그대로 유지")
+                        norm_code = _norm_code(stock_code)
+                        if norm_code in successful_sell_stocks and norm_code in final_exclude_stocks:
+                            final_exclude_stocks.remove(norm_code)
+                            log_info(f"📉 매도 성공 종목 {norm_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
+                        elif norm_code in final_exclude_stocks:
+                            log_info(f"📉 매도 실패 종목 {norm_code}는 보유종목에 그대로 유지")
                 else:
                     # 매도 주문 결과가 없으면 예정 종목 모두 제거 (기존 로직)
                     for stock_code in include_sell_candidates:
-                        clean_stock_code = stock_code.replace('A', '') if stock_code.startswith('A') else stock_code
-                        if clean_stock_code in final_exclude_stocks:
-                            final_exclude_stocks.remove(clean_stock_code)
-                            log_info(f"📉 매도 예정 종목 {clean_stock_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
+                        norm_code = _norm_code(stock_code)
+                        if norm_code in final_exclude_stocks:
+                            final_exclude_stocks.remove(norm_code)
+                            log_info(f"📉 매도 예정 종목 {norm_code}를 보유종목에서 제거 (매도 후 보유종목 계산)")
             
             # 3. 매도 후 보유종목을 DataFrame에서 필터링
+            excluded_reason_map = {}  # stock_code -> reason
+            for sc in final_exclude_stocks:
+                excluded_reason_map[_norm_code(sc)] = "held_stock"
+
+            working_df = result_df.copy()
+
+            # Exclude_Rank 컬럼이 있는 경우는 제외 처리(모델이 미리 걸러야 하는 종목)
+            if 'Exclude_Rank' in working_df.columns:
+                try:
+                    # bool/str 혼재 가능성 방어
+                    ex_mask = working_df['Exclude_Rank'].astype(str).str.lower().isin(['true', '1', 'yes', 'y'])
+                except Exception:
+                    ex_mask = False
+                if isinstance(ex_mask, (pd.Series,)):
+                    for sc in working_df.loc[ex_mask, '__norm_code'].astype(str).tolist():
+                        excluded_reason_map[_norm_code(sc)] = "Exclude_Rank"
+                    working_df = working_df[~ex_mask]
+
             if final_exclude_stocks:
-                result_df = result_df[~result_df['종목코드'].isin(final_exclude_stocks)]
-                log_info(f"✅ 매도 후 보유 종목 {len(final_exclude_stocks)}개 제외 후 {len(result_df)}개 종목이 남았습니다.")
+                working_df = working_df[~working_df['__norm_code'].astype(str).isin({str(_norm_code(x)) for x in final_exclude_stocks})]
+                log_info(f"✅ 매도 후 보유 종목 {len(final_exclude_stocks)}개 제외 후 {len(working_df)}개 종목이 남았습니다.")
             else:
                 log_info("📋 제외할 보유 종목이 없습니다.")
             
             # 매수 대상 범위 내에서 상위 N개 선택
-            buy_candidates = result_df[result_df['최종순위'] <= buy_universe_rank]
-            top_stocks = buy_candidates.head(top_n)
-            
-            return top_stocks.to_dict('records')
+            # 최종순위가 없는 데이터는 방어적으로 제외(사유 기록)
+            if '최종순위' not in working_df.columns:
+                if not return_meta:
+                    return []
+                return {
+                    "selected": [],
+                    "excluded_candidates": [],
+                    "excluded_summary": {"reason_counts": {"missing_rank_column": 1}, "total_excluded": 0},
+                    "meta": {"columns": list(working_df.columns)},
+                }
+
+            # rank 파싱 실패 방어
+            try:
+                rank_series = pd.to_numeric(working_df['최종순위'], errors='coerce')
+            except Exception:
+                rank_series = None
+
+            if rank_series is None:
+                if not return_meta:
+                    return []
+                return {
+                    "selected": [],
+                    "excluded_candidates": [],
+                    "excluded_summary": {"reason_counts": {"rank_parse_failed": 1}, "total_excluded": 0},
+                    "meta": {},
+                }
+
+            in_universe_mask = rank_series <= float(buy_universe_rank)
+            universe_df = working_df[in_universe_mask].copy()
+            out_universe_df = working_df[~in_universe_mask].copy()
+
+            # universe 밖은 너무 많을 수 있으므로 요약 위주(샘플만)
+            for sc in out_universe_df['__norm_code'].astype(str).tolist()[:max(0, int(excluded_limit) // 4)]:
+                excluded_reason_map.setdefault(_norm_code(sc), "rank_out_of_universe")
+
+            top_stocks = universe_df.head(int(top_n))
+
+            # universe 안이지만 top_n 밖(=not_in_top_n)도 비교적 적으므로 기록
+            if len(universe_df) > int(top_n):
+                tail_df = universe_df.iloc[int(top_n):].copy()
+                for sc in tail_df['__norm_code'].astype(str).tolist()[:max(0, int(excluded_limit) // 2)]:
+                    excluded_reason_map.setdefault(_norm_code(sc), "not_in_top_n")
+
+            selected_records = top_stocks.to_dict('records')
+            # 내부 컬럼 제거
+            for r in selected_records:
+                r.pop("__norm_code", None)
+            if not return_meta:
+                return selected_records
+
+            # excluded_candidates 생성(사유 맵에 있는 것만; 상한 적용)
+            excluded_rows = []
+            # 빠르게 조회할 수 있도록 dict로
+            by_code = {}
+            try:
+                for row in result_df.to_dict('records'):
+                    sc = _norm_code(row.get('__norm_code') or row.get('종목코드', ''))
+                    if sc:
+                        by_code[sc] = row
+            except Exception:
+                by_code = {}
+
+            reason_counts = {}
+            for sc, reason in excluded_reason_map.items():
+                sc = _norm_code(sc)
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+                row = (by_code.get(sc, {}) or {}).copy()
+                row.pop("__norm_code", None)
+
+                # ✅ “분석 서버에서 받아온 원본 row”를 최대한 그대로 보여주기 위해, row 전체 + reason을 붙인다.
+                # row를 못 찾는 경우에도 최소한 코드/사유는 남긴다.
+                if not row:
+                    row = {"종목코드": sc}
+                row.setdefault("종목코드", sc)
+                row["reason"] = reason
+                excluded_rows.append(row)
+
+            excluded_rows = excluded_rows[:int(excluded_limit)]
+
+            meta = {
+                "top_n": int(top_n),
+                "buy_universe_rank": int(buy_universe_rank),
+                "total_input": int(len(result_df)),
+                "total_after_filters": int(len(working_df)),
+                "total_universe": int(len(universe_df)),
+                "total_selected": int(len(selected_records)),
+                "excluded_limit": int(excluded_limit),
+            }
+
+            return {
+                "selected": selected_records,
+                "excluded_candidates": excluded_rows,
+                "excluded_summary": {
+                    "reason_counts": reason_counts,
+                    "total_excluded": int(sum(reason_counts.values())),
+                },
+                "meta": meta,
+            }
             
         except Exception as e:
             log_error(f"매수 대상 선정 중 오류 발생: {e}")
-            return []
+            return [] if not return_meta else {
+                "selected": [],
+                "excluded_candidates": [],
+                "excluded_summary": {"reason_counts": {"exception": 1}, "total_excluded": 0},
+                "meta": {"error": str(e)},
+            }
     
     def _get_held_stocks(self, server_type=None):
         """보유 종목 조회"""
