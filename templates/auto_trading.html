@@ -635,7 +635,7 @@
                   <th>종목명</th>
                   <th>종목코드</th>
                   <th>현재가</th>
-                  <th>시가총액</th>
+                  <th>시가총액(억)</th>
                   <th>RF상승확률</th>
                   <th>LGBM상승확률</th>
                   <th>최종점수</th>
@@ -692,7 +692,7 @@
                   <th>종목명</th>
                   <th>종목코드</th>
                   <th>현재가</th>
-                  <th>시가총액</th>
+                  <th>시가총액(억)</th>
                   <th>RF상승확률</th>
                   <th>LGBM상승확률</th>
                   <th>최종점수</th>
@@ -1261,6 +1261,14 @@
           return new Intl.NumberFormat("ko-KR").format(n);
         };
 
+        // 분석 원본데이터 기준: 시가총액은 '억' 단위로 내려옴 → 소숫점 제거 후 '억' 표기
+        const formatMarketCapEok = (val) => {
+          if (val === null || val === undefined || val === "" || Number.isNaN(Number(val))) return "-";
+          const n = Number(val);
+          if (!Number.isFinite(n)) return "-";
+          return new Intl.NumberFormat("ko-KR").format(Math.floor(n)) + "억";
+        };
+
         const escapeHtml = (unsafe) => {
           return String(unsafe ?? "")
             .replaceAll("&", "&amp;")
@@ -1287,52 +1295,24 @@
           `);
         }
 
-        // 0.5) 분석서버 원본 Top 60 (사용자 확인용)
-        if (analysisTop60.length) {
-          const sorted = [...analysisTop60].sort((a, b) => {
-            const ra = Number(a?.최종순위 ?? 999999);
-            const rb = Number(b?.최종순위 ?? 999999);
-            return ra - rb;
-          });
-          const rows = sorted.map((x) => {
-            const rank = x?.최종순위 ?? "-";
-            const rfProba = (x?.rf_pred_proba != null ? x.rf_pred_proba : x?.ml_pred_proba);
-            return `
-              <tr>
-                <td>${escapeHtml(rank)}</td>
-                <td>${escapeHtml(x?.종목명 || "-")}</td>
-                <td>${escapeHtml(x?.종목코드 || "-")}</td>
-                <td>${x?.시가총액 != null ? formatNumber(x.시가총액) : "-"}</td>
-                <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
-                <td>${x?.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
-                <td>${x?.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
-              </tr>
-            `;
-          }).join("");
-
-          htmlParts.push(`
-            <div class="execution-section-title"><i class="fas fa-list-ol"></i>분석서버 원본 Top 60</div>
-            <div class="table-responsive">
-              <table class="table table-sm table-hover">
-                <thead>
-                  <tr>
-                    <th>최종순위</th><th>종목명</th><th>종목코드</th><th>시가총액</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th>
-                  </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-              </table>
-            </div>
-          `);
-        }
-
         // 1) 매수 상세
         if (buyDetails.length) {
+          const buySuccess = buyDetails.filter((x) => (x?.status || "") === "성공").length;
+          const buySkipped = buyDetails.filter((x) => (x?.status || "") === "스킵").length;
+          const buyFailed = buyDetails.filter((x) => (x?.status || "") === "실패").length;
+          const getStatusBadge = (status) => {
+            const s = String(status || "-");
+            if (s === "성공") return `<span class="badge bg-success">${escapeHtml(s)}</span>`;
+            if (s === "실패") return `<span class="badge bg-danger">${escapeHtml(s)}</span>`;
+            if (s === "스킵") return `<span class="badge bg-secondary">${escapeHtml(s)}</span>`;
+            return `<span class="badge bg-light text-dark">${escapeHtml(s)}</span>`;
+          };
           const rows = buyDetails.map((x, idx) => `
             <tr>
               <td>${idx + 1}</td>
               <td>${escapeHtml(x.stock_name || "-")}</td>
               <td>${escapeHtml(x.stock_code || "-")}</td>
-              <td>${escapeHtml(x.status || "-")}</td>
+              <td>${getStatusBadge(x.status)}</td>
               <td>${formatNumber(x.quantity)}주</td>
               <td>${formatNumber(x.price)}원</td>
               <td>${formatNumber(x.amount)}원</td>
@@ -1341,7 +1321,7 @@
             </tr>
           `).join("");
           htmlParts.push(`
-            <div class="execution-section-title"><i class="fas fa-arrow-up"></i>매수 상세 내역 (${buyDetails.length}건)</div>
+            <div class="execution-section-title"><i class="fas fa-arrow-up"></i>매수 상세 내역 (총 ${buyDetails.length}건 | 성공 ${buySuccess} | 스킵 ${buySkipped} | 실패 ${buyFailed})</div>
             <div class="table-responsive">
               <table class="table table-sm table-hover">
                 <thead>
@@ -1357,12 +1337,20 @@
 
         // 2) 매도 상세
         if (sellDetails.length) {
+          const sellSuccess = sellDetails.filter((x) => (x?.status || "") === "성공").length;
+          const sellFailed = sellDetails.filter((x) => (x?.status || "") === "실패").length;
+          const getStatusBadge = (status) => {
+            const s = String(status || "-");
+            if (s === "성공") return `<span class="badge bg-success">${escapeHtml(s)}</span>`;
+            if (s === "실패") return `<span class="badge bg-danger">${escapeHtml(s)}</span>`;
+            return `<span class="badge bg-light text-dark">${escapeHtml(s)}</span>`;
+          };
           const rows = sellDetails.map((x, idx) => `
             <tr>
               <td>${idx + 1}</td>
               <td>${escapeHtml(x.stock_name || "-")}</td>
               <td>${escapeHtml(x.stock_code || "-")}</td>
-              <td>${escapeHtml(x.status || "-")}</td>
+              <td>${getStatusBadge(x.status)}</td>
               <td>${formatNumber(x.quantity)}주</td>
               <td>${formatNumber(x.price)}원</td>
               <td>${formatNumber(x.amount)}원</td>
@@ -1371,7 +1359,7 @@
             </tr>
           `).join("");
           htmlParts.push(`
-            <div class="execution-section-title"><i class="fas fa-arrow-down"></i>매도 상세 내역 (${sellDetails.length}건)</div>
+            <div class="execution-section-title"><i class="fas fa-arrow-down"></i>매도 상세 내역 (총 ${sellDetails.length}건 | 성공 ${sellSuccess} | 실패 ${sellFailed})</div>
             <div class="table-responsive">
               <table class="table table-sm table-hover">
                 <thead>
@@ -1382,6 +1370,48 @@
                 <tbody>${rows}</tbody>
               </table>
             </div>
+          `);
+        }
+
+        // 2.5) 분석서버 원본 Top 40 (사용자 확인용) - 매수/매도 상세 아래로 이동
+        // - 서버에서 40개로 잘라 내려오지만, 과거 실행 파일 호환을 위해 UI에서도 40개로 제한
+        if (analysisTop60.length) {
+          const topLimit = 40;
+          const sorted = [...analysisTop60].sort((a, b) => {
+            const ra = Number(a?.최종순위 ?? 999999);
+            const rb = Number(b?.최종순위 ?? 999999);
+            return ra - rb;
+          }).slice(0, topLimit);
+
+          const rows = sorted.map((x) => {
+            const rank = x?.최종순위 ?? "-";
+            const rfProba = (x?.rf_pred_proba != null ? x.rf_pred_proba : x?.ml_pred_proba);
+            return `
+              <tr>
+                <td>${escapeHtml(rank)}</td>
+                <td>${escapeHtml(x?.종목명 || "-")}</td>
+                <td>${escapeHtml(x?.종목코드 || "-")}</td>
+                <td>${formatMarketCapEok(x?.시가총액)}</td>
+                <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
+                <td>${x?.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
+                <td>${x?.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
+              </tr>
+            `;
+          }).join("");
+
+          htmlParts.push(`
+            <div class="execution-section-title"><i class="fas fa-list-ol"></i>분석서버 원본 Top 40</div>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover">
+                <thead>
+                  <tr>
+                    <th>최종순위</th><th>종목명</th><th>종목코드</th><th>시가총액(억)</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+            ${analysisTop60.length > topLimit ? `<div class="text-muted">※ 과거 실행 파일 포함: 표시 제한 ${topLimit}건</div>` : ""}
           `);
         }
 
@@ -1420,11 +1450,12 @@
           `);
         }
 
-        // 4) 제외 후보(사유)
-        if (excludedCandidates.length) {
+        // 4) 제외 후보(held_stock만 표기)
+        const excludedHeld = (excludedCandidates || []).filter((x) => (x?.reason || "") === "held_stock");
+        if (excludedHeld.length) {
           const limit = 200;
           // 최종순위 기준으로 정렬해서 표시(과거 실행상세도 UI에서 정렬 효과)
-          const sorted = [...excludedCandidates].sort((a, b) => {
+          const sorted = [...excludedHeld].sort((a, b) => {
             const ra = Number(a?.최종순위 ?? 999999);
             const rb = Number(b?.최종순위 ?? 999999);
             if (!Number.isFinite(ra) && !Number.isFinite(rb)) return 0;
@@ -1443,32 +1474,27 @@
               <td>${escapeHtml(rank)}</td>
               <td>${escapeHtml(x.종목명 || "-")}</td>
               <td>${escapeHtml(x.종목코드 || "-")}</td>
-              <td>${x.시가총액 != null ? formatNumber(x.시가총액) : "-"}</td>
+              <td>${formatMarketCapEok(x.시가총액)}</td>
               <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
               <td>${x.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
               <td>${x.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
               <td><span class="badge bg-secondary">${escapeHtml(x.reason || "-")}</span></td>
             </tr>
           `}).join("");
-          const reasonCounts = excludedSummary.reason_counts || {};
-          const reasonText = Object.keys(reasonCounts).length
-            ? Object.entries(reasonCounts).map(([k, v]) => `${k}: ${v}`).join(", ")
-            : "-";
 
           htmlParts.push(`
-            <div class="execution-section-title"><i class="fas fa-filter"></i>제외된 후보(사유) (${excludedCandidates.length}건)</div>
-            <div class="text-muted mb-2">사유 요약: ${escapeHtml(reasonText)}</div>
+            <div class="execution-section-title"><i class="fas fa-filter"></i>제외된 후보(held_stock) (${excludedHeld.length}건)</div>
             <div class="table-responsive">
               <table class="table table-sm table-hover">
                 <thead>
                   <tr>
-                    <th>최종순위</th><th>종목명</th><th>코드</th><th>시가총액</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th><th>사유</th>
+                    <th>최종순위</th><th>종목명</th><th>코드</th><th>시가총액(억)</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th><th>사유</th>
                   </tr>
                 </thead>
                 <tbody>${rows}</tbody>
               </table>
             </div>
-            ${excludedCandidates.length > limit ? `<div class="text-muted">※ 표시 제한: ${limit}건까지만 보여줍니다.</div>` : ""}
+            ${excludedHeld.length > limit ? `<div class="text-muted">※ 표시 제한: ${limit}건까지만 보여줍니다.</div>` : ""}
           `);
         }
 
@@ -1840,6 +1866,13 @@
     const topStocksTbody = document.getElementById("top-stocks-tbody");
     topStocksTbody.innerHTML = "";
 
+    // 분석 원본데이터 기준: 시가총액은 '억' 단위 → 소숫점 제거 후 '억' 표기
+    const formatMarketCapEok = (val) => {
+      const n = Number(val);
+      if (!Number.isFinite(n)) return "-";
+      return Math.floor(n).toLocaleString() + "억";
+    };
+
     if (data.top_stocks && data.top_stocks.length > 0) {
       data.top_stocks.forEach((stock, idx) => {
         const rank = stock.최종순위 ?? (idx + 1);
@@ -1853,7 +1886,7 @@
                   stock.현재가 ? stock.현재가.toLocaleString() + "원" : "-"
                 }</td>
                 <td>${
-                  stock.시가총액 != null ? Number(stock.시가총액).toLocaleString() : "-"
+                  stock.시가총액 != null ? formatMarketCapEok(stock.시가총액) : "-"
                 }</td>
                 <td>${
                   stock.final_score ? stock.final_score.toFixed(2) : "-"
@@ -1931,7 +1964,7 @@
                   stock.현재가 ? stock.현재가.toLocaleString() + "원" : "-"
                 }</td>
                 <td>${
-                  stock.시가총액 != null ? Number(stock.시가총액).toLocaleString() : "-"
+                  stock.시가총액 != null ? formatMarketCapEok(stock.시가총액) : "-"
                 }</td>
                 <td>${
                   stock.final_score ? stock.final_score.toFixed(2) : "-"

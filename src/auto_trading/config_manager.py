@@ -126,13 +126,24 @@ class AutoTradingConfigManager:
                 merged[key] = value
         return merged
     
-    def is_today_executed(self):
-        """오늘 이미 실행되었는지 확인"""
+    def is_today_executed(self, exclude_execution_types=None):
+        """오늘 이미 실행되었는지 확인
+
+        - exclude_execution_types: 특정 실행유형은 '오늘 실행됨' 판정에서 제외
+          (예: 장중손절감시는 자동매매와 별개이므로 제외 가능)
+        """
         try:
             if not self.trading_result_file.exists():
                 return False
 
             today_str = datetime.now().strftime('%Y-%m-%d')
+            exclude_set = {str(x).strip() for x in (exclude_execution_types or []) if str(x).strip()}
+
+            # 로그는 아래 순서로 기록됨:
+            # ⏰ 실행 시간: YYYY-MM-DD HH:MM:SS
+            # 🔄 실행 유형: <자동/수동/장중손절감시/...>
+            current_is_today = False
+            current_type = None
             with open(self.trading_result_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
@@ -140,9 +151,23 @@ class AutoTradingConfigManager:
                     if line.startswith('⏰ 실행 시간:'):
                         time_str = line.replace('⏰ 실행 시간:', '').strip()
                         # 안전하게 날짜만 비교
-                        if time_str.startswith(today_str):
-                            return True
-            return False
+                        current_is_today = bool(time_str.startswith(today_str))
+                        current_type = None
+                        continue
+
+                    # 실행 유형 확인 (현재 레코드가 오늘인 경우에만)
+                    if current_is_today and line.startswith('🔄 실행 유형:'):
+                        current_type = line.replace('🔄 실행 유형:', '').strip()
+                        # 제외 대상이면 '오늘 실행됨'에서 제외하고 다음 레코드 탐색
+                        if current_type in exclude_set:
+                            current_is_today = False
+                            current_type = None
+                            continue
+                        return True
+
+            # 오늘 레코드가 있었지만 실행유형 라인이 없는(구형 포맷) 경우:
+            # - 안전을 위해 '오늘 실행됨'으로 간주 (제외 로직 적용 불가)
+            return bool(current_is_today)
         except Exception as e:
             print(f"실행 이력 확인 실패: {e}")
             return False
@@ -279,6 +304,8 @@ class AutoTradingConfigManager:
                 log_entry += f"  - 총 시도: {buy_results.get('total_attempts', 0)}건\n"
                 log_entry += f"  - 성공: {buy_results.get('success_count', 0)}건\n"
                 log_entry += f"  - 실패: {buy_results.get('failed_count', 0)}건\n"
+                if buy_results.get('skipped_count', 0):
+                    log_entry += f"  - 스킵: {buy_results.get('skipped_count', 0)}건\n"
                 log_entry += f"  - 총 매수금액: {buy_results.get('total_buy_amount', 0):,}원\n"
                 log_entry += f"  - 총 매수수량: {buy_results.get('total_buy_quantity', 0):,}주\n"
                 
@@ -301,7 +328,10 @@ class AutoTradingConfigManager:
                         log_entry += f"       - 상태: {status}\n"
                         log_entry += f"       - 매수사유: {reason}\n"
                         if error_msg:
-                            log_entry += f"       - 실패사유: {error_msg}\n"
+                            if str(status).strip() == "스킵":
+                                log_entry += f"       - 스킵사유: {error_msg}\n"
+                            else:
+                                log_entry += f"       - 실패사유: {error_msg}\n"
             
             # 매도 실행 결과 상세 정보
             if sell_results:

@@ -134,7 +134,7 @@ class AutoTradingEngine:
             "buy_universe_rank": strategy_params.get("buy_universe_rank"),
         })
 
-        # 분석서버 원본 Top 60 스냅샷(사용자 확인용)
+        # 분석서버 원본 Top 40 스냅샷(사용자 확인용)
         analysis_top60 = []
         try:
             raw = (analysis_result or {}).get("data", {}).get("analysis_result", []) or []
@@ -145,7 +145,7 @@ class AutoTradingEngine:
                     except Exception:
                         return 999999
                 raw_sorted = sorted([r for r in raw if isinstance(r, dict)], key=_rank_key)
-                analysis_top60 = raw_sorted[:60]
+                analysis_top60 = raw_sorted[:40]
         except Exception:
             analysis_top60 = []
         
@@ -421,7 +421,8 @@ class AutoTradingEngine:
     def can_execute(self, manual_execution=False):
         """실행 가능 여부 확인"""
         # 1. 오늘 이미 실행했는지 확인 (수동 실행 시에는 체크하지 않음)
-        if not manual_execution and self.config_manager.is_today_executed():
+        # - 장중손절감시는 자동매매와 별개이므로 제외
+        if not manual_execution and self.config_manager.is_today_executed(exclude_execution_types=["장중손절감시"]):
             return False, "오늘 이미 실행되었습니다."
         
         # 2. 자동매매가 활성화되어 있는지 확인 (수동 실행 시에는 체크하지 않음)
@@ -502,12 +503,24 @@ class AutoTradingEngine:
                 sell_results = trading_results['sell_results']
                 buy_results = trading_results['buy_results']
                 
-                # 성공/실패 메시지 생성
-                if buy_count > 0 or sell_count > 0:
-                    message = f"[자동] 매수 {buy_count}건, 매도 {sell_count}건 실행 완료"
+                # 성공/실패 메시지 생성(사용자 친화 요약 포함)
+                buy_target = (trading_data.get('strategy_params') or {}).get('top_n')
+                buy_selected = len(trading_results.get('buy_candidates') or [])
+                buy_success = int(buy_results.get('success_count', buy_count) or 0) if isinstance(buy_results, dict) else int(buy_count or 0)
+                buy_failed = int(buy_results.get('failed_count', 0) or 0) if isinstance(buy_results, dict) else 0
+                buy_skipped = int(buy_results.get('skipped_count', 0) or 0) if isinstance(buy_results, dict) else 0
+                sell_success = int(sell_results.get('success_count', sell_count) or 0) if isinstance(sell_results, dict) else int(sell_count or 0)
+                sell_failed = int(sell_results.get('failed_count', 0) or 0) if isinstance(sell_results, dict) else 0
+
+                buy_summary = f"매수: 목표{buy_target}/선정{buy_selected}/성공{buy_success}/스킵{buy_skipped}/실패{buy_failed}"
+                sell_summary = f"매도: 성공{sell_success}/실패{sell_failed}"
+
+                if (buy_success > 0) or (sell_success > 0):
+                    message = f"[자동] {buy_summary} | {sell_summary}"
                     status = "success"
                 else:
-                    message = f"[자동] 매수 실패: {buy_results.get('total_attempts', 0)}개 종목 중 {buy_count}건 성공"
+                    # 성공 0이어도 스킵/실패 사유는 남기되 상태는 failed로 유지(기존 의미 유지)
+                    message = f"[자동] 매수 실패 | {buy_summary} | {sell_summary}"
                     status = "failed"
 
                 # 최종 미체결(잔량) 요약을 메시지에 포함(사용자 편의)
@@ -762,6 +775,7 @@ class AutoTradingEngine:
         """매수 주문 실행 (시장가/호가 기반 지정가 옵션 지원)"""
         success_count = 0
         failed_count = 0
+        skipped_count = 0
         total_buy_amount = 0
         total_buy_quantity = 0
         buy_details = []
@@ -782,12 +796,30 @@ class AutoTradingEngine:
             
             if available_cash <= 0:
                 self._get_logger().warning(f"사용 가능한 현금이 부족합니다. (예수금: {total_deposit:,}, 예약금: {reserve_cash:,})")
-                return {'success_count': 0}
+                return {
+                    'success_count': 0,
+                    'failed_count': 0,
+                    'skipped_count': 0,
+                    'total_attempts': 0,
+                    'total_buy_amount': 0,
+                    'total_buy_quantity': 0,
+                    'details': [],
+                    'buy_orders': [],
+                }
             
             # 매수 대상이 없는 경우 조기 종료
             if not buy_candidates or len(buy_candidates) == 0:
                 self._get_logger().info("📊 매수 대상 종목이 없습니다.")
-                return {'success_count': 0}
+                return {
+                    'success_count': 0,
+                    'failed_count': 0,
+                    'skipped_count': 0,
+                    'total_attempts': 0,
+                    'total_buy_amount': 0,
+                    'total_buy_quantity': 0,
+                    'details': [],
+                    'buy_orders': [],
+                }
             
             # 실전에서는 종목당 동일한 금액 투자 (수수료 고려)
             investment_per_stock = available_cash // len(buy_candidates)
@@ -799,14 +831,31 @@ class AutoTradingEngine:
             limit_buy_max_premium_pct = float(strategy_params.get('limit_buy_max_premium_pct', 1.0) or 1.0)
             limit_buy_guard_action = (strategy_params.get('limit_buy_guard_action', 'skip') or 'skip').strip()
 
+            def _append_skip(stock_name, stock_code, reason, error_message, price=None, quantity=0):
+                """주문 자체를 넣지 못한 경우(스킵)를 실행이력에 남김"""
+                nonlocal skipped_count
+                skipped_count += 1
+                buy_details.append({
+                    'stock_name': stock_name or "-",
+                    'stock_code': stock_code or "-",
+                    'quantity': int(quantity or 0),
+                    'price': int(price or 0),
+                    'amount': 0,
+                    'status': '스킵',
+                    'error_message': error_message or "",
+                    'reason': reason or "AI 분석 추천",
+                })
+
             for candidate in buy_candidates:
                 try:
                     stock_code = candidate.get('종목코드', '')
                     stock_name = candidate.get('종목명', '')
                     analysis_price = candidate.get('현재가', 0)  # 분석 시점 가격 (참고용)
+                    buy_reason = candidate.get('매수사유', 'AI 분석 추천')
                     
                     if not stock_code:
                         self._get_logger().error(f"❌ 종목코드가 없습니다: {candidate}")
+                        _append_skip(stock_name=stock_name, stock_code=stock_code, reason=buy_reason, error_message="종목코드 없음")
                         continue
                     
                     # 🔥 핵심 수정: 키움 API로 실시간 현재가 조회
@@ -819,7 +868,9 @@ class AutoTradingEngine:
                             realtime_price = analysis_price
                             self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 실시간 가격 조회 실패, 분석 시점 가격 사용: {analysis_price:,}원")
                         else:
-                            self._get_logger().error(f"❌ {stock_name}({stock_code}) 가격 정보 없음 (실시간: {realtime_price_result['message']}, 분석시점: {analysis_price})")
+                            msg = f"가격 정보 없음 (실시간: {realtime_price_result.get('message')}, 분석시점: {analysis_price})"
+                            self._get_logger().error(f"❌ {stock_name}({stock_code}) {msg}")
+                            _append_skip(stock_name=stock_name, stock_code=stock_code, reason=buy_reason, error_message=msg)
                             continue
                     else:
                         realtime_price = realtime_price_result['price']
@@ -830,7 +881,9 @@ class AutoTradingEngine:
                     quantity = int(investment_per_stock // effective_price)
                     
                     if quantity <= 0:
-                        self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 매수 수량이 0입니다. (투자금액: {investment_per_stock:,}원, 실시간가격: {realtime_price:,}원)")
+                        msg = f"매수 수량 0 (종목당 투자금액: {investment_per_stock:,}원, 실시간가격: {realtime_price:,}원)"
+                        self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) {msg}")
+                        _append_skip(stock_name=stock_name, stock_code=stock_code, reason=buy_reason, error_message=msg, price=realtime_price, quantity=0)
                         continue
                     
                     # 매수 주문 실행 (재시도 로직 포함)
@@ -848,7 +901,9 @@ class AutoTradingEngine:
                                 order_type_to_send = '3'
                                 order_price_to_send = 0
                             else:
-                                self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 매도1호가 조회 실패 → 매수 스킵")
+                                msg = "매도1호가 조회 실패 → 매수 스킵"
+                                self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) {msg}")
+                                _append_skip(stock_name=stock_name, stock_code=stock_code, reason=buy_reason, error_message=msg, price=realtime_price, quantity=0)
                                 continue
                         else:
                             # 현재가 대비 과도한 프리미엄 방지
@@ -864,6 +919,14 @@ class AutoTradingEngine:
                                         order_price_to_send = 0
                                     else:
                                         self._get_logger().warning(msg + " → 매수 스킵")
+                                        _append_skip(
+                                            stock_name=stock_name,
+                                            stock_code=stock_code,
+                                            reason=buy_reason,
+                                            error_message=msg + " → 매수 스킵",
+                                            price=best_ask_price,
+                                            quantity=0,
+                                        )
                                         continue
                                 else:
                                     order_type_to_send = '0'
@@ -875,7 +938,9 @@ class AutoTradingEngine:
                                     order_type_to_send = '3'
                                     order_price_to_send = 0
                                 else:
-                                    self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) 현재가 부족 → 매수 스킵")
+                                    msg = "현재가 부족 → 매수 스킵"
+                                    self._get_logger().warning(f"⚠️ {stock_name}({stock_code}) {msg}")
+                                    _append_skip(stock_name=stock_name, stock_code=stock_code, reason=buy_reason, error_message=msg, price=0, quantity=0)
                                     continue
 
                     if order_type_to_send == '0':
@@ -910,7 +975,6 @@ class AutoTradingEngine:
                             total_buy_quantity += quantity
                             
                             # 매수 성공 상세 정보 기록
-                            buy_reason = candidate.get('매수사유', 'AI 분석 추천')
                             buy_details.append({
                                 'stock_name': stock_name,
                                 'stock_code': stock_code,
@@ -953,7 +1017,6 @@ class AutoTradingEngine:
                                 failed_count += 1
                                 
                                 # 매수 실패 상세 정보 기록
-                                buy_reason = candidate.get('매수사유', 'AI 분석 추천')
                                 buy_details.append({
                                     'stock_name': stock_name,
                                     'stock_code': stock_code,
@@ -972,6 +1035,13 @@ class AutoTradingEngine:
                         
                 except Exception as e:
                     self._get_logger().error(f"매수 주문 실행 중 오류: {e}")
+                    try:
+                        buy_reason = (candidate or {}).get('매수사유', 'AI 분석 추천')
+                        stock_name = (candidate or {}).get('종목명', '')
+                        stock_code = (candidate or {}).get('종목코드', '')
+                        _append_skip(stock_name=stock_name, stock_code=stock_code, reason=buy_reason, error_message=f"예외로 스킵: {e}")
+                    except Exception:
+                        pass
                     continue
             
             # 매수 실패 원인 분석
@@ -993,6 +1063,7 @@ class AutoTradingEngine:
                 'success_count': success_count,
                 'failed_count': failed_count,
                 'total_attempts': success_count + failed_count,
+                'skipped_count': skipped_count,
                 'total_buy_amount': total_buy_amount,
                 'total_buy_quantity': total_buy_quantity,
                 'details': buy_details,
@@ -1005,6 +1076,7 @@ class AutoTradingEngine:
             return {
                 'success_count': 0,
                 'failed_count': 0,
+                'skipped_count': 0,
                 'total_attempts': 0,
                 'total_buy_amount': 0,
                 'total_buy_quantity': 0,
@@ -1712,7 +1784,7 @@ class AutoTradingEngine:
             config = self.config_manager.load_config()
             strategy_params = config.get('strategy_params', {})
 
-            # 분석서버 원본 Top 60 스냅샷(사용자 확인용)
+            # 분석서버 원본 Top 40 스냅샷(사용자 확인용)
             analysis_top60 = []
             try:
                 raw = (analysis_result or {}).get("data", {}).get("analysis_result", []) or []
@@ -1723,7 +1795,7 @@ class AutoTradingEngine:
                         except Exception:
                             return 999999
                     raw_sorted = sorted([r for r in raw if isinstance(r, dict)], key=_rank_key)
-                    analysis_top60 = raw_sorted[:60]
+                    analysis_top60 = raw_sorted[:40]
             except Exception:
                 analysis_top60 = []
             
@@ -1741,12 +1813,23 @@ class AutoTradingEngine:
             sell_results = trading_results['sell_results']
             buy_results = trading_results['buy_results']
             
-            # 성공/실패 메시지 생성
-            if buy_count > 0 or sell_count > 0:
-                message = f"[수동] 매수 {buy_count}건, 매도 {sell_count}건 실행 완료"
+            # 성공/실패 메시지 생성(사용자 친화 요약 포함)
+            buy_target = (strategy_params or {}).get('top_n')
+            buy_selected = len(trading_results.get('buy_candidates') or [])
+            buy_success = int(buy_results.get('success_count', buy_count) or 0) if isinstance(buy_results, dict) else int(buy_count or 0)
+            buy_failed = int(buy_results.get('failed_count', 0) or 0) if isinstance(buy_results, dict) else 0
+            buy_skipped = int(buy_results.get('skipped_count', 0) or 0) if isinstance(buy_results, dict) else 0
+            sell_success = int(sell_results.get('success_count', sell_count) or 0) if isinstance(sell_results, dict) else int(sell_count or 0)
+            sell_failed = int(sell_results.get('failed_count', 0) or 0) if isinstance(sell_results, dict) else 0
+
+            buy_summary = f"매수: 목표{buy_target}/선정{buy_selected}/성공{buy_success}/스킵{buy_skipped}/실패{buy_failed}"
+            sell_summary = f"매도: 성공{sell_success}/실패{sell_failed}"
+
+            if (buy_success > 0) or (sell_success > 0):
+                message = f"[수동] {buy_summary} | {sell_summary}"
                 status = "success"
             else:
-                message = f"[수동] 매수 실패: {buy_results.get('total_attempts', 0)}개 종목 중 {buy_count}건 성공"
+                message = f"[수동] 매수 실패 | {buy_summary} | {sell_summary}"
                 status = "failed"
             
             # 실행 결과 로그 기록

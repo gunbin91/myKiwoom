@@ -2496,7 +2496,8 @@ def get_auto_trading_status():
 
         config = config_manager.load_config()
         last_execution = config_manager.get_last_execution_time()
-        today_executed = config_manager.is_today_executed()
+        # 장중손절감시는 자동매매와 별개이므로 제외
+        today_executed = config_manager.is_today_executed(exclude_execution_types=["장중손절감시"])
         intraday_cfg = config.get('intraday_stop_loss', {}) or {}
         intraday_enabled = bool(intraday_cfg.get('enabled', False))
         intraday_threshold = intraday_cfg.get('threshold_pct', -7.0)

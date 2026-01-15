@@ -175,7 +175,8 @@ class AutoTradingScheduler:
                 return
             
             # 오늘 이미 실행했는지 확인
-            if self.config_manager.is_today_executed():
+            # - 장중손절감시는 자동매매와 별개이므로 '오늘 실행됨' 판정에서 제외
+            if self.config_manager.is_today_executed(exclude_execution_types=["장중손절감시"]):
                 return
             
             # 현재 실행 중인지 확인 (중복 실행 방지)
