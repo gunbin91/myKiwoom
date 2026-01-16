@@ -302,6 +302,41 @@ class AutoTradingEngine:
         sell_candidates = []
         
         try:
+            # 매도 차단 조건: 당일 등락률(전일대비, %)이 임계값 이상이면 매도 후보에서 제외
+            # - ka10001(주식기본정보요청) flu_rt 사용
+            # - 기본 29.0: 상한가 근처 종목 매도 보류
+            try:
+                sell_block_daily_change_pct = float(strategy_params.get('sell_block_daily_change_pct', 0) or 0)
+            except Exception:
+                sell_block_daily_change_pct = 0.0
+            sell_block_enabled = sell_block_daily_change_pct > 0
+            daily_change_cache = {}  # code -> float|None
+
+            def _parse_pct(v):
+                s = str(v or "").strip()
+                if not s:
+                    return None
+                s = s.replace("%", "").replace("+", "").strip()
+                try:
+                    return float(s)
+                except Exception:
+                    return None
+
+            def _get_daily_change_pct(stock_code_wo_a: str):
+                if not stock_code_wo_a:
+                    return None
+                if stock_code_wo_a in daily_change_cache:
+                    return daily_change_cache[stock_code_wo_a]
+                pct = None
+                try:
+                    info = self.quote.get_stock_basic_info(stock_code_wo_a) or {}
+                    if isinstance(info, dict) and info.get('return_code') == 0:
+                        pct = _parse_pct(info.get('flu_rt'))
+                except Exception:
+                    pct = None
+                daily_change_cache[stock_code_wo_a] = pct
+                return pct
+
             # 보유 종목 조회 - 올바른 구조로 수정
             balance_info = account_info.get('balance', {})
             balance_result = balance_info.get('acnt_evlt_remn_indv_tot', [])
@@ -358,6 +393,16 @@ class AutoTradingEngine:
                             self._get_logger().warning(f"보유기간 계산 실패 ({clean_stock_code}): {holding_error}")
                     
                     if should_sell:
+                        # 당일 등락률 급등(상한가 근처) 종목은 매도 보류
+                        if sell_block_enabled:
+                            daily_pct = _get_daily_change_pct(clean_stock_code)
+                            if (daily_pct is not None) and (daily_pct >= sell_block_daily_change_pct):
+                                self._get_logger().info(
+                                    f"🚫 매도 보류(당일 등락률 {daily_pct:.2f}% ≥ {sell_block_daily_change_pct:.2f}%): "
+                                    f"{stock_name}({clean_stock_code}) - {sell_reason}"
+                                )
+                                continue
+
                         # 보유기간 계산
                         holding_days = -1  # 기본값
                         try:

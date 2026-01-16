@@ -46,6 +46,11 @@ class AutoTradingConfigManager:
                     "buy_universe_rank": 20,  # 매수 대상 범위
                     "transaction_fee_rate": 0.015,  # 거래 수수료율 (%)
 
+                    # 매도 차단 조건: 당일 등락률(전일대비, %)이 임계값 이상이면 매도하지 않음
+                    # - 기본값 29.0: 상한가 근처(+29% 이상) 종목 매도 보류
+                    # - 0 이하로 설정 시 비활성화
+                    "sell_block_daily_change_pct": 29.0,
+
                     # 매수 주문 방식
                     # - "market": 시장가(기존 동작)
                     # - "limit_ask1": 매도1호가(최우선 매도호가) 기준 지정가 매수
@@ -78,6 +83,11 @@ class AutoTradingConfigManager:
                     "top_n": 3,                # 매수 종목 수 (더 보수적)
                     "buy_universe_rank": 15,   # 매수 대상 범위 (더 보수적)
                     "transaction_fee_rate": 0.015,  # 거래 수수료율 (%)
+
+                    # 매도 차단 조건: 당일 등락률(전일대비, %)이 임계값 이상이면 매도하지 않음
+                    # - 기본값 29.0: 상한가 근처(+29% 이상) 종목 매도 보류
+                    # - 0 이하로 설정 시 비활성화
+                    "sell_block_daily_change_pct": 29.0,
 
                     # 매수 주문 방식
                     "buy_order_method": "market",
@@ -273,6 +283,7 @@ class AutoTradingConfigManager:
                     'transaction_fee_rate': '수수료율',
                     'take_profit_pct': '익절률',
                     'stop_loss_pct': '손절률',
+                    'sell_block_daily_change_pct': '당일등락률 매도차단(%)',
                     'max_hold_period': '최대보유기간',
                     'investment_amount': '투자금액',
                     'max_stocks': '최대종목수',
