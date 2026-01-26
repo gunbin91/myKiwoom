@@ -1345,7 +1345,17 @@
             if (s === "실패") return `<span class="badge bg-danger">${escapeHtml(s)}</span>`;
             return `<span class="badge bg-light text-dark">${escapeHtml(s)}</span>`;
           };
-          const rows = sellDetails.map((x, idx) => `
+          const rows = sellDetails.map((x, idx) => {
+            const reasonText = String(x.reason || "-");
+            const reasonClass = reasonText.includes("익절")
+              ? "text-up"
+              : reasonText.includes("손절")
+              ? "text-down"
+              : "";
+            const reasonHtml = reasonClass
+              ? `<span class="${reasonClass}">${escapeHtml(reasonText)}</span>`
+              : escapeHtml(reasonText);
+            return `
             <tr>
               <td>${idx + 1}</td>
               <td>${escapeHtml(x.stock_name || "-")}</td>
@@ -1354,10 +1364,11 @@
               <td>${formatNumber(x.quantity)}주</td>
               <td>${formatNumber(x.price)}원</td>
               <td>${formatNumber(x.amount)}원</td>
-              <td>${escapeHtml(x.reason || "-")}</td>
+              <td>${reasonHtml}</td>
               <td class="text-muted">${escapeHtml(x.error_message || "")}</td>
             </tr>
-          `).join("");
+          `;
+          }).join("");
           htmlParts.push(`
             <div class="execution-section-title"><i class="fas fa-arrow-down"></i>매도 상세 내역 (총 ${sellDetails.length}건 | 성공 ${sellSuccess} | 실패 ${sellFailed})</div>
             <div class="table-responsive">

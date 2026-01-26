@@ -626,8 +626,25 @@
         if (data.success && data.data.stk_acnt_evlt_prst) {
           const tbody = document.getElementById("portfolio-tbody");
           tbody.innerHTML = "";
+          const sortedStocks = data.data.stk_acnt_evlt_prst.slice().sort((a, b) => {
+            const normalizeDays = (value) => {
+              if (value === null || value === undefined || value === -1 || value === '-1') {
+                return null;
+              }
+              const parsed = parseInt(value, 10);
+              return Number.isFinite(parsed) ? parsed : null;
+            };
 
-          data.data.stk_acnt_evlt_prst.forEach((stock) => {
+            const aDays = normalizeDays(a.holding_days);
+            const bDays = normalizeDays(b.holding_days);
+
+            if (aDays === null && bDays === null) return 0;
+            if (aDays === null) return 1;
+            if (bDays === null) return -1;
+            return bDays - aDays;
+          });
+
+          sortedStocks.forEach((stock) => {
             const row = document.createElement("tr");
             row.innerHTML = `
                         <td>${stock.stk_nm || "-"}</td>
@@ -756,24 +773,15 @@
               buyAmt = buyAvg * buyQty;
             }
 
-            // 응답 누락 대비 fallback:
-            // - 평균단가가 0이면 금액/수량으로 역산
-            // - 손익이 0이면 (매도금액 - 매수금액 - 수수료_제세금)으로 역산
-            if (buyAvg <= 0) {
-              // 매도행에서 buy_avg_pric/buy_amt가 비는 케이스가 있어 매도금액/손익/수수료로 매수금액(원가)부터 복원
-              if (!isBuy && buyAmt <= 0 && sellAmt > 0) {
-                buyAmt = sellAmt - plAmt - cmsnAlmTax;
-              }
-
-              if (buyAmt > 0 && buyQty > 0) buyAvg = buyAmt / buyQty;
-              // 매도행에서 buy_qty가 0으로 오는 경우가 있어 sell_qty로도 한 번 더 시도
-              else if (buyAmt > 0 && sellQty > 0) buyAvg = buyAmt / sellQty;
+            // 응답 누락 대비 최소 fallback: 평균단가만 금액/수량으로 복원
+            if (buyAvg <= 0 && buyAmt > 0 && buyQty > 0) {
+              buyAvg = buyAmt / buyQty;
+            } else if (buyAvg <= 0 && buyAmt > 0 && sellQty > 0) {
+              // buy_qty가 0으로 오는 경우 보완
+              buyAvg = buyAmt / sellQty;
             }
             if (!isBuy && sellAvg <= 0 && sellAmt > 0 && sellQty > 0) {
               sellAvg = sellAmt / sellQty;
-            }
-            if (!isBuy && plAmt === 0 && sellAmt > 0 && buyAmt >= 0) {
-              plAmt = sellAmt - buyAmt - cmsnAlmTax;
             }
 
             const profitClass = !isBuy
