@@ -3111,6 +3111,8 @@ def get_auto_trading_execution_detail():
         with open(target, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
+        # NaN/Inf가 포함되면 브라우저 JSON 파싱이 깨지므로, 응답 직전에 정리
+        data = _sanitize_json_value(data)
         return jsonify({'success': True, 'data': data})
 
     except Exception as e:
