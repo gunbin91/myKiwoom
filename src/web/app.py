@@ -1624,6 +1624,12 @@ def get_daily_trading():
                                     if sell_amt_i <= 0 and sell_qty_i <= 0:
                                         continue
 
+                                    # 상세 팝업과 동일 기준: ka10170 매도건 단위로 매매건수/승률 집계
+                                    trade_count += 1
+                                    pl_amt_i = safe_float(individual_trade.get('pl_amt', '0'))
+                                    if pl_amt_i > 0:
+                                        win_count += 1
+
                                     stock_code = individual_trade.get('stk_cd', '')
                                     if not stock_code or stock_code in processed_codes:
                                         continue
@@ -1646,20 +1652,11 @@ def get_daily_trading():
                                             entry_commission = safe_float(entry.get('tdy_trde_cmsn', '0'))
                                             entry_tax = safe_float(entry.get('tdy_trde_tax', '0'))
 
-                                            trade_count += 1
-                                            if entry_profit > 0:
-                                                win_count += 1
-
                                             agg_buy_amount += entry_buy_uv * entry_qty
                                             agg_sell_amount += entry_cntr_pric * entry_qty
                                             agg_profit_amount += entry_profit
                                             agg_commission += entry_commission
                                             agg_tax += entry_tax
-                                    else:
-                                        pl_amt = safe_float(individual_trade.get('pl_amt', '0'))
-                                        trade_count += 1
-                                        if pl_amt > 0:
-                                            win_count += 1
                         except Exception:
                             trade_count = 0
                             win_count = 0
