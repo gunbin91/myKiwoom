@@ -387,8 +387,8 @@ class AutoTradingEngine:
                             self._get_logger().debug(f"보유기간 확인: {stock_name}({clean_stock_code}) - {holding_days}일 (최대:{max_hold_period}일)")
                             if holding_days >= max_hold_period:
                                 should_sell = True
-                                sell_reason = f"보유기간 만료 ({holding_days}일)"
-                                self._get_logger().info(f"⏰ 보유기간 만료: {stock_name}({clean_stock_code}) - {holding_days}일")
+                                sell_reason = f"보유기간 만료 ({holding_days}일, {profit_rate:+.1f}%)"
+                                self._get_logger().info(f"⏰ 보유기간 만료: {stock_name}({clean_stock_code}) - {holding_days}일, {profit_rate:+.1f}%")
                         except Exception as holding_error:
                             self._get_logger().warning(f"보유기간 계산 실패 ({clean_stock_code}): {holding_error}")
                     
@@ -1483,7 +1483,8 @@ class AutoTradingEngine:
                             'amount': quantity * current_price,
                             'status': '성공',
                             'error_message': '',
-                            'reason': sell_reason
+                            'reason': sell_reason,
+                            'profit_rate': return_rate
                         })
                         
                         # 매도 주문 정보 저장 (체결 확인용)
@@ -1517,7 +1518,8 @@ class AutoTradingEngine:
                             'amount': quantity * current_price,
                             'status': '실패',
                             'error_message': error_msg,
-                            'reason': sell_reason
+                            'reason': sell_reason,
+                            'profit_rate': return_rate
                         })
                         
                         self._get_logger().warning(f"❌ {stock_name} 매도 주문 실패: {error_msg}")

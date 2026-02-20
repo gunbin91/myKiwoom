@@ -2892,8 +2892,8 @@ def get_analysis_result():
                             get_web_logger().debug(f"보유기간 확인: {stock_name}({stock_code}) - {holding_days}일 (최대:{max_hold_period}일)")
                             if holding_days >= max_hold_period:
                                 should_sell = True
-                                sell_reason = f"보유기간 만료 ({holding_days}일)"
-                                get_web_logger().info(f"⏰ 보유기간 만료: {stock_name}({stock_code}) - {holding_days}일")
+                                sell_reason = f"보유기간 만료 ({holding_days}일, {profit_rate:+.1f}%)"
+                                get_web_logger().info(f"⏰ 보유기간 만료: {stock_name}({stock_code}) - {holding_days}일, {profit_rate:+.1f}%")
                         except Exception as holding_error:
                             get_web_logger().warning(f"보유기간 계산 실패 ({stock_code}): {holding_error}")
                     
