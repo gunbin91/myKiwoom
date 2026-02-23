@@ -207,6 +207,13 @@ class AutoTradingEngine:
             else:
                 self._get_logger().warning("⚠️ 매도 체결 확인 시간 초과, 계속 진행합니다.")
                 _trace("sell_execution_wait:timeout")
+            
+            # 매도 체결 반영 대기 (계좌 정보 갱신 지연 고려)
+            self._get_logger().info("⏳ 매도 체결 반영 대기 중 (5초)...")
+            _trace("sell_settlement_wait:start", data={"wait_seconds": 5})
+            time.sleep(5)
+            self._get_logger().info("✅ 대기 완료, 계좌 정보 재조회 시작")
+            _trace("sell_settlement_wait:done")
         
         # 4. 예수금 재조회 (매도로 확보된 현금 반영)
         if sell_count > 0:
