@@ -9,6 +9,53 @@ import sys
 import os
 from datetime import datetime, timedelta
 from src.auto_trading.config_manager import AutoTradingConfigManager
+
+
+def _parse_hhmm_to_minutes(value):
+    """HH:MM 문자열을 자정 기준 분으로 변환. 분은 5분 단위만 유효."""
+    if not value or not isinstance(value, str):
+        return None
+    value = value.strip()
+    parts = value.split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        h = int(parts[0])
+        m = int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    if m % 5 != 0:
+        return None
+    return h * 60 + m
+
+
+def is_intraday_sell_forbidden_now(intraday_cfg, now: datetime) -> bool:
+    """
+    장중 손절 감시 전용 매도 금지 구간이면 True.
+    sell_forbidden_enabled가 False이거나 구간이 없으면 False.
+    """
+    if not intraday_cfg:
+        return False
+    if not bool(intraday_cfg.get("sell_forbidden_enabled", False)):
+        return False
+    windows = intraday_cfg.get("sell_forbidden_windows") or []
+    if not windows:
+        return False
+    cur = now.hour * 60 + now.minute
+    for w in windows:
+        if not isinstance(w, dict):
+            continue
+        sm = _parse_hhmm_to_minutes(w.get("start", ""))
+        em = _parse_hhmm_to_minutes(w.get("end", ""))
+        if sm is None or em is None:
+            continue
+        if sm >= em:
+            continue
+        if sm <= cur < em:
+            return True
+    return False
 from src.auto_trading.engine import AutoTradingEngine
 from src.utils import get_current_auto_trading_logger
 from src.config.server_config import get_current_server_config
@@ -25,6 +72,10 @@ class AutoTradingScheduler:
         self.last_check_time = None  # 마지막 체크 시간
         self.is_executing = False  # 현재 자동매매 실행 중인지 확인
         self.is_stoploss_executing = False  # 현재 장중 손절 감시 매도 실행 중인지 확인
+        # 장중 손절 감시 실행 시점 제어 (10분 단위로 1회만)
+        # - 스케줄러는 1분마다 돌지만, 손절감시는 minute % 10 == 0 시점에만 실행
+        # - 같은 10분 슬롯에서 중복 실행을 방지하기 위해 마지막 실행 슬롯을 저장
+        self._last_intraday_stoploss_slot = None  # datetime (slot start, second=0)
 
         # 장중 손절 감시 중복 매도 방지(쿨다운)
         # - 주문 접수 후 체결까지 시간이 걸릴 수 있으므로, 같은 종목에 대해 일정 시간 재주문을 막는다.
@@ -123,47 +174,73 @@ class AutoTradingScheduler:
             intraday_cfg = config.get('intraday_stop_loss', {}) or {}
             intraday_enabled = bool(intraday_cfg.get('enabled', False))
             if intraday_enabled:
-                # 자동매매 실행 중에는 충돌 방지 차원에서 스킵
-                if self.is_executing or self.is_stoploss_executing:
-                    self.auto_trading_logger.debug("🛡️ 손절 감시 스킵: 다른 매매 로직이 실행 중입니다.")
+                # 10분 단위(00/10/20/30/40/50분)에만 실행되도록 게이트
+                # - 순간 급락/회복에 의한 과민 반응을 줄이기 위해 체크 빈도를 낮춤
+                now_gate = datetime.now()
+                if (now_gate.minute % 10) != 0:
+                    self.auto_trading_logger.debug(
+                        f"🛡️ 손절 감시 스킵: 10분 단위 아님 (현재 {now_gate.strftime('%H:%M:%S')})"
+                    )
                 else:
-                    self.is_stoploss_executing = True
-                    try:
-                        threshold_pct = intraday_cfg.get('threshold_pct', -7.0)
-
-                        # 쿨다운 적용: 최근 주문한 종목은 제외
-                        now = datetime.now()
-                        skip_codes = set()
-                        for code, until in list(self._stoploss_cooldowns.items()):
-                            if until and until > now:
-                                skip_codes.add(code)
-                            else:
-                                # 만료된 항목 정리
-                                self._stoploss_cooldowns.pop(code, None)
-
-                        result = self.engine.execute_intraday_stop_loss(
-                            threshold_pct=threshold_pct,
-                            skip_stock_codes=skip_codes
+                    slot_start = now_gate.replace(second=0, microsecond=0)
+                    if self._last_intraday_stoploss_slot == slot_start:
+                        self.auto_trading_logger.debug(
+                            f"🛡️ 손절 감시 스킵: 동일 10분 슬롯 중복 실행 방지 (슬롯 {slot_start.strftime('%H:%M')})"
                         )
-
-                        if result and result.get('sell_results'):
-                            sell_results = result['sell_results']
-                            # 성공 주문한 종목은 쿨다운 등록
-                            cooldown_until = datetime.now() + timedelta(seconds=self._stoploss_cooldown_seconds)
-                            for detail in sell_results.get('details', []) or []:
-                                if detail.get('status') == '성공':
-                                    code = (detail.get('stock_code') or '').replace('A', '')
-                                    if code:
-                                        self._stoploss_cooldowns[code] = cooldown_until
-
-                        # 결과 로그
-                        if result and result.get('sell_results'):
-                            self.auto_trading_logger.warning(f"🛡️ {result.get('message')}")
+                    else:
+                        # 자동매매 실행 중에는 충돌 방지 차원에서 스킵
+                        if self.is_executing or self.is_stoploss_executing:
+                            self.auto_trading_logger.debug("🛡️ 손절 감시 스킵: 다른 매매 로직이 실행 중입니다.")
+                        elif is_intraday_sell_forbidden_now(intraday_cfg, now_gate):
+                            self.auto_trading_logger.debug(
+                                f"🛡️ 손절 감시 스킵: 매도금지 시간대 (현재 {now_gate.strftime('%H:%M')})"
+                            )
                         else:
-                            # 매도 대상이 없는 정상 케이스 포함
-                            self.auto_trading_logger.debug(f"🛡️ {result.get('message') if result else '손절 감시 결과 없음'}")
-                    finally:
-                        self.is_stoploss_executing = False
+                            # 같은 슬롯에서 재진입 방지: 호출 전 슬롯 마킹
+                            self._last_intraday_stoploss_slot = slot_start
+                            self.is_stoploss_executing = True
+                            try:
+                                threshold_pct = intraday_cfg.get('threshold_pct', -7.0)
+
+                                # 쿨다운 적용: 최근 주문한 종목은 제외
+                                now = datetime.now()
+                                skip_codes = set()
+                                for code, until in list(self._stoploss_cooldowns.items()):
+                                    if until and until > now:
+                                        skip_codes.add(code)
+                                    else:
+                                        # 만료된 항목 정리
+                                        self._stoploss_cooldowns.pop(code, None)
+
+                                result = self.engine.execute_intraday_stop_loss(
+                                    threshold_pct=threshold_pct,
+                                    skip_stock_codes=skip_codes
+                                )
+
+                                if result and result.get('sell_results'):
+                                    sell_results = result['sell_results']
+                                    # 성공 주문한 종목은 쿨다운 등록
+                                    cooldown_until = datetime.now() + timedelta(seconds=self._stoploss_cooldown_seconds)
+                                    for detail in sell_results.get('details', []) or []:
+                                        if detail.get('status') == '성공':
+                                            code = (detail.get('stock_code') or '').replace('A', '')
+                                            if code:
+                                                self._stoploss_cooldowns[code] = cooldown_until
+
+                                # 결과 로그
+                                if result and result.get('sell_results'):
+                                    self.auto_trading_logger.warning(f"🛡️ {result.get('message')}")
+                                else:
+                                    # 매도 대상이 없는 정상 케이스 포함
+                                    self.auto_trading_logger.debug(f"🛡️ {result.get('message') if result else '손절 감시 결과 없음'}")
+                            finally:
+                                self.is_stoploss_executing = False
+
+                    # 10분 게이트 경로로 처리했으므로, 기존 매 루프 손절감시 로직은 실행하지 않음
+                    # (아래의 기존 블록은 유지하되, 이 return으로 중복 호출을 방지)
+                    # 단, 자동매매 스케줄은 계속 진행되어야 하므로 return 하지 않는다.
+                    # -> 여기서는 pass
+                    pass
 
             # 2) 자동매매 스케줄 실행
             # 자동매매가 비활성화되어 있으면 스킵 (손절 감시는 위에서 이미 처리)

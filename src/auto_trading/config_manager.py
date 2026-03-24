@@ -35,7 +35,9 @@ class AutoTradingConfigManager:
                 # - 평가손익률(%)이 threshold_pct 이하로 하락 시 전량 시장가 매도
                 "intraday_stop_loss": {
                     "enabled": False,
-                    "threshold_pct": -7.0
+                    "threshold_pct": -7.0,
+                    "sell_forbidden_enabled": False,
+                    "sell_forbidden_windows": []
                 },
                 "strategy_params": {
                     "reserve_cash": 9000000,  # 매매 제외 예수금
@@ -73,7 +75,9 @@ class AutoTradingConfigManager:
                 # 장중 손절 감시(자동매매와 별개)
                 "intraday_stop_loss": {
                     "enabled": False,
-                    "threshold_pct": -7.0
+                    "threshold_pct": -7.0,
+                    "sell_forbidden_enabled": False,
+                    "sell_forbidden_windows": []
                 },
                 "strategy_params": {
                     "reserve_cash": 10000000,  # 매매 제외 예수금

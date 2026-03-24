@@ -245,6 +245,18 @@ body {
   }
 }
 
+/* 자동매매 · 매도 금지 시간: 실행이력 섹션 타이틀과 동일하게 제목만 흰 글씨 + 슬레이트 배경 */
+.intraday-forbidden-subsection .execution-section-title {
+  background: #343a40;
+  color: #ffffff !important;
+  border-color: #495057;
+}
+
+.intraday-forbidden-subsection .execution-section-title i {
+  color: rgba(255, 255, 255, 0.92);
+  opacity: 1;
+}
+
 /* 슬라이드 라디오버튼 스타일 */
 .order-type-toggle {
   position: relative;
@@ -319,6 +331,127 @@ body {
 
 .sell-label:hover {
   background: rgba(13, 110, 253, 0.15);
+}
+
+/* 자동매매: 매도 금지 시간 (본문 카드와 대비 맞춤 · 시/분 셀렉트 동일 폭) */
+.intraday-forbidden-subsection {
+  border-color: #e9ecef !important;
+}
+
+.intraday-forbidden-subsection .form-text {
+  color: #6c757d !important;
+}
+
+.intraday-forbidden-code {
+  font-size: 0.85em;
+  color: #842029;
+  background-color: #f8f9fa;
+  border: 1px solid rgba(132, 32, 41, 0.2);
+}
+
+.intraday-forbidden-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* 구간 카드: 항상 밝은 면 + 진한 글자 (다크 모드에서도 회색배경+검정글씨 문제 방지) */
+.intraday-forbidden-row-card {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  border-left: 3px solid rgba(220, 53, 69, 0.45);
+  color: #212529;
+}
+
+.intraday-forbidden-field-label {
+  color: #495057 !important;
+  font-weight: 600;
+}
+
+.intraday-forbidden-colon {
+  color: #6c757d;
+  font-weight: 600;
+  padding: 0 0.15rem;
+  user-select: none;
+}
+
+/* 시·분 동일 너비 (한쪽만 늘어나는 현상 제거) */
+.intraday-forbidden-time-group {
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+
+.intraday-forbidden-time-group .form-select {
+  width: 5.25rem;
+  min-width: 5.25rem;
+  max-width: 5.25rem;
+  flex: 0 0 auto;
+  padding-left: 0.5rem;
+  padding-right: 1.75rem;
+  background-color: #fff;
+  border-color: #ced4da;
+  color: #212529;
+}
+
+.intraday-forbidden-time-group .form-select:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.intraday-forbidden-row-card .intra-forbidden-remove {
+  border-color: #dc3545;
+  color: #dc3545;
+  background-color: #fff;
+}
+
+.intraday-forbidden-row-card .intra-forbidden-remove:hover {
+  background-color: #dc3545;
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .intraday-forbidden-subsection {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .intraday-forbidden-subsection .form-text {
+    color: #adb5bd !important;
+  }
+
+  .intraday-forbidden-subsection .form-check-label {
+    color: #e9ecef;
+  }
+
+  .intraday-forbidden-code {
+    color: #842029;
+    background-color: #f8f9fa;
+    border-color: rgba(132, 32, 41, 0.25);
+  }
+
+  /* 다크 모드에서도 구간 편집 영역은 밝은 패널 유지 → 대비 일정 */
+  .intraday-forbidden-row-card {
+    background: #f1f3f5;
+    border-color: #ced4da;
+    color: #212529;
+    border-left-color: rgba(220, 53, 69, 0.55);
+  }
+
+  .intraday-forbidden-field-label {
+    color: #343a40 !important;
+  }
+
+  .intraday-forbidden-colon {
+    color: #495057;
+  }
+
+  .intraday-forbidden-time-group .form-select {
+    background-color: #fff;
+    color: #212529;
+    border-color: #adb5bd;
+  }
 }
 
 /* 반응형 디자인 */

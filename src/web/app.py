@@ -2650,6 +2650,8 @@ def get_auto_trading_status():
         intraday_cfg = config.get('intraday_stop_loss', {}) or {}
         intraday_enabled = bool(intraday_cfg.get('enabled', False))
         intraday_threshold = intraday_cfg.get('threshold_pct', -7.0)
+        intraday_sell_forbidden_enabled = bool(intraday_cfg.get('sell_forbidden_enabled', False))
+        intraday_sell_forbidden_windows = intraday_cfg.get('sell_forbidden_windows') or []
         
         # 실행 상태 조회
         execution_status = engine.get_execution_status()
@@ -2660,6 +2662,8 @@ def get_auto_trading_status():
                 'enabled': config.get('auto_trading_enabled', False),
                 'intraday_stop_loss_enabled': intraday_enabled,
                 'intraday_stop_loss_threshold_pct': intraday_threshold,
+                'intraday_sell_forbidden_enabled': intraday_sell_forbidden_enabled,
+                'intraday_sell_forbidden_windows': intraday_sell_forbidden_windows,
                 'last_execution': last_execution,
                 'today_executed': today_executed,
                 'is_running': execution_status['is_running'],

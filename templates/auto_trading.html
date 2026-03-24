@@ -373,6 +373,39 @@
             </div>
           </div>
 
+          <div class="intraday-forbidden-subsection text-body mt-3 pt-3 border-top">
+            <h6 class="execution-section-title mb-2 mt-1">
+              <i class="fas fa-ban me-2"></i>매도 금지 시간
+            </h6>
+            <div class="form-check form-switch mb-2">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                id="intraday-sell-forbidden-enabled"
+              />
+              <label class="form-check-label" for="intraday-sell-forbidden-enabled">
+                사용 (장중 손절 감시만 · 자동매매 전략 매도는 제외)
+              </label>
+            </div>
+            <div class="form-text mb-3">
+              지정한 시간에는 <strong>장중 손절 감시</strong> 매도가 건너뛰어집니다. 시·분은 <strong>5분 단위</strong>,
+              당일 기준 <code class="px-1 rounded intraday-forbidden-code">[시작, 종료)</code> (시작 포함·종료 제외)로 적용됩니다.
+            </div>
+            <div id="intraday-sell-forbidden-wrap">
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <span class="form-label mb-0">금지 구간</span>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  id="intraday-forbidden-add-row"
+                >
+                  <i class="fas fa-plus me-1"></i>구간 추가
+                </button>
+              </div>
+              <div id="intraday-forbidden-windows-rows" class="intraday-forbidden-rows"></div>
+            </div>
+          </div>
+
           <div class="d-grid gap-2">
             <button type="submit" class="btn btn-primary">
               <i class="fas fa-save me-1"></i>설정 저장
@@ -867,6 +900,15 @@
     if (methodEl) {
       methodEl.addEventListener("change", updateBuyOrderGuardUI);
     }
+
+    const sellForbiddenCb = document.getElementById("intraday-sell-forbidden-enabled");
+    if (sellForbiddenCb) {
+      sellForbiddenCb.addEventListener("change", updateSellForbiddenWrapDisabled);
+    }
+    const addForbiddenBtn = document.getElementById("intraday-forbidden-add-row");
+    if (addForbiddenBtn) {
+      addForbiddenBtn.addEventListener("click", () => addForbiddenRow("09:00", "09:30"));
+    }
   });
 
   function updateBuyOrderGuardUI() {
@@ -880,6 +922,142 @@
     if (guardSection) guardSection.style.opacity = enable ? "1" : "0.5";
     if (maxPremiumEl) maxPremiumEl.disabled = !enable;
     if (guardActionEl) guardActionEl.disabled = !enable;
+  }
+
+  function pad2n(n) {
+    const x = parseInt(n, 10);
+    if (Number.isNaN(x)) return "00";
+    return String(x).padStart(2, "0");
+  }
+
+  function forbiddenMinuteOptionsHTML() {
+    let o = "";
+    for (let m = 0; m < 60; m += 5) {
+      const v = pad2n(m);
+      o += `<option value="${v}">${v}</option>`;
+    }
+    return o;
+  }
+
+  function forbiddenHourOptionsHTML() {
+    let o = "";
+    for (let h = 9; h <= 15; h += 1) {
+      const v = pad2n(h);
+      o += `<option value="${v}">${v}</option>`;
+    }
+    return o;
+  }
+
+  function updateSellForbiddenWrapDisabled() {
+    const cb = document.getElementById("intraday-sell-forbidden-enabled");
+    const enabled = cb && cb.checked;
+    const wrap = document.getElementById("intraday-sell-forbidden-wrap");
+    if (!wrap) return;
+    wrap.style.opacity = enabled ? "1" : "0.55";
+    wrap.querySelectorAll("select").forEach((el) => {
+      el.disabled = !enabled;
+    });
+    const addBtn = document.getElementById("intraday-forbidden-add-row");
+    if (addBtn) addBtn.disabled = !enabled;
+  }
+
+  function parseHHMM(str) {
+    if (!str || typeof str !== "string") return { h: "09", m: "00" };
+    const p = str.trim().split(":");
+    if (p.length !== 2) return { h: "09", m: "00" };
+    return { h: pad2n(p[0]), m: pad2n(p[1]) };
+  }
+
+  function addForbiddenRow(startStr, endStr) {
+    const container = document.getElementById("intraday-forbidden-windows-rows");
+    if (!container) return;
+    const { h: sh, m: sm } = parseHHMM(startStr || "09:00");
+    const { h: eh, m: em } = parseHHMM(endStr || "09:30");
+    const row = document.createElement("div");
+    row.className = "intraday-forbidden-row mb-2";
+    row.innerHTML =
+      '<div class="intraday-forbidden-row-card">' +
+      '<div class="row g-2 g-md-3 align-items-end">' +
+      '<div class="col-12 col-sm-6">' +
+      '<label class="form-label small mb-1 intraday-forbidden-field-label">시작</label>' +
+      '<div class="d-flex align-items-center intraday-forbidden-time-group">' +
+      '<select class="form-select form-select-sm intra-h-start">' +
+      forbiddenHourOptionsHTML() +
+      "</select>" +
+      '<span class="intraday-forbidden-colon">:</span>' +
+      '<select class="form-select form-select-sm intra-m-start">' +
+      forbiddenMinuteOptionsHTML() +
+      "</select></div></div>" +
+      '<div class="col-12 col-sm-6">' +
+      '<label class="form-label small mb-1 intraday-forbidden-field-label">종료</label>' +
+      '<div class="d-flex align-items-center intraday-forbidden-time-group">' +
+      '<select class="form-select form-select-sm intra-h-end">' +
+      forbiddenHourOptionsHTML() +
+      "</select>" +
+      '<span class="intraday-forbidden-colon">:</span>' +
+      '<select class="form-select form-select-sm intra-m-end">' +
+      forbiddenMinuteOptionsHTML() +
+      "</select></div></div>" +
+      '<div class="col-12 col-sm-12 col-md-12 d-grid d-sm-flex justify-content-sm-end">' +
+      '<button type="button" class="btn btn-sm btn-outline-danger intra-forbidden-remove" title="이 구간 삭제">' +
+      '<i class="fas fa-trash-alt me-1"></i>삭제</button></div></div></div>';
+    container.appendChild(row);
+    row.querySelector(".intra-h-start").value = sh;
+    row.querySelector(".intra-m-start").value = sm;
+    row.querySelector(".intra-h-end").value = eh;
+    row.querySelector(".intra-m-end").value = em;
+    row.querySelector(".intra-forbidden-remove").addEventListener("click", () => {
+      row.remove();
+      updateSellForbiddenWrapDisabled();
+    });
+    updateSellForbiddenWrapDisabled();
+  }
+
+  function clearForbiddenRows() {
+    const container = document.getElementById("intraday-forbidden-windows-rows");
+    if (container) container.innerHTML = "";
+  }
+
+  function loadForbiddenWindowsFromConfig(cfg) {
+    clearForbiddenRows();
+    const isl = cfg.intraday_stop_loss || {};
+    const sellCb = document.getElementById("intraday-sell-forbidden-enabled");
+    if (sellCb) sellCb.checked = isl.sell_forbidden_enabled === true;
+    const wins = isl.sell_forbidden_windows;
+    if (Array.isArray(wins) && wins.length) {
+      wins.forEach((w) => {
+        if (w && w.start && w.end) addForbiddenRow(w.start, w.end);
+      });
+    }
+    updateSellForbiddenWrapDisabled();
+  }
+
+  function collectForbiddenWindows() {
+    const rows = document.querySelectorAll(".intraday-forbidden-row");
+    const out = [];
+    for (const row of rows) {
+      const hs = row.querySelector(".intra-h-start").value;
+      const ms = row.querySelector(".intra-m-start").value;
+      const he = row.querySelector(".intra-h-end").value;
+      const me = row.querySelector(".intra-m-end").value;
+      const start = `${hs}:${ms}`;
+      const end = `${he}:${me}`;
+      const smin = parseInt(hs, 10) * 60 + parseInt(ms, 10);
+      const emin = parseInt(he, 10) * 60 + parseInt(me, 10);
+      if (smin >= emin) {
+        return {
+          ok: false,
+          msg:
+            "매도금지 구간이 올바르지 않습니다: " +
+            start +
+            " ~ " +
+            end +
+            " (시작 시각은 종료 시각보다 이전이어야 합니다)",
+        };
+      }
+      out.push({ start, end });
+    }
+    return { ok: true, windows: out };
   }
 
   function updateServerInfoFromTemplate() {
@@ -981,6 +1159,7 @@
             config.intraday_stop_loss?.enabled ?? false;
           document.getElementById("intraday-stop-threshold").value =
             config.intraday_stop_loss?.threshold_pct ?? -7.0;
+          loadForbiddenWindowsFromConfig(config);
         }
       })
       .catch((error) => {
@@ -1000,6 +1179,12 @@
       const minute = document.getElementById("schedule-minute").value;
       const scheduleTime = `${hour}:${minute}`;
 
+      const fb = collectForbiddenWindows();
+      if (!fb.ok) {
+        showAlert(fb.msg, "danger");
+        return;
+      }
+
       const config = {
         auto_trading_enabled: document.getElementById("auto-trading-enabled")
           .checked,
@@ -1008,6 +1193,9 @@
           enabled: document.getElementById("intraday-stop-enabled").checked,
           threshold_pct:
             parseFloat(document.getElementById("intraday-stop-threshold").value) || -7.0,
+          sell_forbidden_enabled: document.getElementById("intraday-sell-forbidden-enabled")
+            .checked,
+          sell_forbidden_windows: fb.windows,
         },
         strategy_params: {
           reserve_cash:
@@ -1089,6 +1277,9 @@
           if (intradayElement && intradayCard) {
             if (status.intraday_stop_loss_enabled) {
               const th = status.intraday_stop_loss_threshold_pct ?? -7.0;
+              const forbidHint = status.intraday_sell_forbidden_enabled
+                ? '<small class="ms-1">(금지시간)</small>'
+                : "";
               intradayElement.innerHTML = `
                         <span>ON</span>
                         <div class="loading-dots">
@@ -1096,7 +1287,7 @@
                             <div class="dot"></div>
                             <div class="dot"></div>
                         </div>
-                        <small class="ms-2">(${th}%)</small>
+                        <small class="ms-2">(${th}%)</small>${forbidHint}
                     `;
               intradayCard.className = "card bg-danger text-white";
             } else {
