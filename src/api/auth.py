@@ -305,10 +305,37 @@ class KiwoomAuth:
         }
 
 
-# 전역 인증 인스턴스들 (서버별)
-mock_auth = KiwoomAuth('mock')
-real_auth = KiwoomAuth('real')
+_auth_instances: Dict[str, KiwoomAuth] = {}
 
-# 기존 호환성을 위한 별칭 (기본값: 모의투자)
-kiwoom_auth = mock_auth
+
+def _get_auth_instance(server_type: str) -> KiwoomAuth:
+    """서버 타입별 인증 인스턴스를 지연 생성/재사용"""
+    instance = _auth_instances.get(server_type)
+    if instance is None:
+        instance = KiwoomAuth(server_type)
+        _auth_instances[server_type] = instance
+    return instance
+
+
+class _AuthProxy:
+    """기존 전역 객체 호환을 위한 인증 프록시"""
+    def __init__(self, server_type: str = None):
+        self._server_type = server_type
+
+    def _resolve(self) -> KiwoomAuth:
+        if self._server_type in ("mock", "real"):
+            return _get_auth_instance(self._server_type)
+        current_server = get_current_server_config().server_type
+        return _get_auth_instance(current_server)
+
+    def __getattr__(self, item):
+        return getattr(self._resolve(), item)
+
+
+# 전역 인증 프록시들 (실제 객체는 사용 시 생성)
+mock_auth = _AuthProxy('mock')
+real_auth = _AuthProxy('real')
+
+# 기존 호환성을 위한 별칭 (현재 선택 서버 기준)
+kiwoom_auth = _AuthProxy()
 

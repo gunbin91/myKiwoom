@@ -5,13 +5,13 @@
 # =======================================================
 
 # --- 모의 투자 API 설정 (현재 사용 안함) ---
-KIWOOM_APP_KEY_MOCK = "ndZG4PSg2kTNOg5eYzKVc9j6QsA_xV38Euz3cK5zySQ"
-KIWOOM_SECRET_KEY_MOCK = "hCruu-p58kO-0QQZsEkbgmgFLQxn0SHBIMwRayzLjNI"
+KIWOOM_APP_KEY_MOCK = "5nRZwFpuGexlXJsT-RUbta3-DVKb9y9DXx_LrzBz4eI"
+KIWOOM_SECRET_KEY_MOCK = "x6gnDLYc3XxizeSscpLtmmHIEXSA-uJ6yEx3s6gt6tE"
 KIWOOM_DOMAIN_MOCK = "https://mockapi.kiwoom.com"
 
 # --- 실전 투자 API 설정 (현재 모든 기능에서 사용) ---
-KIWOOM_APP_KEY_REAL = ""
-KIWOOM_SECRET_KEY_REAL = ""
+KIWOOM_APP_KEY_REAL = "1rAaB5bqxKg_MGlYK-_h81HtDqi3vCaySyFqi0Lx298"
+KIWOOM_SECRET_KEY_REAL = "3xL4WMOktyW5tkr_ihaK0XhH8d5Jvahy3jHF-OYdOFc"
 KIWOOM_DOMAIN_REAL = "https://api.kiwoom.com"
 
 # DART API 키 (기존 유지)

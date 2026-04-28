@@ -548,6 +548,38 @@ class AutoTradingEngine:
                     trading_data['strategy_params'],
                     execution_trace=trading_data.get("execution_trace"),
                 )
+
+                # 매수/매도 실행 후 체결이력 재동기화
+                # - 당일 매수 체결이 order_history에 즉시 반영되도록 보강
+                try:
+                    self._get_logger().info("🔄 매매 실행 후 체결내역 재동기화 시작")
+                    trading_results.get("execution_trace", []).append({
+                        "ts": datetime.now().isoformat(timespec="seconds"),
+                        "stage": "collect_order_history:post_trade:start",
+                        "message": "",
+                        "data": {},
+                    })
+                    post_sync_success = self.order_history_manager.collect_order_history(max_days=30)
+                    post_sync_summary = self.order_history_manager.get_data_summary()
+                    trading_results.get("execution_trace", []).append({
+                        "ts": datetime.now().isoformat(timespec="seconds"),
+                        "stage": "collect_order_history:post_trade:done",
+                        "message": "",
+                        "data": {
+                            "success": bool(post_sync_success),
+                            **post_sync_summary,
+                        },
+                    })
+                    if post_sync_success:
+                        self._get_logger().info(
+                            f"✅ 매매 후 체결내역 재동기화 완료: "
+                            f"{post_sync_summary.get('total_orders', 0)}개 주문, "
+                            f"{post_sync_summary.get('stock_count', 0)}개 종목"
+                        )
+                    else:
+                        self._get_logger().warning("⚠️ 매매 후 체결내역 재동기화 실패")
+                except Exception as post_sync_error:
+                    self._get_logger().warning(f"⚠️ 매매 후 체결내역 재동기화 중 오류(계속 진행): {post_sync_error}")
                 
                 # 실행 결과 로그 기록
                 sell_count = trading_results['sell_count']

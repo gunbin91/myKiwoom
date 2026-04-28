@@ -55,15 +55,19 @@ class OrderHistoryManager:
     def _save_data(self):
         """데이터를 파일에 저장"""
         try:
+            now_iso = datetime.now().isoformat()
             data = {
                 'orders': self.orders_data,
                 'stock_index': self.stock_index,
-                'last_update': datetime.now().isoformat(),
+                'last_update': now_iso,
                 'server_type': self.server_type
             }
             
             with open(self.data_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+
+            # 같은 프로세스에서 연속 수집할 때도 최신 last_update 기준을 사용
+            self.last_update = now_iso
             
             logger.info(f"💾 {self.server_type} 서버 체결내역 데이터 저장 완료: {len(self.orders_data)}개 주문")
         except Exception as e:
@@ -206,11 +210,10 @@ class OrderHistoryManager:
             # 현재 보유종목 조회
             holding_stocks = self._get_holding_stocks()
             if not holding_stocks:
-                logger.info("📊 보유종목이 없어 체결내역 수집을 건너뜁니다.")
-                # 빈 데이터로 파일 저장 (보유기간 계산을 위해)
-                self.orders_data = []
-                self.stock_index = {}
-                self._save_data()
+                logger.warning(
+                    "⚠️ 보유종목 조회 결과가 비어 수집을 건너뜁니다. "
+                    "기존 체결이력은 유지합니다."
+                )
                 return True
             
             logger.info(f"📊 보유종목 {len(holding_stocks)}개: {holding_stocks}")
@@ -226,7 +229,9 @@ class OrderHistoryManager:
                         start_date = today.date() - timedelta(days=max_days - 1)
                         logger.info(f"📅 마지막 업데이트가 미래이므로 신규 수집: {start_date} ~ {today.date()} (역순)")
                     else:
-                        start_date = last_update_date + timedelta(days=1)
+                        # 핵심: 동일일 포함 재수집으로 전일 장중/장마감 체결 누락을 방지
+                        # (중복은 주문번호(order_no) 기준으로 제거)
+                        start_date = last_update_date
                         # 최대 30일 이전까지만 수집
                         max_start_date = today.date() - timedelta(days=max_days - 1)
                         start_date = max(start_date, max_start_date)
