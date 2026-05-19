@@ -95,7 +95,7 @@ class OrderHistoryManager:
                     order_date=date_str,  # 주문일자
                     query_type="4",       # 체결내역만
                     sell_type="2",         # 매수만
-                    exchange="KRX"         # 한국거래소
+                    exchange="%"           # 한국거래소 + 대체거래소(NXT) 통합조회
                 )
                 
                 if result and result.get('success'):
