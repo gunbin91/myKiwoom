@@ -29,7 +29,7 @@ KIWOOM_ORDER_URL = f"{KIWOOM_DOMAIN}/api/dostk/ordr"
 # - 규제: 신용거래 한도 및 제한사항
 
 # 웹 애플리케이션 설정
-WEB_HOST = "0.0.0.0"  # 모든 IP에서 접근 가능하도록 변경
+WEB_HOST = "127.0.0.1"  # 보안을 위해 로컬에서만 접근 가능하도록 변경 (외부 해커 접근 차단)
 WEB_PORT = 7000
 WEB_DEBUG = True
 
