@@ -123,50 +123,43 @@
           <!-- 스케줄 설정 -->
           <div class="mb-3">
             <label class="form-label">실행 시간</label>
-            <div class="row">
+            <div class="row g-2">
               <div class="col-6">
-                <select class="form-select" id="schedule-hour">
-                  <option value="00">00시</option>
-                  <option value="01">01시</option>
-                  <option value="02">02시</option>
-                  <option value="03">03시</option>
-                  <option value="04">04시</option>
-                  <option value="05">05시</option>
-                  <option value="06">06시</option>
-                  <option value="07">07시</option>
-                  <option value="08">08시</option>
-                  <option value="09">09시</option>
-                  <option value="10">10시</option>
-                  <option value="11">11시</option>
-                  <option value="12">12시</option>
-                  <option value="13">13시</option>
-                  <option value="14">14시</option>
-                  <option value="15">15시</option>
-                  <option value="16">16시</option>
-                  <option value="17">17시</option>
-                  <option value="18">18시</option>
-                  <option value="19">19시</option>
-                  <option value="20">20시</option>
-                  <option value="21">21시</option>
-                  <option value="22">22시</option>
-                  <option value="23">23시</option>
-                </select>
+                <div class="d-flex align-items-center">
+                  <select class="form-select" id="schedule-hour">
+                    <option value="00">00</option>
+                    <option value="01">01</option>
+                    <option value="02">02</option>
+                    <option value="03">03</option>
+                    <option value="04">04</option>
+                    <option value="05">05</option>
+                    <option value="06">06</option>
+                    <option value="07">07</option>
+                    <option value="08">08</option>
+                    <option value="09">09</option>
+                    <option value="10">10</option>
+                    <option value="11">11</option>
+                    <option value="12">12</option>
+                    <option value="13">13</option>
+                    <option value="14">14</option>
+                    <option value="15">15</option>
+                    <option value="16">16</option>
+                    <option value="17">17</option>
+                    <option value="18">18</option>
+                    <option value="19">19</option>
+                    <option value="20">20</option>
+                    <option value="21">21</option>
+                    <option value="22">22</option>
+                    <option value="23">23</option>
+                  </select>
+                  <span class="ms-2 text-nowrap fw-medium text-white">시</span>
+                </div>
               </div>
               <div class="col-6">
-                <select class="form-select" id="schedule-minute">
-                  <option value="00">00분</option>
-                  <option value="05">05분</option>
-                  <option value="10">10분</option>
-                  <option value="15">15분</option>
-                  <option value="20">20분</option>
-                  <option value="25">25분</option>
-                  <option value="30">30분</option>
-                  <option value="35">35분</option>
-                  <option value="40">40분</option>
-                  <option value="45">45분</option>
-                  <option value="50">50분</option>
-                  <option value="55">55분</option>
-                </select>
+                <div class="d-flex align-items-center">
+                  <input type="number" class="form-control" id="schedule-minute" min="0" max="59" value="30">
+                  <span class="ms-2 text-nowrap fw-medium text-white">분</span>
+                </div>
               </div>
             </div>
             <div class="form-text" id="next-execution-info">
@@ -671,12 +664,13 @@
                   <th>시가총액(억)</th>
                   <th>RF상승확률</th>
                   <th>LGBM상승확률</th>
+                  <th>CatBoost상승확률</th>
                   <th>최종점수</th>
                 </tr>
               </thead>
               <tbody id="top-stocks-tbody">
                 <tr>
-                  <td colspan="8" class="text-center text-muted">
+                  <td colspan="9" class="text-center text-muted">
                     분석 결과를 불러오는 중...
                   </td>
                 </tr>
@@ -728,12 +722,13 @@
                   <th>시가총액(억)</th>
                   <th>RF상승확률</th>
                   <th>LGBM상승확률</th>
+                  <th>CatBoost상승확률</th>
                   <th>최종점수</th>
                 </tr>
               </thead>
               <tbody id="buy-candidates-tbody">
                 <tr>
-                  <td colspan="8" class="text-center text-muted">
+                  <td colspan="9" class="text-center text-muted">
                     매수 대상을 불러오는 중...
                   </td>
                 </tr>
@@ -1082,7 +1077,7 @@
   // 다음 실행 시간 정보 업데이트
   function updateNextExecutionInfo() {
     const hour = document.getElementById("schedule-hour").value;
-    const minute = document.getElementById("schedule-minute").value;
+    const minute = document.getElementById("schedule-minute").value.padStart(2, '0');
     const scheduleTime = `${hour}:${minute}`;
 
     // 현재 시간과 비교하여 다음 실행 시간 계산
@@ -1176,7 +1171,7 @@
 
       // 시간 설정 조합
       const hour = document.getElementById("schedule-hour").value;
-      const minute = document.getElementById("schedule-minute").value;
+      const minute = document.getElementById("schedule-minute").value.padStart(2, '0');
       const scheduleTime = `${hour}:${minute}`;
 
       const fb = collectForbiddenWindows();
@@ -1607,6 +1602,7 @@
                 <td>${formatMarketCapEok(x?.시가총액)}</td>
                 <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
                 <td>${x?.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
+                <td>${x?.catboost_pred_proba != null ? (Number(x.catboost_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
                 <td>${x?.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
               </tr>
             `;
@@ -1618,7 +1614,7 @@
               <table class="table table-sm table-hover">
                 <thead>
                   <tr>
-                    <th>최종순위</th><th>종목명</th><th>종목코드</th><th>시가총액(억)</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th>
+                    <th>최종순위</th><th>종목명</th><th>종목코드</th><th>시가총액(억)</th><th>RF상승확률</th><th>LGBM상승확률</th><th>CatBoost상승확률</th><th>최종점수</th>
                   </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -1690,6 +1686,7 @@
               <td>${formatMarketCapEok(x.시가총액)}</td>
               <td>${rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"}</td>
               <td>${x.lgbm_pred_proba != null ? (Number(x.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
+              <td>${x.catboost_pred_proba != null ? (Number(x.catboost_pred_proba) * 100).toFixed(1) + "%" : "-"}</td>
               <td>${x.final_score != null ? (Number(x.final_score)).toFixed(2) : "-"}</td>
               <td><span class="badge bg-secondary">${escapeHtml(x.reason || "-")}</span></td>
             </tr>
@@ -1701,7 +1698,7 @@
               <table class="table table-sm table-hover">
                 <thead>
                   <tr>
-                    <th>최종순위</th><th>종목명</th><th>코드</th><th>시가총액(억)</th><th>RF상승확률</th><th>LGBM상승확률</th><th>최종점수</th><th>사유</th>
+                    <th>최종순위</th><th>종목명</th><th>코드</th><th>시가총액(억)</th><th>RF상승확률</th><th>LGBM상승확률</th><th>CatBoost상승확률</th><th>최종점수</th><th>사유</th>
                   </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -2102,20 +2099,23 @@
                   stock.시가총액 != null ? formatMarketCapEok(stock.시가총액) : "-"
                 }</td>
                 <td>${
-                  stock.final_score ? stock.final_score.toFixed(2) : "-"
-                }</td>
-                <td>${
                   rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"
                 }</td>
                 <td>${
                   stock.lgbm_pred_proba != null ? (Number(stock.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"
+                }</td>
+                <td>${
+                  stock.catboost_pred_proba != null ? (Number(stock.catboost_pred_proba) * 100).toFixed(1) + "%" : "-"
+                }</td>
+                <td>${
+                  stock.final_score ? stock.final_score.toFixed(2) : "-"
                 }</td>
             `;
         topStocksTbody.appendChild(row);
       });
     } else {
       topStocksTbody.innerHTML =
-        '<tr><td colspan="8" class="text-center text-muted">상위 종목이 없습니다.</td></tr>';
+        '<tr><td colspan="9" class="text-center text-muted">상위 종목이 없습니다.</td></tr>';
     }
 
     // 매도 대상 종목 업데이트
@@ -2180,20 +2180,23 @@
                   stock.시가총액 != null ? formatMarketCapEok(stock.시가총액) : "-"
                 }</td>
                 <td>${
-                  stock.final_score ? stock.final_score.toFixed(2) : "-"
-                }</td>
-                <td>${
                   rfProba != null ? (Number(rfProba) * 100).toFixed(1) + "%" : "-"
                 }</td>
                 <td>${
                   stock.lgbm_pred_proba != null ? (Number(stock.lgbm_pred_proba) * 100).toFixed(1) + "%" : "-"
+                }</td>
+                <td>${
+                  stock.catboost_pred_proba != null ? (Number(stock.catboost_pred_proba) * 100).toFixed(1) + "%" : "-"
+                }</td>
+                <td>${
+                  stock.final_score ? stock.final_score.toFixed(2) : "-"
                 }</td>
             `;
         buyCandidatesTbody.appendChild(row);
       });
     } else {
       buyCandidatesTbody.innerHTML =
-        '<tr><td colspan="8" class="text-center text-muted">매수 대상이 없습니다.</td></tr>';
+        '<tr><td colspan="9" class="text-center text-muted">매수 대상이 없습니다.</td></tr>';
     }
 
   }
